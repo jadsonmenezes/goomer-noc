@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Goomer NOC</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#04080f;--bg2:#080f1c;--bg3:#0d1626;--bg4:#111e33;
+  --border:rgba(14,92,254,0.15);--border2:rgba(14,92,254,0.3);
+  --text:#e8eef8;--sub:#8096b8;--muted:#3a4f72;
+  --green:#00d68f;--blue:#0e5cfe;--blue-l:#4d8fff;
+  --amber:#ffb830;--red:#ff4455;--purple:#7c5cfc;
+  --sans:'Inter',sans-serif;--mono:'JetBrains Mono',monospace;
+}
+body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh}
+
+.topbar{background:var(--blue);padding:0 24px;height:50px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 20px rgba(14,92,254,0.35)}
+.logo{font-size:15px;font-weight:800;letter-spacing:.08em;color:#fff}
+.logo span{font-weight:400;opacity:.7}
+.topbar-right{display:flex;align-items:center;gap:14px}
+#last-update{font-size:11px;color:rgba(255,255,255,0.9);font-family:var(--mono)}
+.btn{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;transition:.15s}
+.btn:hover{background:rgba(255,255,255,0.25)}
+
+.main{padding:20px 24px;max-width:1600px;margin:0 auto}
+
+/* Barra de busca e filtros */
+.toolbar{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+.search-input{flex:1;min-width:200px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:9px 14px;border-radius:8px;font-size:13px;font-family:var(--sans);outline:none}
+.search-input:focus{border-color:var(--blue)}
+.search-input::placeholder{color:#8096b8}
+.filter-btn{background:var(--bg2);border:1px solid var(--border);color:var(--sub);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;transition:.15s}
+.filter-btn:hover,.filter-btn.ativo{background:rgba(14,92,254,0.12);border-color:var(--blue);color:var(--blue-l)}
+
+/* Resumo geral */
+.resumo{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:20px}
+.rc{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.rc-lbl{font-size:11px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px;font-weight:600}
+.rc-val{font-size:24px;font-weight:800;font-family:var(--mono);line-height:1}
+.rc-sub{font-size:11px;color:#a0b8d0;margin-top:4px;font-weight:500}
+
+/* Grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+
+/* Card loja */
+.loja{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;cursor:pointer;transition:.18s}
+.loja:hover{border-color:var(--border2);transform:translateY(-1px);box-shadow:0 6px 24px rgba(0,0,0,.3)}
+.loja-head{padding:13px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border)}
+.status-badge{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap;border:1.5px solid}
+.loja-info{flex:1;min-width:0}
+.loja-nome{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.loja-ip{font-size:11px;color:var(--sub);font-family:var(--mono);margin-top:2px}
+.score-circle{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;border:2.5px solid;flex-shrink:0;font-family:var(--mono)}
+.loja-body{padding:12px 16px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.kpi{background:var(--bg3);border-radius:7px;padding:7px 8px;text-align:center}
+.kpi-val{font-size:16px;font-weight:700;font-family:var(--mono);line-height:1}
+.kpi-lbl{font-size:10px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.04em;margin-top:3px;font-weight:500}
+.alertas{display:flex;flex-direction:column;gap:3px}
+.al{display:flex;align-items:center;gap:6px;font-size:11px;padding:4px 8px;border-radius:5px;font-weight:500}
+.al-crit{background:rgba(255,68,85,.1);color:#ff6b7a;border-left:2px solid var(--red)}
+.al-warn{background:rgba(255,184,48,.08);color:#ffc94d;border-left:2px solid var(--amber)}
+.al-ok{background:rgba(0,214,143,.07);color:#33e8a8;border-left:2px solid var(--green)}
+.al-info{background:rgba(14,92,254,.08);color:var(--blue-l);border-left:2px solid var(--blue)}
+.loja-foot{padding:7px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#a0b8d0}
+
+/* Modal */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;display:none;align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto}
+.overlay.on{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:820px;margin:auto}
+.modal-head{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start;position:sticky;top:0;background:var(--bg2);z-index:1;border-radius:14px 14px 0 0}
+.modal-close{background:none;border:none;color:var(--sub);font-size:20px;cursor:pointer;padding:2px 8px;line-height:1}
+.modal-close:hover{color:var(--text)}
+.modal-body{padding:20px}
+.modal-tabs{display:flex;gap:4px;margin-bottom:18px;flex-wrap:wrap}
+.modal-tab{background:var(--bg3);border:1px solid var(--border);color:var(--sub);padding:6px 14px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;transition:.15s}
+.modal-tab:hover,.modal-tab.on{background:rgba(14,92,254,.15);border-color:var(--blue);color:var(--blue-l)}
+.modal-panel{display:none}.modal-panel.on{display:block}
+.sec{margin-bottom:18px}
+.sec-t{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#8096b8;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
+.row:last-child{border:none}
+.rl{color:#a0b8d0}
+.rv{font-weight:600;font-family:var(--mono);text-align:right}
+/* Tab item */
+.tab-card{background:var(--bg3);border-radius:8px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border)}
+.tab-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.tab-nome{font-size:13px;font-weight:700}
+.bar-row{display:flex;align-items:center;gap:8px;font-size:11px;color:#8096b8;margin-bottom:4px}
+.bar-track{height:4px;background:var(--bg4);border-radius:2px;flex:1}
+.bar-fill{height:100%;border-radius:2px}
+/* Erros */
+.erro-item{background:var(--bg3);border-radius:7px;padding:9px 12px;margin-bottom:6px;border-left:3px solid var(--red)}
+.erro-msg{font-size:12px;color:var(--text);font-family:var(--mono);margin-bottom:4px;word-break:break-all}
+.erro-meta{font-size:10px;color:#8096b8;display:flex;gap:10px}
+/* Histórico */
+.hist{display:flex;align-items:flex-end;gap:3px;height:56px;margin-top:6px}
+.hist-bar{flex:1;border-radius:2px 2px 0 0;min-height:2px;cursor:default}
+/* Topologia mini */
+.topo-mini{background:var(--bg3);border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center;font-size:12px;color:var(--sub)}
+/* Badge */
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;border:1px solid}
+.bg{background:rgba(0,214,143,.12);color:#33e8a8;border-color:rgba(0,214,143,.3)}
+.br{background:rgba(255,68,85,.12);color:#ff6b7a;border-color:rgba(255,68,85,.3)}
+.ba{background:rgba(255,184,48,.12);color:#ffc94d;border-color:rgba(255,184,48,.3)}
+.bm{background:rgba(255,255,255,.06);color:var(--sub);border-color:rgba(255,255,255,.1)}
+.bb{background:rgba(14,92,254,.12);color:var(--blue-l);border-color:rgba(14,92,254,.3)}
+.empty{text-align:center;padding:60px 20px;color:#8096b8;font-size:14px}
+.loading{text-align:center;padding:60px;color:var(--sub);font-size:13px;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">GOOMER <span>NOC</span></div>
+  <div class="topbar-right">
+    <span id="last-update">—</span>
+    <button class="btn" onclick="carregar()">↺ atualizar</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="resumo" id="resumo"></div>
+
+  <div class="toolbar">
+    <input class="search-input" id="busca" placeholder="🔍  buscar loja por nome ou IP..." oninput="filtrar()">
+    <button class="filter-btn ativo" id="f-todos"    onclick="setFiltro('todos')">Todas</button>
+    <button class="filter-btn"       id="f-critico"  onclick="setFiltro('critico')">🔴 Crítico/Grave</button>
+    <button class="filter-btn"       id="f-atencao"  onclick="setFiltro('atencao')">🟡 Atenção</button>
+    <button class="filter-btn"       id="f-ok"       onclick="setFiltro('ok')">🟢 Estável/Saudável</button>
+    <button class="filter-btn"       id="f-offline"  onclick="setFiltro('offline')">⚫ Offline</button>
+    <button class="filter-btn" id="btn-order" onclick="toggleOrder()" style="margin-left:auto" title="Ordenar por score">↑ score</button>
+  </div>
+
+  <div id="grid"><div class="loading">carregando lojas...</div></div>
+</div>
+
+<!-- Modal -->
+<div class="overlay" id="overlay" onclick="closeOverlay(event)">
+  <div class="modal" id="modal">
+    <div class="modal-head">
+      <div>
+        <div style="font-size:16px;font-weight:700" id="m-titulo">—</div>
+        <div style="font-size:11px;color:#8096b8;margin-top:3px;font-family:var(--mono)" id="m-sub">—</div>
+      </div>
+      <button class="modal-close" onclick="document.getElementById('overlay').classList.remove('on')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-tabs">
+        <button class="modal-tab on" onclick="showTab('resumo')">Resumo</button>
+        <button class="modal-tab"    onclick="showTab('tablets')">Tablets</button>
+        <button class="modal-tab"    onclick="showTab('erros')">Logs de Erro</button>
+        <button class="modal-tab"    onclick="showTab('topologia')">Topologia</button>
+        <button class="modal-tab"    onclick="showTab('maquina')">Máquina</button>
+        <button class="modal-tab"    onclick="showTab('historico')">Histórico</button>
+      </div>
+      <div id="tab-resumo"    class="modal-panel on"></div>
+      <div id="tab-tablets"   class="modal-panel"></div>
+      <div id="tab-erros"     class="modal-panel"></div>
+      <div id="tab-topologia" class="modal-panel"></div>
+      <div id="tab-maquina"   class="modal-panel"></div>
+      <div id="tab-historico" class="modal-panel"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SB_URL = 'https://jlatddmzhatbznbgfhfa.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpsYXRkZG16aGF0YnpuYmdmaGZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5MjMwNTMsImV4cCI6MjA5NzQ5OTA1M30.kHqwdGX5aigoqFJI_HKRLK0M4RJPI4983FEzNJ9G7ME';
+
+const h = s => { const d=document.createElement('div'); d.textContent=String(s??''); return d.innerHTML; };
+
+const COR_STATUS = s => ({
+    'Saudável':'#00d68f','Estável':'#4d8fff',
+    'Atenção':'#ffb830','Crítico':'#ff4455','Grave':'#cc2233'
+}[s]||'#8096b8');
+
+// Cor baseada no objeto loja (usa normStatus para forçamentos)
+function corLoja(l) {
+    const ns = normStatus(l);
+    if (ns==='grave')   return '#ff4455';
+    if (ns==='atencao') return '#ffb830';
+    return '#00d68f';
+}
+
+const BAR_COR = (v,lo,hi) => v>=hi?'#ff4455':v>=lo?'#ffb830':'#00d68f';
+
+let _dados = [], _filtro = 'todos', _order = 'asc'; // asc = piores primeiro
+
+async function sb(path, q='') {
+    const r = await fetch(`${SB_URL}/rest/v1/${path}${q}`,{
+        headers:{'apikey':SB_KEY,'Authorization':`Bearer ${SB_KEY}`}
+    });
+    return r.json();
+}
+
+async function carregar() {
+    document.getElementById('last-update').textContent =
+        new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+
+    const rows = await sb('snapshots','?select=*&order=criado_em.desc&limit=500');
+    if (!Array.isArray(rows)||!rows.length) {
+        document.getElementById('grid').innerHTML =
+            '<div class="empty">📡 Nenhuma loja conectada ainda.<br><span style="font-size:12px;color:#8096b8">Instale o agente nas lojas piloto e aguarde o primeiro envio.</span></div>';
+        return;
+    }
+
+    // Agrupar por token — mais recente de cada loja
+    const map = {};
+    rows.forEach(r => { if (!map[r.token_loja]||r.criado_em>map[r.token_loja].criado_em) map[r.token_loja]=r; });
+    _dados = Object.values(map).sort((a,b)=>a.score-b.score);
+
+    renderResumo();
+    filtrar();
+}
+
+// Normalizar status — suporte a registros antigos (letras) e novos (texto)
+function normStatus(l) {
+    const s = (l.status||l.nota||'').toLowerCase().trim();
+    let cat;
+    if (s==='grave'||s==='f')                  cat='grave';
+    else if (s==='crítico'||s==='critico'||s==='d') cat='grave';
+    else if (s==='atenção'||s==='atencao'||s==='c') cat='atencao';
+    else if (s==='estável'||s==='estavel'||s==='b') cat='ok';
+    else if (s==='saudável'||s==='saudavel'||s==='a') cat='ok';
+    else cat='atencao';
+
+    // Forçar categoria mínima para condições críticas (corrige snapshots antigos)
+    if (!l.servidor_online && (cat==='ok')) cat='grave';
+    const pay = l.payload||{};
+    if (pay.inadimplente && cat==='ok') cat='grave';
+    if ((l.retry_expirados||0)>0 && cat==='ok') cat='atencao';
+
+    return cat;
+}
+
+// Status descritivo para exibição (considera forçamentos)
+function statusLabel(l) {
+    if (!l.servidor_online) return 'Crítico';
+    const pay = l.payload||{};
+    if (pay.inadimplente)          return 'Crítico';
+    return l.status||l.nota||'?';
+}
+
+function renderResumo() {
+    const total    = _dados.length;
+    const graves   = _dados.filter(l=>normStatus(l)==='grave').length;
+    const atencao  = _dados.filter(l=>normStatus(l)==='atencao').length;
+    const ok       = _dados.filter(l=>normStatus(l)==='ok').length;
+    const offline  = _dados.filter(l=>!l.servidor_online).length;
+    const agora_r  = new Date();
+    const semDados = _dados.filter(l=>Math.round((agora_r-new Date(l.criado_em))/60000)>60).length;
+    const scoreAvg = total>0 ? Math.round(_dados.reduce((s,l)=>s+(l.score||0),0)/total) : 0;
+    const tabAtivos= _dados.reduce((s,l)=>s+(l.tablets_ativos||0),0);
+
+    document.getElementById('resumo').innerHTML = [
+        {lbl:'Lojas monitoradas', val:total,            sub:'',              cor:''},
+        {lbl:'Crítico / Grave',   val:graves,           sub:'ação imediata', cor:graves>0?'var(--red)':'var(--green)'},
+        {lbl:'Atenção',           val:atencao,          sub:'monitorar',     cor:atencao>0?'var(--amber)':'var(--sub)'},
+        {lbl:'Estável / Saudável',val:ok,               sub:'operação normal',cor:'var(--green)'},
+        {lbl:'Servidor Goomer offline',  val:offline,          sub:'',              cor:offline>0?'var(--red)':'var(--green)'},
+        {lbl:'Sem dados (+1h)',    val:semDados,         sub:'desconectados',  cor:semDados>0?'var(--red)':'var(--sub)'},
+        {lbl:'Saúde média',       val:scoreAvg+'%',     sub:'saúde geral',   cor:''},
+        {lbl:'Tablets ativos',    val:tabAtivos,        sub:'total nas lojas',cor:''},
+    ].map(c=>`<div class="rc" style="${c.cor?'border-color:'+c.cor+'40':''}">
+        <div class="rc-lbl">${c.lbl}</div>
+        <div class="rc-val" style="color:${c.cor||'var(--text)'}">${c.val}</div>
+        ${c.sub?`<div class="rc-sub">${c.sub}</div>`:''}
+    </div>`).join('');
+}
+
+function toggleOrder() {
+    _order = _order === 'asc' ? 'desc' : 'asc';
+    const btn = document.getElementById('btn-order');
+    if (btn) btn.textContent = _order === 'asc' ? '↑ score' : '↓ score';
+    filtrar();
+}
+
+function setFiltro(f) {
+    _filtro = f;
+    document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('ativo'));
+    document.getElementById('f-'+f)?.classList.add('ativo');
+    filtrar();
+}
+
+function filtrar() {
+    const busca = (document.getElementById('busca')?.value||'').toLowerCase();
+    const agora = new Date();
+    const lista = _dados.filter(l => {
+        const nome   = (l.nome_loja||'').toLowerCase();
+        const ip     = (l.ip_servidor||l.payload?.ip_servidor||'').toLowerCase();
+        const mins_l = Math.round((agora - new Date(l.criado_em)) / 60000);
+        if (busca && !nome.includes(busca) && !ip.includes(busca)) return false;
+        const ns = normStatus(l);
+        if (_filtro==='critico') return ns==='grave';
+        if (_filtro==='atencao') return ns==='atencao';
+        if (_filtro==='ok')      return ns==='ok';
+        if (_filtro==='offline') return !l.servidor_online || mins_l > 60;
+        return true;
+    });
+    lista.sort((a,b) => _order==='asc' ? a.score-b.score : b.score-a.score);
+    renderGrid(lista);
+}
+
+function renderGrid(lista) {
+    if (!lista.length) {
+        document.getElementById('grid').innerHTML='<div class="empty">Nenhuma loja encontrada com esses filtros.</div>';
+        return;
+    }
+    document.getElementById('grid').innerHTML = '<div class="grid">'+lista.map(l=>{
+        const cor   = corLoja(l);
+        const pay   = l.payload||{};
+        const agora = new Date();
+        const mins  = Math.round((agora-new Date(l.criado_em))/60000);
+        const tempoLabel = mins<60?`${mins}min atrás`:`${Math.round(mins/60)}h atrás`;
+        const desatual = mins>15;
+        const ip    = l.ip_servidor||pay.ip_servidor||'—';
+
+        // Alertas — apenas os mais críticos e relevantes
+        const als=[];
+        if (!l.servidor_online)          als.push({c:'crit',m:'Servidor Goomer offline'});
+        if (pay.inadimplente)              als.push({c:'crit',m:'Bloqueio financeiro'});
+        if (l.retry_expirados>0)           als.push({c:'crit',m:`${l.retry_expirados} pedido(s) sem ERP`});
+        if (l.erros_log>500)               als.push({c:'warn',m:`Volume alto de erros recentes: ${l.erros_log}`});
+        // sem alertas = card limpo
+
+        return `<div class="loja" onclick="abrirLoja('${h(l.token_loja)}')">
+            <div class="loja-head" style="background:${mins>60?'rgba(255,68,85,.05)':mins>15?'rgba(255,184,48,.04)':'var(--bg3)'}">
+                <div class="score-circle" style="color:${mins>60?'#505068':cor};border-color:${mins>60?'#505068':cor};opacity:${mins>60?.5:1}">${l.score||0}%</div>
+                <div class="loja-info">
+                    <div class="loja-nome">${h(l.nome_loja||'Loja')}</div>
+                    <div class="loja-ip">${ip}${pay.goomer_version?' · v'+pay.goomer_version:''}</div>
+                </div>
+                <div class="status-badge" style="color:${cor};border-color:${cor}50;background:${cor}15">${statusLabel(l)}</div>
+            </div>
+            <div class="loja-body" style="padding:10px 14px">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+                    <div style="text-align:center;flex:1">
+                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${l.servidor_online?'var(--green)':'var(--red)'}">${l.servidor_online?'ON':'OFF'}</div>
+                        <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">servidor</div>
+                    </div>
+                    <div style="text-align:center;flex:1">
+                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:#e8eef8">${l.tablets_ativos||0}<span style="font-size:12px;color:#8096b8">/${l.tablets_total||0}</span></div>
+                        <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">tablets</div>
+                    </div>
+                    <div style="text-align:center;flex:1">
+                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${l.erros_log>200?'var(--red)':l.erros_log>50?'var(--amber)':'#e8eef8'}">${l.erros_log||0}</div>
+                        <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">erros recentes</div>
+                    </div>
+                    <div style="text-align:center;flex:1">
+                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${(l.payload?.pedidos_hoje||0)>0?'#e8eef8':'#8096b8'}">${l.payload?.pedidos_hoje||0}</div>
+                        <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">pedidos</div>
+                    </div>
+                </div>
+                <div class="alertas">
+                    ${als.slice(0,2).map(a=>`<div class="al al-${a.c}">${a.c==='crit'?'✕':'⚠'} ${h(a.m)}</div>`).join('')}
+                </div>
+            </div>
+            <div class="loja-foot" style="border-top:1px solid ${mins>60?'rgba(255,68,85,.2)':mins>15?'rgba(255,184,48,.2)':'var(--border)'}">
+                <span style="color:${mins>60?'var(--red)':mins>15?'var(--amber)':'#a0b8d0'}">
+                    ${mins>60?'⚠ sem dados há '+tempoLabel:mins>15?'⚠ '+tempoLabel:tempoLabel}
+                </span>
+                <span class="badge ${mins>60?'br':mins>15?'ba':l.servidor_online?'bg':'br'}">
+                    ${mins>60?'desconectado':mins>15?'desatualizado':l.servidor_online?'online':'offline'}
+                </span>
+            </div>
+        </div>`;
+    }).join('')+'</div>';
+}
+
+// ── Modal de detalhe ──────────────────────────────────────────────────────────
+let _tokenAtual = null;
+
+async function abrirLoja(token) {
+    _tokenAtual = token;
+    document.getElementById('overlay').classList.add('on');
+    document.getElementById('m-titulo').textContent = 'carregando...';
+    document.getElementById('m-sub').textContent = '';
+    ['resumo','tablets','erros','topologia','maquina','historico'].forEach(t=>
+        document.getElementById('tab-'+t).innerHTML='<div class="loading">buscando dados...</div>');
+    showTab('resumo');
+
+    const rows = await sb('snapshots',
+        `?token_loja=eq.${encodeURIComponent(token)}&order=criado_em.desc&limit=20`
+    );
+    if (!Array.isArray(rows)||!rows.length) return;
+
+    const l   = rows[0];
+    const pay = l.payload||{};
+    const cor = corLoja(l);
+    const ip  = l.ip_servidor||pay.ip_servidor||'—';
+
+    document.getElementById('m-titulo').textContent = l.nome_loja||'Loja';
+    document.getElementById('m-sub').textContent    = `IP: ${ip}  ·  Token: ${(l.token_loja||'').slice(0,16)}…  ·  ${new Date(l.criado_em).toLocaleString('pt-BR')}`;
+
+    // ── Tab Resumo ──────────────────────────────────────────────────────────
+    const ipsHistorico = [...new Set(rows.map(r=>r.ip_servidor||r.payload?.ip_servidor).filter(Boolean))];
+    const ipMudou = ipsHistorico.length > 1;
+
+    document.getElementById('tab-resumo').innerHTML = `
+        <div style="display:flex;align-items:center;gap:14px;padding:14px;background:var(--bg3);border-radius:10px;border:1px solid ${cor}40;margin-bottom:16px">
+            <div class="score-circle" style="color:${cor};border-color:${cor};width:56px;height:56px;font-size:15px">${l.score}%</div>
+            <div style="flex:1">
+                <div style="font-size:18px;font-weight:800;color:${cor}">${statusLabel(l)}</div>
+                <div style="font-size:12px;color:#8096b8;margin-top:2px">${l.alertas_criticos||0} crítico(s) · ${l.alertas_avisos||0} aviso(s)</div>
+            </div>
+            <div style="text-align:right">
+                <div class="badge ${l.servidor_online?'bg':'br'}" style="font-size:11px">${l.servidor_online?'● Servidor online':'○ Servidor Goomer offline'}</div>
+            </div>
+        </div>
+
+        ${ipMudou?`<div class="al al-warn" style="margin-bottom:12px">⚠ Mudança de IP detectada nos últimos snapshots: ${ipsHistorico.join(' → ')}</div>`:''}
+
+        <div class="sec">
+            <div class="sec-t">operação</div>
+            <div class="row"><span class="rl">IP do servidor</span><span class="rv">${h(ip)}</span></div>
+            <div class="row"><span class="rl">Servidor Goomer</span><span class="rv" style="color:${l.servidor_online?'var(--green)':'var(--red)'}">${l.servidor_online?'online':'offline'}${pay.goomer_version?' · v'+pay.goomer_version:''}</span></div>
+            <div class="row"><span class="rl">Pedidos hoje</span><span class="rv">${pay.pedidos_hoje||0}</span></div>
+            <div class="row"><span class="rl">Retry expirados (ERP)</span><span class="rv" style="color:${l.retry_expirados>0?'var(--red)':'var(--green)'}">${l.retry_expirados||0}</span></div>
+            <div class="row"><span class="rl">Erros recentes</span><span class="rv" style="color:${l.erros_log>200?'var(--red)':l.erros_log>50?'var(--amber)':'var(--green)'}">${l.erros_log||0}</span></div>
+            <div class="row"><span class="rl">Erros de impressão (2h)</span><span class="rv" style="color:${(pay.erros_impressora||0)>0?'var(--amber)':'var(--green)'}">${pay.erros_impressora||0}</span></div>
+            ${pay.inadimplente?'<div class="row"><span class="rl">Situação financeira</span><span class="rv" style="color:var(--red)">⚠ Bloqueio financeiro</span></div>':''}
+        </div>
+
+        ${pay.db_versao||pay.db_port?`<div class="sec">
+            <div class="sec-t">banco de dados</div>
+            ${pay.db_port?`<div class="row"><span class="rl">Porta MySQL</span><span class="rv">mysql:${pay.db_port}</span></div>`:''}
+            ${pay.db_versao?`<div class="row"><span class="rl">Versão MySQL</span><span class="rv">${h(pay.db_versao)}</span></div>`:''}
+            ${pay.db_instalado?`<div class="row"><span class="rl">Instalado em</span><span class="rv">${new Date(pay.db_instalado).toLocaleDateString('pt-BR')}</span></div>`:''}
+        </div>`:''}
+
+        <div class="sec">
+            <div class="sec-t">tablets</div>
+            <div class="row"><span class="rl">Ativos</span><span class="rv">${l.tablets_ativos||0} / ${l.tablets_total||0}</span></div>
+            <div class="row"><span class="rl">Com problema</span><span class="rv" style="color:${(pay.tablets_criticos||0)>0?'var(--red)':'var(--green)'}">${pay.tablets_criticos||0}</span></div>
+        </div>
+
+        <div class="sec">
+            <div class="sec-t">impressoras</div>
+            ${(pay.impressoras||[]).map(i=>`
+            <div class="row">
+                <span class="rl">${h(i.nome)}${i.padrao?' <span class="badge bm">padrão</span>':''}</span>
+                <span class="rv" style="font-size:11px;color:#8096b8">${h(i.uri||'—')}</span>
+            </div>`).join('')||'<div style="font-size:12px;color:#8096b8;padding:6px 0">Nenhuma impressora cadastrada</div>'}
+        </div>`;
+
+    // ── Tab Tablets ─────────────────────────────────────────────────────────
+    const tabs = pay.tablets||[];
+    document.getElementById('tab-tablets').innerHTML = tabs.length ? tabs.map(t=>{
+        const bat   = parseInt(t.bateria||0);
+        const sinal = parseInt(t.sinal||0);
+        const ping  = t.ping||{};
+        const batCor   = BAR_COR(bat,   40, 20);  // invertido: baixo é ruim
+        const sinalCor = BAR_COR(sinal, 60, 30);
+        const pingLabel = ping.status==='sem resposta'?'offline':ping.status==='sem_ip'?'sem IP':ping.latencia?`${ping.latencia}ms`:'—';
+        const pingCor   = ping.status==='sem resposta'?'var(--red)':ping.latencia>150?'var(--amber)':'var(--green)';
+        return `<div class="tab-card">
+            <div class="tab-head">
+                <div class="tab-nome">${t.mesa?`Mesa ${t.mesa}`:h(t.modelo||'Tablet')}
+                    <span style="font-size:11px;font-weight:400;color:#8096b8"> · ${h(t.versao||'—')}</span>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center">
+                    <span style="font-family:var(--mono);font-size:11px;color:${pingCor}">${pingLabel}</span>
+                    <span class="badge ${ping.status==='sem resposta'?'br':ping.status==='sem_ip'?'bm':'bg'}">${ping.status==='sem resposta'?'offline':ping.status==='sem_ip'?'sem IP':'online'}</span>
+                </div>
+            </div>
+            <div style="font-size:11px;color:var(--sub);font-family:var(--mono);margin-bottom:8px">${h(t.ip||'sem IP')}${t.fonte_bateria?' · bat: tempo real':''}</div>
+            <div class="bar-row"><span style="width:40px">Bat</span>
+                <div class="bar-track"><div class="bar-fill" style="width:${bat}%;background:${bat<20?'var(--red)':bat<40?'var(--amber)':'var(--green)'}"></div></div>
+                <span style="color:${bat<20?'var(--red)':bat<40?'var(--amber)':'var(--green)'}">${bat}%</span>
+            </div>
+            <div class="bar-row"><span style="width:40px">Wi-Fi</span>
+                <div class="bar-track"><div class="bar-fill" style="width:${sinal}%;background:${sinal<30?'var(--red)':sinal<60?'var(--amber)':'var(--green)'}"></div></div>
+                <span style="color:${sinal<30?'var(--red)':sinal<60?'var(--amber)':'var(--green)'}">${sinal}%</span>
+            </div>
+        </div>`;
+    }).join('') : '<div class="empty">Sem dados de tablets neste snapshot.</div>';
+
+    // ── Tab Erros ────────────────────────────────────────────────────────────
+    const topErros = pay.top_erros||[];
+    const errHora  = pay.erros_por_hora||[];
+    let errosHtml = '';
+    if (errHora.length > 1) {
+        const maxE = Math.max(...errHora.map(h=>parseInt(h.erros||0)),1);
+        errosHtml += `<div class="sec"><div class="sec-t">volume por hora (últimas 6h)</div>
+            <div class="hist">${errHora.map(h=>{
+                const hh=Math.max(Math.round((parseInt(h.erros||0)/maxE)*52),1);
+                const c=parseInt(h.erros||0)>100?'var(--red)':parseInt(h.erros||0)>20?'var(--amber)':'var(--green)';
+                return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+                    <div style="font-size:8px;color:#8096b8">${h.erros||0}</div>
+                    <div class="hist-bar" style="height:${hh}px;background:${c}" title="${h.hora}: ${h.erros} erros"></div>
+                    <div style="font-size:8px;color:#8096b8">${(h.hora||'').slice(0,5)}</div>
+                </div>`;
+            }).join('')}</div></div>`;
+    }
+    if (topErros.length) {
+        errosHtml += `<div class="sec"><div class="sec-t">top erros por frequência</div>
+            ${topErros.map(e=>`<div class="erro-item">
+                <div class="erro-msg">${h(e.msg_resumo||e.message||'—')}</div>
+                <div class="erro-meta">
+                    <span class="badge ${e.type==='print'?'ba':e.type==='order'?'br':'bb'}">${h(e.type||'?')}</span>
+                    <span>${e.total}x</span>
+                    <span>último: ${new Date(e.ultima_vez).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+                </div>
+            </div>`).join('')}
+        </div>`;
+    } else {
+        errosHtml += '<div class="empty">✓ Nenhum erro de log nas últimas 2 horas.</div>';
+    }
+    document.getElementById('tab-erros').innerHTML = errosHtml;
+
+    // ── Tab Topologia interativa ─────────────────────────────────────────────
+    const tablets_t = pay.tablets||[];
+    const imps_t    = pay.impressoras||[];
+    document.getElementById('tab-topologia').innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--sub)">topologia de rede (snapshot)</div>
+            <div style="display:flex;gap:4px">
+                <button id="btn-topo-plus"  style="background:var(--bg3);border:1px solid var(--border);color:var(--sub);width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1">＋</button>
+                <button id="btn-topo-minus" style="background:var(--bg3);border:1px solid var(--border);color:var(--sub);width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1">－</button>
+                <button id="btn-topo-fit"   style="background:var(--bg3);border:1px solid var(--border);color:var(--sub);padding:0 10px;height:28px;border-radius:5px;cursor:pointer;font-size:11px">⊙ centralizar</button>
+            </div>
+        </div>
+        <div style="font-size:11px;color:var(--sub);margin-bottom:8px">arraste nó para mover · scroll para zoom · espaço+arrastar para mover o mapa</div>
+        <div id="topo-noc-wrap" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;height:420px;position:relative;cursor:default">
+            <svg id="topo-noc-svg" width="100%" height="100%" style="display:block;overflow:visible"></svg>
+        </div>`;
+    setTimeout(() => renderTopoNoc(tablets_t, imps_t, ip), 50);
+
+    // ── Tab Máquina ──────────────────────────────────────────────────────────
+    const maq = pay.maquina;
+    if (maq) {
+        const cpuCor = maq.cpu>90?'var(--red)':maq.cpu>70?'var(--amber)':'var(--green)';
+        const ramCor = maq.ram_pct>90?'var(--red)':maq.ram_pct>75?'var(--amber)':'var(--green)';
+        document.getElementById('tab-maquina').innerHTML = `
+        <div class="sec"><div class="sec-t">identificação</div>
+            <div class="row"><span class="rl">Hostname</span><span class="rv">${h(maq.host||'—')}</span></div>
+            <div class="row"><span class="rl">Sistema Operacional</span><span class="rv">${h(maq.so||'—')}</span></div>
+            <div class="row"><span class="rl">Build Windows</span><span class="rv">${h(maq.build||'—')}</span></div>
+            <div class="row"><span class="rl">Uptime</span><span class="rv">${h(maq.uptime||'—')}</span></div>
+        </div>
+        <div class="sec"><div class="sec-t">recursos</div>
+            <div class="row"><span class="rl">CPU</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <div class="bar-track" style="width:80px"><div class="bar-fill" style="width:${maq.cpu}%;background:${cpuCor}"></div></div>
+                    <span class="rv" style="color:${cpuCor}">${maq.cpu}%</span>
+                </div>
+            </div>
+            <div class="row"><span class="rl">RAM</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <div class="bar-track" style="width:80px"><div class="bar-fill" style="width:${maq.ram_pct}%;background:${ramCor}"></div></div>
+                    <span class="rv" style="color:${ramCor}">${maq.ram_usado}GB / ${maq.ram}GB (${maq.ram_pct}%)</span>
+                </div>
+            </div>
+        </div>
+        <div class="sec"><div class="sec-t">discos</div>
+            ${(maq.discos||[]).map(d=>{
+                const dc=d.pct>90?'var(--red)':d.pct>75?'var(--amber)':'var(--green)';
+                return `<div class="row"><span class="rl">${h(d.drive)}</span>
+                    <div style="display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end">
+                        <div class="bar-track" style="width:80px"><div class="bar-fill" style="width:${d.pct}%;background:${dc}"></div></div>
+                        <span class="rv" style="color:${dc}">${d.usado}GB/${d.total}GB (${d.pct}%)</span>
+                    </div>
+                </div>`;
+            }).join('')||'<div style="font-size:12px;color:var(--sub);padding:6px 0">Sem dados de disco</div>'}
+        </div>`;
+    } else {
+        document.getElementById('tab-maquina').innerHTML =
+            '<div class="empty">Dados de máquina não disponíveis.<br><span style="font-size:12px">Atualize o agente para coletar essas informações.</span></div>';
+    }
+
+    // ── Tab Histórico ────────────────────────────────────────────────────────
+    const hist = rows.slice(0,12).reverse();
+    const histHtml = hist.length>1 ? `
+        <div class="sec"><div class="sec-t">histórico de score (últimos ${hist.length} snapshots)</div>
+            <div class="hist" style="height:70px">${hist.map(s=>{
+                const c=COR_STATUS(s.status||s.nota);
+                const hh=Math.max(Math.round(((s.score||0)/100)*66),2);
+                const hora=new Date(s.criado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+                return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+                    <div style="font-size:9px;color:${c};font-family:var(--mono)">${s.score}%</div>
+                    <div class="hist-bar" style="height:${hh}px;background:${c}" title="${hora}: ${s.score}% — ${s.status||s.nota}"></div>
+                    <div style="font-size:8px;color:#8096b8">${hora}</div>
+                </div>`;
+            }).join('')}</div>
+        </div>
+        <div class="sec"><div class="sec-t">snapshots recentes</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <tr style="color:#a0b8d0;font-size:10px;text-transform:uppercase;letter-spacing:.06em">
+                    <td style="padding:5px 0">Horário</td>
+                    <td style="padding:5px 0;text-align:center">Score</td>
+                    <td style="padding:5px 0;text-align:center">Status</td>
+                    <td style="padding:5px 0;text-align:center">Servidor</td>
+                    <td style="padding:5px 0;text-align:center">Tablets</td>
+                    <td style="padding:5px 0;text-align:right">IP</td>
+                </tr>
+                ${hist.map(s=>{
+                    const c   = COR_STATUS(s.status||s.nota);
+                    const sip = s.ip_servidor||s.payload?.ip_servidor||'—';
+                    const hora= new Date(s.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+                    const srv = s.servidor_online;
+                    const pay2= s.payload||{};
+                    const retE= s.retry_expirados||0;
+                    return `<tr style="border-top:1px solid var(--border)">
+                        <td style="padding:6px 0;font-family:var(--mono);color:#b0c4de">${hora}</td>
+                        <td style="padding:6px 0;text-align:center;font-weight:700;color:${c};font-family:var(--mono)">${s.score||0}%</td>
+                        <td style="padding:6px 0;text-align:center;color:${c};font-size:11px">${statusLabel(s)}</td>
+                        <td style="padding:6px 0;text-align:center">
+                            <span style="color:${srv?'var(--green)':'var(--red)'};font-size:11px">${srv?'● ON':'○ OFF'}</span>
+                        </td>
+                        <td style="padding:6px 0;text-align:center;font-family:var(--mono);color:#b0c4de">${s.tablets_ativos||0}/${s.tablets_total||0}${retE>0?` <span style="color:var(--red);font-size:10px">⚠${retE}ERP</span>`:''}</td>
+                        <td style="padding:6px 0;text-align:right;font-family:var(--mono);color:var(--blue-l);font-size:11px">${h(sip)}</td>
+                    </tr>`;
+                }).join('')}
+            </table>
+        </div>` : '<div class="empty">Histórico insuficiente.</div>';
+    document.getElementById('tab-historico').innerHTML = histHtml;
+}
+
+function showTab(name) {
+    document.querySelectorAll('.modal-tab').forEach((b,i)=>b.classList.remove('on'));
+    document.querySelectorAll('.modal-panel').forEach(p=>p.classList.remove('on'));
+    const tabs=['resumo','tablets','erros','topologia','maquina','historico'];
+    const idx=tabs.indexOf(name);
+    if(idx>=0){
+        document.querySelectorAll('.modal-tab')[idx]?.classList.add('on');
+        document.getElementById('tab-'+name)?.classList.add('on');
+    }
+}
+
+function closeOverlay(e){
+    if(e.target===document.getElementById('overlay'))
+        document.getElementById('overlay').classList.remove('on');
+}
+
+carregar();
+setInterval(carregar, 5*60*1000);
+
+// ── Topologia NOC interativa ───────────────────────────────────────────────
+let nocTopoScale=1, nocVX=0, nocVY=0;
+let nocDragging=null, nocNodes={};
+let nocPanActive=false, nocPanSX=0, nocPanSY=0, nocPanVX=0, nocPanVY=0;
+let nocSpaceDown=false;
+let _nocTablets=[], _nocImps=[], _nocIP='';
+
+document.addEventListener('keydown',e=>{
+    if(e.code==='Space'&&document.getElementById('tab-topologia')?.classList.contains('on')){
+        e.preventDefault(); nocSpaceDown=true;
+        const el=document.getElementById('topo-noc-wrap');
+        if(el) el.style.cursor='grab';
+    }
+});
+document.addEventListener('keyup',e=>{ if(e.code==='Space') nocSpaceDown=false; });
+
+function applyNocTransform(){
+    const g=document.getElementById('topo-noc-g');
+    if(g) g.setAttribute('transform',`translate(${nocVX},${nocVY}) scale(${nocTopoScale})`);
+}
+function nocTopoZoom(d){
+    nocTopoScale=Math.max(0.25,Math.min(3,nocTopoScale+d));
+    applyNocTransform();
+}
+function nocTopoCentralizar(){
+    const keys=Object.keys(nocNodes).filter(k=>!['gw','srv'].includes(k)||nocNodes[k]);
+    if(!keys.length) return;
+    const wrap=document.getElementById('topo-noc-wrap');
+    if(!wrap) return;
+    const W=wrap.clientWidth, H=wrap.clientHeight;
+    const xs=keys.map(k=>nocNodes[k].x), ys=keys.map(k=>nocNodes[k].y);
+    const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+    const mapW=maxX-minX+220, mapH=maxY-minY+220;
+    nocTopoScale=Math.min(Math.max(Math.min(W/mapW,H/mapH)*0.88,0.3),2);
+    nocVX=W/2-((minX+maxX)/2)*nocTopoScale;
+    nocVY=H/2-((minY+maxY)/2)*nocTopoScale;
+    applyNocTransform();
+}
+
+function renderTopoNoc(tablets, imps, serverIp) {
+    _nocTablets=tablets; _nocImps=imps; _nocIP=serverIp;
+    const wrap = document.getElementById('topo-noc-wrap');
+    const svg  = document.getElementById('topo-noc-svg');
+    if(!wrap||!svg) return;
+
+    const W=1000, H=700, cx=W/2;
+
+    // Só resetar posição/scale se for primeira renderização
+    if(Object.keys(nocNodes).length===0){
+        nocTopoScale=1; nocVX=0; nocVY=0;
+    }
+
+    // Calcular posições se não existirem
+    const posGW  = nocNodes['gw']  || {x:cx, y:80};
+    const posSRV = nocNodes['srv'] || {x:cx, y:210};
+    nocNodes['gw']  = posGW;
+    nocNodes['srv'] = posSRV;
+
+    const ativos  = tablets.filter(t=>t.ip&&t.ip!=='null');
+    const impRede = imps.filter(i=>i.uri?.match(/\d+\.\d+\.\d+\.\d+/));
+    const impUsb  = imps.filter(i=>!i.uri?.match(/\d+\.\d+\.\d+\.\d+/));
+
+    ativos.forEach((t,i) => {
+        if(!nocNodes['t'+i]){
+            const tot=ativos.length, frac=tot===1?.5:i/(tot-1);
+            const r=Math.max(240,100+tot*55);
+            const ang=-Math.PI*.85+frac*Math.PI*.7;
+            nocNodes['t'+i]={x:cx-70+r*Math.cos(ang), y:340+r*.55*Math.sin(ang)};
+        }
+    });
+    impRede.forEach((p,i) => {
+        if(!nocNodes['ir'+i]){
+            const tot=impRede.length, frac=tot===1?.5:i/(tot-1);
+            const r=Math.max(230,100+tot*65);
+            const ang=-Math.PI*.15-frac*Math.PI*.7;
+            nocNodes['ir'+i]={x:cx+70+r*Math.cos(ang), y:340+r*.5*Math.sin(ang)};
+        }
+    });
+    impUsb.forEach((p,i) => {
+        if(!nocNodes['iu'+i]) nocNodes['iu'+i]={x:cx+160+i*130, y:220};
+    });
+
+    // Resolver colisões
+    const all=['gw','srv',...ativos.map((_,i)=>'t'+i),...impRede.map((_,i)=>'ir'+i),...impUsb.map((_,i)=>'iu'+i)];
+    for(let it=0;it<25;it++){
+        for(let a=0;a<all.length;a++) for(let b=a+1;b<all.length;b++){
+            const na=nocNodes[all[a]],nb=nocNodes[all[b]];
+            if(!na||!nb) continue;
+            const dx=nb.x-na.x,dy=nb.y-na.y,dist=Math.sqrt(dx*dx+dy*dy);
+            if(dist<130&&dist>0){
+                const push=(130-dist)/2,nx=dx/dist*push,ny=dy/dist*push;
+                if(!['gw','srv'].includes(all[b])){nb.x+=nx;nb.y+=ny;}
+                if(!['gw','srv'].includes(all[a])){na.x-=nx;na.y-=ny;}
+            }
+        }
+    }
+
+    const sCor=p=>!p||p.status==='sem_ip'?'#505068':p.status==='sem resposta'||p.perda===100?'#ff4455':p.latencia>150?'#ffb830':'#00d68f';
+    const lLbl=p=>!p||p.status==='sem_ip'?'—':p.status==='sem resposta'?'offline':p.latencia?p.latencia+'ms':'…';
+
+    let g=``;
+
+    // Internet
+    g+=`<circle cx="${cx}" cy="16" r="14" fill="#0d1626" stroke="rgba(255,255,255,.15)" stroke-width="1.5"/>`;
+    g+=`<text x="${cx}" y="21" text-anchor="middle" fill="#b0c4de" font-size="13">☁</text>`;
+    g+=`<line x1="${cx}" y1="30" x2="${cx}" y2="${posGW.y-32}" stroke="rgba(255,255,255,.12)" stroke-width="1.5" stroke-dasharray="5,3"/>`;
+
+    // GW → SRV
+    g+=`<line x1="${cx}" y1="${posGW.y+32}" x2="${cx}" y2="${posSRV.y-32}" stroke="#4d8fff" stroke-width="2.5"/>`;
+
+    // SRV → tablets
+    ativos.forEach((t,i)=>{
+        const pt=nocNodes['t'+i],cor=sCor(t.ping);
+        g+=`<line x1="${cx}" y1="${posSRV.y+32}" x2="${pt.x}" y2="${pt.y-34}" stroke="${cor}" stroke-width="1.8" opacity=".8"/>`;
+        const mx=(cx+pt.x)/2,my=(posSRV.y+34+pt.y-34)/2;
+        const ll=lLbl(t.ping);
+        g+=`<rect x="${mx-14}" y="${my-9}" width="${ll.length*6.5+6}" height="18" rx="4" fill="#0a1020" opacity=".9"/>`;
+        g+=`<text x="${mx-11}" y="${my+5}" fill="${cor}" font-size="11" font-family="monospace" font-weight="600">${ll}</text>`;
+    });
+
+    // SRV → imp rede
+    impRede.forEach((p,i)=>{
+        const pp=nocNodes['ir'+i];
+        g+=`<line x1="${cx}" y1="${posSRV.y+32}" x2="${pp.x}" y2="${pp.y-32}" stroke="#00d68f" stroke-width="1.8" opacity=".7"/>`;
+    });
+
+    // SRV → imp USB
+    impUsb.forEach((p,i)=>{
+        const pp=nocNodes['iu'+i];
+        g+=`<line x1="${cx}" y1="${posSRV.y}" x2="${pp.x}" y2="${pp.y+32}" stroke="#7c5cfc" stroke-width="1.5" stroke-dasharray="6,3" opacity=".8"/>`;
+        const mx=(cx+pp.x)/2,my=(posSRV.y+pp.y)/2;
+        g+=`<rect x="${mx-16}" y="${my-9}" width="34" height="18" rx="4" fill="#0a1020" opacity=".9"/>`;
+        g+=`<text x="${mx}" y="${my+5}" text-anchor="middle" fill="#7c5cfc" font-size="11" font-family="monospace" font-weight="600">USB</text>`;
+    });
+
+    // Helper nó
+    const nodo=(pos,cor,l1,l2,icon,nid)=>{
+        const NW=120,NH=72,x=pos.x-NW/2,y=pos.y-NH/2;
+        const drag=nid?`class="noc-node" data-nid="${nid}" style="cursor:grab"`:'';
+        return `<g ${drag}>
+            <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="10" fill="#0d1626" stroke="${cor}" stroke-width="2"/>
+            <text x="${pos.x}" y="${pos.y-10}" text-anchor="middle" fill="${cor}" font-size="16">${icon}</text>
+            <text x="${pos.x}" y="${pos.y+9}" text-anchor="middle" fill="#e8eef8" font-size="12" font-weight="700" font-family="monospace">${h(l1)}</text>
+            <text x="${pos.x}" y="${pos.y+24}" text-anchor="middle" fill="#c8d8e8" font-size="10" font-family="monospace">${h(l2||'')}</text>
+        </g>`;
+    };
+
+    g+=nodo(posGW,'#4d8fff','gateway','','⌘','');
+    g+=nodo(posSRV,'#0e5cfe',serverIp||'servidor','servidor','⬡','');
+
+    ativos.forEach((t,i)=>{
+        const pt=nocNodes['t'+i],cor=sCor(t.ping);
+        const bat=parseInt(t.bateria||0),bc=bat<20?'#ff4455':bat<40?'#ffb830':'#00d68f';
+        const NW=120,NH=76,x=pt.x-NW/2,y=pt.y-NH/2;
+        g+=`<g class="noc-node" data-nid="t${i}" style="cursor:grab">
+            <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="10" fill="#0d1626" stroke="${cor}" stroke-width="2"/>
+            <text x="${pt.x}" y="${pt.y-11}" text-anchor="middle" fill="${cor}" font-size="15">📱</text>
+            <text x="${pt.x}" y="${pt.y+7}" text-anchor="middle" fill="#e8eef8" font-size="12" font-weight="700" font-family="monospace">${t.mesa?`Mesa ${t.mesa}`:h((t.ip||'').split('.').slice(-1)[0]?'...'+t.ip.split('.').slice(-1)[0]:'?')}</text>
+            <text x="${pt.x}" y="${pt.y+22}" text-anchor="middle" fill="#c8d8e8" font-size="10" font-family="monospace">${h(t.ip||'sem IP')}</text>
+            ${bat>0?`<rect x="${x+NW-30}" y="${y+5}" width="24" height="12" rx="2" fill="#0d1626" stroke="${bc}" stroke-width="1.3"/>
+            <rect x="${x+NW-29}" y="${y+6}" width="${Math.round(bat/100*22)}" height="10" rx="1" fill="${bc}" opacity=".85"/>
+            <text x="${pt.x+NW/2-20}" y="${y+23}" text-anchor="middle" fill="${bc}" font-size="9" font-family="monospace">${bat}%</text>`:''}
+        </g>`;
+    });
+
+    impRede.forEach((p,i)=>{
+        const pp=nocNodes['ir'+i];
+        g+=nodo(pp,'#00d68f',h((p.nome||'').slice(0,12)),h((p.uri||'').match(/(\d+\.\d+\.\d+\.\d+)/)?.[1]||'rede'),'🖨','ir'+i);
+    });
+    impUsb.forEach((p,i)=>{
+        const pp=nocNodes['iu'+i];
+        g+=nodo(pp,'#7c5cfc',h((p.nome||'').slice(0,12)),'USB','🖨','iu'+i);
+    });
+
+    // Atualizar SVG preservando o elemento
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    svg.innerHTML = `<defs><filter id="nf"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g id="topo-noc-g">${g}</g>`;
+
+    applyNocTransform();
+
+    // Eventos no wrap (pan + wheel)
+    wrap.onmousedown = e => {
+        if(e.button===2||e.button===1||nocSpaceDown){
+            nocPanActive=true; nocPanSX=e.clientX; nocPanSY=e.clientY;
+            nocPanVX=nocVX; nocPanVY=nocVY; wrap.style.cursor='grabbing'; e.preventDefault();
+        }
+    };
+    wrap.onmousemove = e => {
+        if(nocPanActive){
+            nocVX=nocPanVX+(e.clientX-nocPanSX); nocVY=nocPanVY+(e.clientY-nocPanSY);
+            applyNocTransform();
+        }
+        if(nocDragging){
+            const rect=wrap.getBoundingClientRect();
+            nocNodes[nocDragging]={x:(e.clientX-rect.left-nocVX)/nocTopoScale, y:(e.clientY-rect.top-nocVY)/nocTopoScale};
+            renderTopoNoc(_nocTablets,_nocImps,_nocIP);
+        }
+    };
+    wrap.onmouseup  = () => { nocPanActive=false; nocDragging=null; wrap.style.cursor='default'; };
+    wrap.onmouseleave = () => { nocPanActive=false; nocDragging=null; };
+    wrap.oncontextmenu = e => e.preventDefault();
+    wrap.onwheel = e => { e.preventDefault(); nocTopoZoom(e.deltaY<0?.1:-.1); };
+
+    // Drag nos nós
+    svg.querySelectorAll('.noc-node').forEach(el=>{
+        el.onmousedown = e => {
+            if(e.button!==0||nocSpaceDown) return;
+            e.stopPropagation(); nocDragging=el.dataset.nid; wrap.style.cursor='grabbing';
+        };
+    });
+
+    // Botões externos
+    const bp=document.getElementById('btn-topo-plus');
+    const bm=document.getElementById('btn-topo-minus');
+    const bf=document.getElementById('btn-topo-fit');
+    if(bp) { bp.onclick=()=>nocTopoZoom(.15); }
+    if(bm) { bm.onclick=()=>nocTopoZoom(-.15); }
+    if(bf) { bf.onclick=()=>nocTopoCentralizar(); }
+
+    setTimeout(nocTopoCentralizar, 80);
+}
+</script>
+</body>
+</html>
