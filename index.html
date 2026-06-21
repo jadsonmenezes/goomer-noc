@@ -242,8 +242,16 @@ let _dados = [], _filtro = 'todos', _order = 'asc'; // asc = piores primeiro
 
 async function sb(path, q='') {
     const r = await fetch(`${SB_URL}/rest/v1/${path}${q}`,{
-        headers:{'apikey':SB_KEY,'Authorization':`Bearer ${SB_KEY}`}
+        headers:{
+            'apikey': SB_KEY,
+            'Authorization': `Bearer ${SB_KEY}`,
+            'Content-Type': 'application/json'
+        }
     });
+    if (!r.ok) {
+        console.error('Supabase erro:', r.status, r.statusText, await r.text().catch(()=>''));
+        return [];
+    }
     return r.json();
 }
 
