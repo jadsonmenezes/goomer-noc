@@ -176,7 +176,7 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
   <div class="resumo" id="resumo"></div>
 
   <div class="toolbar">
-    <input class="search-input" id="busca" placeholder="🔍  buscar loja por nome ou IP..." oninput="filtrar()">
+    <input class="search-input" id="busca" placeholder="🔍  buscar loja por nome..." oninput="filtrar()">
     <button class="filter-btn ativo" id="f-todos"    onclick="setFiltro('todos')">Todas</button>
     <button class="filter-btn"       id="f-critico"  onclick="setFiltro('critico')">🔴 Crítico/Grave</button>
     <button class="filter-btn"       id="f-atencao"  onclick="setFiltro('atencao')">🟡 Atenção</button>
@@ -456,7 +456,7 @@ async function abrirLoja(token) {
     const ip  = l.ip_servidor||pay.ip_servidor||'—';
 
     document.getElementById('m-titulo').textContent = l.nome_loja||'Loja';
-    document.getElementById('m-sub').textContent    = `IP: ${ip}  ·  Token: ${(l.token_loja||'').slice(0,16)}…  ·  ${new Date(l.criado_em).toLocaleString('pt-BR')}`;
+    document.getElementById('m-sub').textContent    = `IP: ${ip}  ·  ${new Date(l.criado_em).toLocaleString('pt-BR')}`;
 
     // ── Tab Resumo ──────────────────────────────────────────────────────────
     const ipsHistorico = [...new Set(rows.map(r=>r.ip_servidor||r.payload?.ip_servidor).filter(Boolean))];
@@ -483,6 +483,8 @@ async function abrirLoja(token) {
 
         <div class="sec">
             <div class="sec-t">operação</div>
+            <div class="row"><span class="rl">Token da loja</span>
+                <span class="rv" style="font-size:10px;word-break:break-all;color:#8096b8">${h(l.token_loja||'—')}</span></div>
             <div class="row"><span class="rl">IP real da máquina</span>
                 <span class="rv" style="color:${(pay.ip_divergente||l.ip_divergente)?'var(--red)':'#e8eef8'}">${h(pay.ip_servidor||l.ip_servidor||ip||'—')}</span></div>
             <div class="row"><span class="rl">IP configurado no Goomer</span>
@@ -551,25 +553,28 @@ async function abrirLoja(token) {
         </div>`;
     }).join('') : '<div class="empty">Sem dados de tablets neste snapshot.</div>';
 
-    // ── Tab Erros ────────────────────────────────────────────────────────────
+    // ── Tab Erros com filtro de período ─────────────────────────────────────
     const topErros = pay.top_erros||[];
     const errHora  = pay.erros_por_hora||[];
+    const hoje_e   = new Date();
+    const ontem_e  = new Date(hoje_e); ontem_e.setDate(ontem_e.getDate()-1);
+    const fmt_e    = d => d.toISOString().slice(0,16);
     let errosHtml = '';
     if (errHora.length > 1) {
-        const maxE = Math.max(...errHora.map(h=>parseInt(h.erros||0)),1);
+        const maxE = Math.max(...errHora.map(hh=>parseInt(hh.erros||0)),1);
         errosHtml += `<div class="sec"><div class="sec-t">volume por hora (últimas 6h)</div>
-            <div class="hist">${errHora.map(h=>{
-                const hh=Math.max(Math.round((parseInt(h.erros||0)/maxE)*52),1);
-                const c=parseInt(h.erros||0)>100?'var(--red)':parseInt(h.erros||0)>20?'var(--amber)':'var(--green)';
+            <div class="hist">${errHora.map(hh=>{
+                const barH=Math.max(Math.round((parseInt(hh.erros||0)/maxE)*52),1);
+                const c=parseInt(hh.erros||0)>100?'var(--red)':parseInt(hh.erros||0)>20?'var(--amber)':'var(--green)';
                 return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
-                    <div style="font-size:8px;color:#8096b8">${h.erros||0}</div>
-                    <div class="hist-bar" style="height:${hh}px;background:${c}" title="${h.hora}: ${h.erros} erros"></div>
-                    <div style="font-size:8px;color:#8096b8">${(h.hora||'').slice(0,5)}</div>
+                    <div style="font-size:8px;color:#8096b8">${hh.erros||0}</div>
+                    <div class="hist-bar" style="height:${barH}px;background:${c}"></div>
+                    <div style="font-size:8px;color:#8096b8">${(hh.hora||'').slice(0,5)}</div>
                 </div>`;
             }).join('')}</div></div>`;
     }
     if (topErros.length) {
-        errosHtml += `<div class="sec"><div class="sec-t">top erros por frequência</div>
+        errosHtml += `<div class="sec"><div class="sec-t">top erros por frequência (snapshot atual)</div>
             ${topErros.map(e=>`<div class="erro-item">
                 <div class="erro-msg">${h(e.msg_resumo||e.message||'—')}</div>
                 <div class="erro-meta">
@@ -580,8 +585,42 @@ async function abrirLoja(token) {
             </div>`).join('')}
         </div>`;
     } else {
-        errosHtml += '<div class="empty">✓ Nenhum erro de log nas últimas 2 horas.</div>';
+        errosHtml += '<div class="empty" style="padding:16px">✓ Nenhum erro no snapshot atual.</div>';
     }
+    errosHtml += `<div class="sec"><div class="sec-t">buscar erros por período</div>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:12px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);margin-bottom:12px">
+            <div style="display:flex;flex-direction:column;gap:4px">
+                <label style="font-size:10px;color:#a0b8d0;text-transform:uppercase">De</label>
+                <input type="datetime-local" id="erros-de" value="${fmt_e(ontem_e)}"
+                    style="background:var(--bg2);border:1px solid var(--border2);color:#e8eef8;padding:6px 10px;border-radius:6px;font-size:12px;font-family:var(--mono);max-width:180px">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+                <label style="font-size:10px;color:#a0b8d0;text-transform:uppercase">Até</label>
+                <input type="datetime-local" id="erros-ate" value="${fmt_e(hoje_e)}"
+                    style="background:var(--bg2);border:1px solid var(--border2);color:#e8eef8;padding:6px 10px;border-radius:6px;font-size:12px;font-family:var(--mono);max-width:180px">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+                <label style="font-size:10px;color:#a0b8d0;text-transform:uppercase">Tipo</label>
+                <select id="erros-tipo" style="background:var(--bg2);border:1px solid var(--border2);color:#e8eef8;padding:6px 10px;border-radius:6px;font-size:12px;height:34px">
+                    <option value="">Todos</option>
+                    <option value="print">print</option>
+                    <option value="order">order</option>
+                    <option value="erp">erp</option>
+                    <option value="tablet">tablet</option>
+                </select>
+            </div>
+            <button onclick="buscarErrosHistorico('${h(l.token_loja)}')"
+                style="background:var(--blue);border:none;color:#fff;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;height:34px">
+                🔍 Buscar
+            </button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button onclick="atalhoErros(1,'${h(l.token_loja)}')" style="background:var(--bg2);border:1px solid var(--border);color:#a0b8d0;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px">Hoje</button>
+                <button onclick="atalhoErros(2,'${h(l.token_loja)}')" style="background:var(--bg2);border:1px solid var(--border);color:#a0b8d0;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px">24h</button>
+                <button onclick="atalhoErros(7,'${h(l.token_loja)}')" style="background:var(--bg2);border:1px solid var(--border);color:#a0b8d0;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px">7 dias</button>
+            </div>
+        </div>
+        <div id="erros-resultado"><div style="font-size:12px;color:#8096b8;text-align:center;padding:12px">Selecione um período e clique em Buscar.</div></div>
+    </div>`;
     document.getElementById('tab-erros').innerHTML = errosHtml;
 
     // ── Tab Topologia interativa ─────────────────────────────────────────────
@@ -599,6 +638,16 @@ async function abrirLoja(token) {
         <div style="font-size:11px;color:var(--sub);margin-bottom:8px">arraste nó para mover · scroll para zoom · espaço+arrastar para mover o mapa</div>
         <div id="topo-noc-wrap" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;height:420px;position:relative;cursor:default">
             <svg id="topo-noc-svg" width="100%" height="100%" style="display:block;overflow:visible"></svg>
+            <!-- Botões de pan para mobile -->
+            <div id="topo-pan-btns" style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;z-index:10;opacity:.75">
+                <button onpointerdown="nocPanBtn('up',true)"   onpointerup="nocPanBtn('up',false)"   onpointerleave="nocPanBtn('up',false)"   style="background:var(--bg2);border:1px solid var(--border);color:#e8eef8;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:14px;touch-action:none">▲</button>
+                <div style="display:flex;gap:4px">
+                    <button onpointerdown="nocPanBtn('left',true)"  onpointerup="nocPanBtn('left',false)"  onpointerleave="nocPanBtn('left',false)"  style="background:var(--bg2);border:1px solid var(--border);color:#e8eef8;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:14px;touch-action:none">◀</button>
+                    <button onclick="nocTopoCentralizar()"                                                                                              style="background:var(--bg2);border:1px solid var(--border);color:#e8eef8;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:12px;touch-action:none">⊙</button>
+                    <button onpointerdown="nocPanBtn('right',true)" onpointerup="nocPanBtn('right',false)" onpointerleave="nocPanBtn('right',false)" style="background:var(--bg2);border:1px solid var(--border);color:#e8eef8;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:14px;touch-action:none">▶</button>
+                </div>
+                <button onpointerdown="nocPanBtn('down',true)"  onpointerup="nocPanBtn('down',false)"  onpointerleave="nocPanBtn('down',false)"  style="background:var(--bg2);border:1px solid var(--border);color:#e8eef8;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:14px;touch-action:none">▼</button>
+            </div>
         </div>`;
     setTimeout(() => renderTopoNoc(tablets_t, imps_t, ip), 50);
 
@@ -696,6 +745,89 @@ function closeOverlay(e){
 
 carregar();
 setInterval(carregar, 5*60*1000);
+
+// ── Funções de erros históricos ───────────────────────────────────────────────
+function atalhoErros(dias, token) {
+    const ate = new Date(), de = new Date();
+    if (dias === 1) { de.setHours(0,0,0,0); } else { de.setDate(de.getDate()-dias); }
+    const fmt = d => d.toISOString().slice(0,16);
+    const elDe = document.getElementById('erros-de');
+    const elAte = document.getElementById('erros-ate');
+    if (elDe) elDe.value = fmt(de);
+    if (elAte) elAte.value = fmt(ate);
+    buscarErrosHistorico(token);
+}
+
+async function buscarErrosHistorico(token) {
+    const elRes  = document.getElementById('erros-resultado');
+    const elDe   = document.getElementById('erros-de');
+    const elAte  = document.getElementById('erros-ate');
+    const elTipo = document.getElementById('erros-tipo');
+    if (!elRes||!elDe||!elAte) return;
+    elRes.innerHTML = '<div class="loading" style="padding:20px">Buscando...</div>';
+
+    const de   = elDe.value;
+    const ate  = elAte.value;
+    const tipo = elTipo?.value || '';
+    if (!de||!ate) { elRes.innerHTML = '<div style="font-size:12px;color:#8096b8;padding:12px">Selecione o período.</div>'; return; }
+
+    // Buscar snapshots do período com top_erros preenchido
+    let query = `?token_loja=eq.${encodeURIComponent(token)}&criado_em=gte.${encodeURIComponent(new Date(de).toISOString())}&criado_em=lte.${encodeURIComponent(new Date(ate).toISOString())}&order=criado_em.desc&limit=500`;
+    const rows = await sb('snapshots', query);
+    if (!Array.isArray(rows)||!rows.length) {
+        elRes.innerHTML = '<div class="empty" style="padding:20px">Nenhum snapshot encontrado neste período.</div>';
+        return;
+    }
+
+    // Agregar top_erros de todos os snapshots
+    const mapaErros = {};
+    rows.forEach(r => {
+        const erros = r.payload?.top_erros || [];
+        erros.forEach(e => {
+            const chave = (e.type||'?') + '|' + (e.msg_resumo||e.message||'');
+            if (!mapaErros[chave]) {
+                mapaErros[chave] = { type: e.type, msg: e.msg_resumo||e.message||'—', total: 0, ultima_vez: e.ultima_vez };
+            }
+            mapaErros[chave].total += parseInt(e.total||1);
+            if (e.ultima_vez > mapaErros[chave].ultima_vez) mapaErros[chave].ultima_vez = e.ultima_vez;
+        });
+    });
+
+    let lista = Object.values(mapaErros).sort((a,b)=>b.total-a.total);
+    if (tipo) lista = lista.filter(e => e.type === tipo);
+
+    if (!lista.length) {
+        elRes.innerHTML = `<div class="empty" style="padding:16px">✓ Nenhum erro encontrado${tipo?' do tipo '+tipo:''} no período.</div>`;
+        return;
+    }
+
+    const totalSnapshots = rows.length;
+    const totalErros = lista.reduce((s,e)=>s+e.total,0);
+
+    elRes.innerHTML = `
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <div style="background:var(--bg3);border-radius:7px;padding:8px 14px;font-size:12px">
+                <span style="font-weight:700;font-family:var(--mono);color:#e8eef8">${totalErros}</span>
+                <span style="color:#a0b8d0"> erros totais</span>
+            </div>
+            <div style="background:var(--bg3);border-radius:7px;padding:8px 14px;font-size:12px">
+                <span style="font-weight:700;font-family:var(--mono);color:#e8eef8">${lista.length}</span>
+                <span style="color:#a0b8d0"> tipos distintos</span>
+            </div>
+            <div style="background:var(--bg3);border-radius:7px;padding:8px 14px;font-size:12px">
+                <span style="font-weight:700;font-family:var(--mono);color:#8096b8">${totalSnapshots}</span>
+                <span style="color:#a0b8d0"> snapshots analisados</span>
+            </div>
+        </div>
+        ${lista.map(e=>`<div class="erro-item">
+            <div class="erro-msg">${h(e.msg)}</div>
+            <div class="erro-meta">
+                <span class="badge ${e.type==='print'?'ba':e.type==='order'?'br':'bb'}">${h(e.type||'?')}</span>
+                <span style="font-weight:700;color:#e8eef8">${e.total}x</span>
+                <span>último: ${e.ultima_vez?new Date(e.ultima_vez).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'}</span>
+            </div>
+        </div>`).join('')}`;
+}
 
 // ── Histórico com filtro de período ──────────────────────────────────────────
 function atalhoHist(dias, token) {
@@ -830,6 +962,22 @@ let nocDragging=null, nocNodes={};
 let nocPanActive=false, nocPanSX=0, nocPanSY=0, nocPanVX=0, nocPanVY=0;
 let nocSpaceDown=false;
 let _nocTablets=[], _nocImps=[], _nocIP='';
+let _nocPanIntervals={};
+
+function nocPanBtn(dir, active) {
+    clearInterval(_nocPanIntervals[dir]);
+    if (!active) return;
+    const step = 12;
+    const mover = () => {
+        if (dir==='up')    nocVY += step;
+        if (dir==='down')  nocVY -= step;
+        if (dir==='left')  nocVX += step;
+        if (dir==='right') nocVX -= step;
+        applyNocTransform();
+    };
+    mover();
+    _nocPanIntervals[dir] = setInterval(mover, 80);
+}
 
 document.addEventListener('keydown',e=>{
     if(e.code==='Space'&&document.getElementById('tab-topologia')?.classList.contains('on')){
