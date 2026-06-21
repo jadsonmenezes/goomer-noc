@@ -1,597 +1,979 @@
-// ─── GOOMER TOOLS — AGENTE ───────────────────────────────────────────────────
-// Roda na máquina da loja, coleta dados e envia para o Supabase a cada 5 min.
-// Instalação: npm install   →   node agente.js
-// Como serviço: instale NSSM e rode: nssm install GoomerAgente "node" "C:\caminho\agente.js"
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Goomer NOC</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#04080f;--bg2:#080f1c;--bg3:#0d1626;--bg4:#111e33;
+  --border:rgba(14,92,254,0.15);--border2:rgba(14,92,254,0.3);
+  --text:#e8eef8;--sub:#8096b8;--muted:#3a4f72;
+  --green:#00d68f;--blue:#0e5cfe;--blue-l:#4d8fff;
+  --amber:#ffb830;--red:#ff4455;--purple:#7c5cfc;
+  --sans:'Inter',sans-serif;--mono:'JetBrains Mono',monospace;
+}
+body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh}
 
-const mysql  = require('mysql2/promise');
-const axios  = require('axios');
-const { execSync } = require('child_process');
-const fs     = require('fs');
-const crypto = require('crypto');
+.topbar{background:var(--blue);padding:0 24px;height:50px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 20px rgba(14,92,254,0.35)}
+.logo{font-size:15px;font-weight:800;letter-spacing:.08em;color:#fff}
+.logo span{font-weight:400;opacity:.7}
+.topbar-right{display:flex;align-items:center;gap:14px}
+#last-update{font-size:11px;color:rgba(255,255,255,0.9);font-family:var(--mono)}
+.btn{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;transition:.15s}
+.btn:hover{background:rgba(255,255,255,0.25)}
 
-// ── Configuração Supabase ─────────────────────────────────────────────────────
-const SUPABASE_URL      = 'https://jlatddmzhatbznbgfhfa.supabase.co';
-const SUPABASE_KEY      = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpsYXRkZG16aGF0YnpuYmdmaGZhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTkyMzA1MywiZXhwIjoyMDk3NDk5MDUzfQ.FfkDRwmcfD_uJtFIlhrnO3RuDZY8piuDd3diDBOvp2o';
-const INTERVALO_MS      = 5 * 60 * 1000; // 5 minutos
+.main{padding:20px 24px;max-width:1600px;margin:0 auto}
 
-// ── Configuração MySQL ────────────────────────────────────────────────────────
-const DB_PASS  = 'QrhPWmxXDSBLT5pq';
-const DB_PORTS = [3306, 3307, 3308];
+/* Barra de busca e filtros */
+.toolbar{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+.search-input{flex:1;min-width:200px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:9px 14px;border-radius:8px;font-size:13px;font-family:var(--sans);outline:none}
+.search-input:focus{border-color:var(--blue)}
+.search-input::placeholder{color:#8096b8}
+.filter-btn{background:var(--bg2);border:1px solid var(--border);color:var(--sub);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;transition:.15s}
+.filter-btn:hover,.filter-btn.ativo{background:rgba(14,92,254,0.12);border-color:var(--blue);color:var(--blue-l)}
 
-let dbPortAtiva = null;
-async function getDb() {
-    if (dbPortAtiva) {
-        try {
-            return await mysql.createConnection({
-                host:'127.0.0.1', user:'root', password:DB_PASS,
-                database:'oimenu', timezone:'+00:00', port:dbPortAtiva
-            });
-        } catch(e) { dbPortAtiva = null; }
-    }
-    for (const port of DB_PORTS) {
-        try {
-            const conn = await mysql.createConnection({
-                host:'127.0.0.1', user:'root', password:DB_PASS,
-                database:'oimenu', timezone:'+00:00', port
-            });
-            dbPortAtiva = port;
-            return conn;
-        } catch(e) { continue; }
-    }
-    throw new Error('MySQL não encontrado');
+/* Resumo geral */
+.resumo{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:20px}
+.rc{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.rc-lbl{font-size:11px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px;font-weight:600}
+.rc-val{font-size:24px;font-weight:800;font-family:var(--mono);line-height:1}
+.rc-sub{font-size:11px;color:#a0b8d0;margin-top:4px;font-weight:500}
+
+/* Grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+
+/* Card loja */
+.loja{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;cursor:pointer;transition:.18s}
+.loja:hover{border-color:var(--border2);transform:translateY(-1px);box-shadow:0 6px 24px rgba(0,0,0,.3)}
+.loja-head{padding:13px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border)}
+.status-badge{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap;border:1.5px solid}
+.loja-info{flex:1;min-width:0}
+.loja-nome{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.loja-ip{font-size:11px;color:var(--sub);font-family:var(--mono);margin-top:2px}
+.score-circle{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;border:2.5px solid;flex-shrink:0;font-family:var(--mono)}
+.loja-body{padding:12px 16px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.kpi{background:var(--bg3);border-radius:7px;padding:7px 8px;text-align:center}
+.kpi-val{font-size:16px;font-weight:700;font-family:var(--mono);line-height:1}
+.kpi-lbl{font-size:10px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.04em;margin-top:3px;font-weight:500}
+.alertas{display:flex;flex-direction:column;gap:3px}
+.al{display:flex;align-items:center;gap:6px;font-size:11px;padding:4px 8px;border-radius:5px;font-weight:500}
+.al-crit{background:rgba(255,68,85,.1);color:#ff6b7a;border-left:2px solid var(--red)}
+.al-warn{background:rgba(255,184,48,.08);color:#ffc94d;border-left:2px solid var(--amber)}
+.al-ok{background:rgba(0,214,143,.07);color:#33e8a8;border-left:2px solid var(--green)}
+.al-info{background:rgba(14,92,254,.08);color:var(--blue-l);border-left:2px solid var(--blue)}
+.loja-foot{padding:7px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#a0b8d0}
+
+/* Modal */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;display:none;align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto}
+.overlay.on{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:820px;margin:auto}
+.modal-head{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start;position:sticky;top:0;background:var(--bg2);z-index:1;border-radius:14px 14px 0 0}
+.modal-close{background:none;border:none;color:var(--sub);font-size:20px;cursor:pointer;padding:2px 8px;line-height:1}
+.modal-close:hover{color:var(--text)}
+.modal-body{padding:20px}
+.modal-tabs{display:flex;gap:4px;margin-bottom:18px;flex-wrap:wrap}
+.modal-tab{background:var(--bg3);border:1px solid var(--border);color:var(--sub);padding:6px 14px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;transition:.15s}
+.modal-tab:hover,.modal-tab.on{background:rgba(14,92,254,.15);border-color:var(--blue);color:var(--blue-l)}
+.modal-panel{display:none}.modal-panel.on{display:block}
+.sec{margin-bottom:18px}
+.sec-t{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#8096b8;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
+.row:last-child{border:none}
+.rl{color:#a0b8d0}
+.rv{font-weight:600;font-family:var(--mono);text-align:right}
+/* Tab item */
+.tab-card{background:var(--bg3);border-radius:8px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border)}
+.tab-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.tab-nome{font-size:13px;font-weight:700}
+.bar-row{display:flex;align-items:center;gap:8px;font-size:11px;color:#8096b8;margin-bottom:4px}
+.bar-track{height:4px;background:var(--bg4);border-radius:2px;flex:1}
+.bar-fill{height:100%;border-radius:2px}
+/* Erros */
+.erro-item{background:var(--bg3);border-radius:7px;padding:9px 12px;margin-bottom:6px;border-left:3px solid var(--red)}
+.erro-msg{font-size:12px;color:var(--text);font-family:var(--mono);margin-bottom:4px;word-break:break-all}
+.erro-meta{font-size:10px;color:#8096b8;display:flex;gap:10px}
+/* Histórico */
+.hist{display:flex;align-items:flex-end;gap:3px;height:56px;margin-top:6px}
+.hist-bar{flex:1;border-radius:2px 2px 0 0;min-height:2px;cursor:default}
+/* Topologia mini */
+.topo-mini{background:var(--bg3);border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center;font-size:12px;color:var(--sub)}
+/* Badge */
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;border:1px solid}
+.bg{background:rgba(0,214,143,.12);color:#33e8a8;border-color:rgba(0,214,143,.3)}
+.br{background:rgba(255,68,85,.12);color:#ff6b7a;border-color:rgba(255,68,85,.3)}
+.ba{background:rgba(255,184,48,.12);color:#ffc94d;border-color:rgba(255,184,48,.3)}
+.bm{background:rgba(255,255,255,.06);color:var(--sub);border-color:rgba(255,255,255,.1)}
+.bb{background:rgba(14,92,254,.12);color:var(--blue-l);border-color:rgba(14,92,254,.3)}
+.empty{text-align:center;padding:60px 20px;color:#8096b8;font-size:14px}
+.loading{text-align:center;padding:60px;color:var(--sub);font-size:13px;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">GOOMER <span>NOC</span></div>
+  <div class="topbar-right">
+    <span id="last-update">—</span>
+    <button class="btn" onclick="carregar()">↺ atualizar</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="resumo" id="resumo"></div>
+
+  <div class="toolbar">
+    <input class="search-input" id="busca" placeholder="🔍  buscar loja por nome ou IP..." oninput="filtrar()">
+    <button class="filter-btn ativo" id="f-todos"    onclick="setFiltro('todos')">Todas</button>
+    <button class="filter-btn"       id="f-critico"  onclick="setFiltro('critico')">🔴 Crítico/Grave</button>
+    <button class="filter-btn"       id="f-atencao"  onclick="setFiltro('atencao')">🟡 Atenção</button>
+    <button class="filter-btn"       id="f-ok"       onclick="setFiltro('ok')">🟢 Estável/Saudável</button>
+    <button class="filter-btn"       id="f-offline"  onclick="setFiltro('offline')">⚫ Offline</button>
+    <button class="filter-btn" id="btn-order" onclick="toggleOrder()" style="margin-left:auto" title="Ordenar por score">↑ score</button>
+  </div>
+
+  <div id="grid"><div class="loading">carregando lojas...</div></div>
+</div>
+
+<!-- Modal -->
+<div class="overlay" id="overlay" onclick="closeOverlay(event)">
+  <div class="modal" id="modal">
+    <div class="modal-head">
+      <div>
+        <div style="font-size:16px;font-weight:700" id="m-titulo">—</div>
+        <div style="font-size:11px;color:#8096b8;margin-top:3px;font-family:var(--mono)" id="m-sub">—</div>
+      </div>
+      <button class="modal-close" onclick="document.getElementById('overlay').classList.remove('on')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-tabs">
+        <button class="modal-tab on" onclick="showTab('resumo')">Resumo</button>
+        <button class="modal-tab"    onclick="showTab('tablets')">Tablets</button>
+        <button class="modal-tab"    onclick="showTab('erros')">Logs de Erro</button>
+        <button class="modal-tab"    onclick="showTab('topologia')">Topologia</button>
+        <button class="modal-tab"    onclick="showTab('maquina')">Máquina</button>
+        <button class="modal-tab"    onclick="showTab('historico')">Histórico</button>
+      </div>
+      <div id="tab-resumo"    class="modal-panel on"></div>
+      <div id="tab-tablets"   class="modal-panel"></div>
+      <div id="tab-erros"     class="modal-panel"></div>
+      <div id="tab-topologia" class="modal-panel"></div>
+      <div id="tab-maquina"   class="modal-panel"></div>
+      <div id="tab-historico" class="modal-panel"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SB_URL = 'https://jlatddmzhatbznbgfhfa.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpsYXRkZG16aGF0YnpuYmdmaGZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5MjMwNTMsImV4cCI6MjA5NzQ5OTA1M30.kHqwdGX5aigoqFJI_HKRLK0M4RJPI4983FEzNJ9G7ME';
+
+const h = s => { const d=document.createElement('div'); d.textContent=String(s??''); return d.innerHTML; };
+
+const COR_STATUS = s => ({
+    'Saudável':'#00d68f','Estável':'#4d8fff',
+    'Atenção':'#ffb830','Crítico':'#ff4455','Grave':'#cc2233'
+}[s]||'#8096b8');
+
+// Cor baseada no objeto loja (usa normStatus para forçamentos)
+function corLoja(l) {
+    const ns = normStatus(l);
+    if (ns==='grave')   return '#ff4455';
+    if (ns==='atencao') return '#ffb830';
+    return '#00d68f';
 }
 
-async function getTokenAbrahao() {
-    try {
-        const db = await getDb();
-        const [rows] = await db.execute('SELECT token FROM store WHERE deletedAt IS NULL AND token IS NOT NULL LIMIT 1');
-        await db.end();
-        if (rows.length > 0 && rows[0].token) return rows[0].token.trim();
-    } catch(e) {}
-    return null;
+const BAR_COR = (v,lo,hi) => v>=hi?'#ff4455':v>=lo?'#ffb830':'#00d68f';
+
+let _dados = [], _filtro = 'todos', _order = 'asc'; // asc = piores primeiro
+
+async function sb(path, q='') {
+    const r = await fetch(`${SB_URL}/rest/v1/${path}${q}`,{
+        headers:{'apikey':SB_KEY,'Authorization':`Bearer ${SB_KEY}`}
+    });
+    return r.json();
 }
 
-function pingHost(ip) {
-    try {
-        const result = execSync(`ping -n 2 -w 800 ${ip}`, { timeout:5000 }).toString();
-        const matches = [...result.matchAll(/(?:tempo|time)[=<](\d+)ms/gi)];
-        const times = matches.map(m => parseInt(m[1])).filter(n => !isNaN(n));
-        const lossMatch = result.match(/(\d+)%\s+(?:de\s+)?(?:perda|loss)/i);
-        const loss = lossMatch ? parseInt(lossMatch[1]) : 0;
-        if (!times.length) return { latencia:null, perda:100, status:'sem resposta' };
-        const avg = Math.round(times.reduce((a,b)=>a+b,0)/times.length);
-        return { latencia:avg, perda:loss, status:loss===100?'sem resposta':loss>0?'instável':'ok' };
-    } catch(e) { return { latencia:null, perda:100, status:'sem resposta' }; }
+async function carregar() {
+    document.getElementById('last-update').textContent =
+        new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+
+    const rows = await sb('snapshots','?select=*&order=criado_em.desc&limit=500');
+    if (!Array.isArray(rows)||!rows.length) {
+        document.getElementById('grid').innerHTML =
+            '<div class="empty">📡 Nenhuma loja conectada ainda.<br><span style="font-size:12px;color:#8096b8">Instale o agente nas lojas piloto e aguarde o primeiro envio.</span></div>';
+        return;
+    }
+
+    // Agrupar por token — mais recente de cada loja
+    const map = {};
+    rows.forEach(r => { if (!map[r.token_loja]||r.criado_em>map[r.token_loja].criado_em) map[r.token_loja]=r; });
+    _dados = Object.values(map).sort((a,b)=>a.score-b.score);
+
+    renderResumo();
+    filtrar();
 }
 
-// ── Coletar snapshot completo ─────────────────────────────────────────────────
-async function coletarSnapshot() {
-    const db = await getDb();
-    const snapshot = { coletado_em: new Date().toISOString() };
+// Normalizar status — suporte a registros antigos (letras) e novos (texto)
+function normStatus(l) {
+    const s = (l.status||l.nota||'').toLowerCase().trim();
+    let cat;
+    if (s==='grave'||s==='f')                  cat='grave';
+    else if (s==='crítico'||s==='critico'||s==='d') cat='grave';
+    else if (s==='atenção'||s==='atencao'||s==='c') cat='atencao';
+    else if (s==='estável'||s==='estavel'||s==='b') cat='ok';
+    else if (s==='saudável'||s==='saudavel'||s==='a') cat='ok';
+    else cat='atencao';
 
-    try {
-        // Loja
-        const [cfgRows] = await db.execute('SELECT store_name, is_overdue, erp_id, local_server_port FROM app_configuration LIMIT 1');
-        const [storeRows] = await db.execute('SELECT token FROM store WHERE deletedAt IS NULL LIMIT 1');
-        snapshot.token_loja  = storeRows[0]?.token || 'sem_token';
-        snapshot.nome_loja   = cfgRows[0]?.store_name || 'Loja';
-        snapshot.inadimplente = cfgRows[0]?.is_overdue || false;
-        snapshot.erp_id       = cfgRows[0]?.erp_id || null;
-        snapshot.porta_local  = cfgRows[0]?.local_server_port || 5000;
-    } catch(e) { snapshot.erro_loja = e.message; }
+    // Forçar categoria mínima para condições críticas (corrige snapshots antigos)
+    if (!l.servidor_online && (cat==='ok')) cat='grave';
+    const pay = l.payload||{};
+    if (pay.inadimplente && cat==='ok') cat='grave';
+    if ((l.retry_expirados||0)>0 && cat==='ok') cat='atencao';
 
-    try {
-        // Pedidos do dia
-        const [ped] = await db.execute(`SELECT COUNT(*) AS total, SUM(retry_expired) AS retries, SUM(sent_to_erp_error) AS erros_erp FROM sale_order WHERE DATE(createdAt)=CURDATE()`);
-        snapshot.pedidos_hoje       = parseInt(ped[0].total || 0);
-        snapshot.retry_expirados    = parseInt(ped[0].retries || 0);
-        snapshot.erros_erp          = parseInt(ped[0].erros_erp || 0);
-    } catch(e) {}
-
-    try {
-        // Logs de erro últimas 2h
-        const [logs] = await db.execute(`SELECT COUNT(*) AS total FROM device_log WHERE level='error' AND created_at >= UTC_TIMESTAMP() - INTERVAL 2 HOUR`);
-        snapshot.erros_log = parseInt(logs[0].total || 0);
-    } catch(e) {}
-
-    try {
-        // Tablets — banco como base
-        const [tabs] = await db.execute(`
-            SELECT t.id, t.note AS modelo, t.app_version, t.battery_level, t.wifi_level,
-                   t.identity,
-                   JSON_UNQUOTE(JSON_EXTRACT(t.data_send,'$.ip')) AS ip,
-                   st.code AS mesa_numero,
-                   ABS(TIMESTAMPDIFF(MINUTE,t.updatedAt,UTC_TIMESTAMP())) AS mins_sem_update
-            FROM tablet t LEFT JOIN store_table st ON t.store_table_id=st.id
-            WHERE t.deletedAt IS NULL
-        `);
-        const ativos = tabs.filter(t => t.app_version);
-        snapshot.tablets_total  = tabs.length;
-        snapshot.tablets_ativos = ativos.length;
-
-        // Enriquecer com API Abrahão (bateria e sinal em tempo real)
-        let abrahaoMap = {};
-        try {
-            const token = await getTokenAbrahao();
-            if (token) {
-                const resp = await axios.get(
-                    `https://api.abrahao.com.br/tablets?token=${token}`,
-                    { timeout:4000 }
-                );
-                const lista = resp.data?.data || [];
-                lista.forEach(t => {
-                    if (t.identity) abrahaoMap[t.identity.replace(/^dev-/,'')] = t;
-                });
-            }
-        } catch(e) {}
-
-        // Ping nos tablets ativos
-        const tabletsComPing = await Promise.all(ativos.map(async t => {
-            const key  = (t.identity||'').replace(/^dev-/,'');
-            const api  = abrahaoMap[key];
-            // API tem prioridade para dados voláteis
-            const bateria = api ? parseInt(api.battery_level) : t.battery_level;
-            const sinal   = api ? parseInt(api.wifi_level)    : t.wifi_level;
-            const ip      = (t.ip && t.ip!=='null') ? t.ip : api?.ip;
-            const ping = (ip && ip !== 'null') ? pingHost(ip) : { status:'sem_ip' };
-            return {
-                mesa:           t.mesa_numero,
-                modelo:         t.modelo,
-                ip,
-                bateria,
-                sinal,
-                versao:         api?.app_version || t.app_version,
-                mins_sem_update: t.mins_sem_update,
-                fonte_bateria:  api ? 'api' : 'banco',
-                ping
-            };
-        }));
-        snapshot.tablets = tabletsComPing;
-
-        snapshot.tablets_criticos = tabletsComPing.filter(t =>
-            t.ping?.status === 'sem resposta' ||
-            parseInt(t.bateria||0) < 15 ||
-            parseInt(t.sinal||0) < 20
-        ).length;
-    } catch(e) { snapshot.erro_tablets = e.message; }
-
-    try {
-        // Impressoras
-        const [imps] = await db.execute('SELECT name, uri, default_printer FROM printer WHERE deletedAt IS NULL');
-        const [logsImp] = await db.execute(`SELECT COUNT(*) AS total FROM device_log WHERE type='print' AND level='error' AND created_at >= UTC_TIMESTAMP() - INTERVAL 2 HOUR`);
-        snapshot.impressoras_total = imps.length;
-        snapshot.erros_impressora  = parseInt(logsImp[0].total || 0);
-        snapshot.impressoras = imps.map(i => ({ nome: i.name, uri: i.uri, padrao: i.default_printer }));
-    } catch(e) {}
-
-    try {
-        // Informações do banco MySQL
-        const [versaoDb] = await db.execute('SELECT VERSION() AS v');
-        const [instDb]   = await db.execute('SELECT MIN(createdAt) AS dt FROM store');
-        snapshot.db_versao    = versaoDb[0]?.v || null;
-        snapshot.db_port      = dbPortAtiva;
-        snapshot.db_instalado = instDb[0]?.dt || null;
-    } catch(e) {}
-
-    try {
-        // Versão do servidor Goomer — extraída do bundle.js
-        // Testa múltiplas portas pois varia por instalação (4999, 5000, 5001...)
-        let gVersion = null;
-        const portaBase = snapshot.porta_local || 5000;
-        const portasTeste = [...new Set([portaBase, 4999, 5000, 5001, 5002, 5003, 5004])];
-
-        for (const porta of portasTeste) {
-            try {
-                const resp = await axios.get(`http://localhost:${porta}/bundle.js`, {
-                    timeout: 4000,
-                    responseType: 'text'
-                });
-                const match = resp.data.match(/"name"\s*:\s*"abrahao-servidor"[^}]*?"version"\s*:\s*"([^"]+)"/);
-                if (match) {
-                    gVersion = match[1];
-                    console.log(`✅ Versão Goomer: ${gVersion} (porta ${porta})`);
-                    break;
-                }
-            } catch(e) {}
-        }
-
-        snapshot.goomer_version = gVersion;
-    } catch(e) { snapshot.goomer_version = null; }
-
-    try {
-        // Performance da máquina via PowerShell
-        const { execSync } = require('child_process');
-        const fs = require('fs');
-        const script = [
-            '$cpu = (Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average',
-            '$os  = Get-WmiObject Win32_OperatingSystem',
-            '$ram = [math]::Round($os.TotalVisibleMemorySize/1MB,1)',
-            '$ramUsed = [math]::Round(($os.TotalVisibleMemorySize-$os.FreePhysicalMemory)/1MB,1)',
-            '$ramPct  = [math]::Round($ramUsed/$ram*100)',
-            '$discos  = Get-WmiObject Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object {',
-            '    "$($_.DeviceID)|$([math]::Round(($_.Size-$_.FreeSpace)/1GB,1))|$([math]::Round($_.Size/1GB,1))|$([math]::Round(($_.Size-$_.FreeSpace)/$_.Size*100))"',
-            '}',
-            '$uptime = (Get-Date)-$os.ConvertToDateTime($os.LastBootUpTime)',
-            '[PSCustomObject]@{',
-            '    cpu=$cpu; ram=$ram; ramUsed=$ramUsed; ramPct=$ramPct',
-            '    os=$os.Caption; build=$os.BuildNumber',
-            '    host=$env:COMPUTERNAME',
-            '    uptime="{0}d {1:D2}h {2:D2}m" -f [int]$uptime.TotalDays,$uptime.Hours,$uptime.Minutes',
-            '    discos=$discos -join ";"',
-            '} | ConvertTo-Json -Compress'
-        ].join("\n");
-        const tmp = require('os').tmpdir() + '\\gt_ag_perf_' + Date.now() + '.ps1';
-        try {
-            fs.writeFileSync(tmp, script, 'utf8');
-            const raw = execSync('powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + tmp + '"',
-                { timeout:10000, encoding:'utf8' }).trim();
-            const d = JSON.parse(raw);
-            snapshot.maquina = {
-                cpu:     d.cpu,
-                ram:     d.ram,
-                ram_usado: d.ramUsed,
-                ram_pct: d.ramPct,
-                so:      d.os,
-                build:   d.build,
-                host:    d.host,
-                uptime:  d.uptime,
-                discos:  (d.discos||'').split(';').filter(Boolean).map(s=>{
-                    const p=s.split('|');
-                    return {drive:p[0],usado:p[1],total:p[2],pct:parseInt(p[3])};
-                })
-            };
-        } finally { try { require('fs').unlinkSync(tmp); } catch(e){} }
-    } catch(e) { snapshot.maquina = null; }
-
-    try {
-        // IP real da máquina
-        const os = require('os');
-        const ifaces = os.networkInterfaces();
-        const ips = [];
-        Object.values(ifaces).forEach(list => {
-            (list||[]).forEach(i => {
-                if (i.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254')) {
-                    ips.push(i.address);
-                }
-            });
-        });
-        snapshot.ip_servidor  = ips[0] || null;
-        snapshot.ips_servidor = ips;
-    } catch(e) {}
-
-    try {
-        // Verificar divergência entre IP configurado no Goomer e IP real da máquina
-        // Se divergirem, os tablets não conseguem se comunicar com o servidor
-        const db2 = await getDb();
-        const [cfgIp] = await db2.execute(
-            'SELECT local_server_ip, local_server_port FROM app_configuration LIMIT 1'
-        );
-        await db2.end();
-
-        const ipConfigurado = cfgIp[0]?.local_server_ip || null;
-        const ipReal        = snapshot.ip_servidor;
-
-        snapshot.ip_configurado = ipConfigurado;
-
-        if (ipConfigurado && ipReal && ipConfigurado !== ipReal) {
-            // IPs divergem — tablets estão procurando o servidor no IP errado
-            snapshot.ip_divergente = true;
-            snapshot.alertas_criticos = (snapshot.alertas_criticos || 0) + 1;
-            console.log(`⚠ IP DIVERGENTE: configurado=${ipConfigurado} | real=${ipReal}`);
-            console.log(`  Tablets estão procurando o servidor em ${ipConfigurado} mas a máquina está em ${ipReal}`);
-            console.log(`  Acesse o painel Goomer e atualize o IP do servidor local.`);
-        } else {
-            snapshot.ip_divergente = false;
-        }
-    } catch(e) { snapshot.ip_divergente = null; }
-
-    try {
-        // Logs categorizados — top erros por mensagem
-        const [topMsgs] = await db.execute(`
-            SELECT type, level,
-                   LEFT(message, 80) AS msg_resumo,
-                   COUNT(*) AS total,
-                   MAX(created_at) AS ultima_vez
-            FROM device_log
-            WHERE level='error'
-              AND created_at >= UTC_TIMESTAMP() - INTERVAL 2 HOUR
-            GROUP BY type, LEFT(message, 80)
-            ORDER BY total DESC
-            LIMIT 10
-        `);
-        snapshot.top_erros = topMsgs;
-    } catch(e) {}
-
-    try {
-        // Volume de erros por hora (últimas 6h)
-        const [volHora] = await db.execute(`
-            SELECT DATE_FORMAT(created_at,'%H:00') AS hora,
-                   SUM(CASE WHEN level='error' THEN 1 ELSE 0 END) AS erros
-            FROM device_log
-            WHERE created_at >= UTC_TIMESTAMP() - INTERVAL 6 HOUR
-            GROUP BY hora ORDER BY hora ASC
-        `);
-        snapshot.erros_por_hora = volHora;
-    } catch(e) {}
-
-    try {
-        // Status do servidor Goomer local
-        // O Goomer retorna 401 quando recebe requisição sem token — isso confirma que está rodando
-        const r = await axios.get(`http://localhost:${snapshot.porta_local}/configurations`, { timeout:2000 });
-        snapshot.servidor_goomer = 'online';
-    } catch(e) {
-        const status = e.response?.status;
-        const body   = JSON.stringify(e.response?.data || '');
-        // 401/403 com mensagem de credenciais = Goomer está rodando
-        if ((status === 401 || status === 403) && (
-            body.includes('token') || body.includes('credentials') ||
-            body.includes('credenciais') || body.includes('Authorization')
-        )) {
-            snapshot.servidor_goomer = 'online';
-        } else {
-            snapshot.servidor_goomer = 'offline';
-        }
-    }
-
-    await db.end();
-
-    // ── Calcular score de saúde sistêmico ────────────────────────────────────
-    // Princípio: medir só o que o suporte pode controlar.
-    // Tablets físicos (bateria, ping) não entram — dependem do comportamento da loja.
-    let pontos = 0, total = 0;
-
-    // ── Servidor Goomer (40pts) ───────────────────────────────────────────────
-    // É o coração do sistema — offline é o pior cenário possível
-    total += 40;
-    if (snapshot.servidor_goomer === 'online') pontos += 40;
-
-    // ── Integração ERP (25pts) ────────────────────────────────────────────────
-    // Pedidos não chegando ao sistema de gestão = impacto direto no negócio
-    total += 25;
-    if (snapshot.retry_expirados === 0 && snapshot.erros_erp === 0) {
-        pontos += 25;
-    } else if (snapshot.retry_expirados === 0) {
-        pontos += 18; // erros ERP mas sem retry expirado = parcial
-    } else {
-        pontos += 0;  // pedidos perdidos = crítico
-    }
-
-    // ── Volume de erros sistêmicos (20pts) ────────────────────────────────────
-    // Erros de log indicam problemas de software/integração
-    total += 20;
-    if      (snapshot.erros_log === 0)        pontos += 20;
-    else if (snapshot.erros_log < 50)         pontos += 16;
-    else if (snapshot.erros_log < 200)        pontos += 10;
-    else if (snapshot.erros_log < 500)        pontos +=  5;
-    // acima de 500 = 0pts
-
-    // ── Saúde da máquina servidora (15pts) ────────────────────────────────────
-    // CPU/RAM/disco do servidor impactam todos os serviços
-    total += 15;
-    if (snapshot.maquina) {
-        const cpu   = parseInt(snapshot.maquina.cpu || 0);
-        const ram   = parseInt(snapshot.maquina.ram_pct || 0);
-        const discos = snapshot.maquina.discos || [];
-        const discoCrit  = discos.some(d => parseInt(d.pct) > 90);
-        const discoAlerta = discos.some(d => parseInt(d.pct) > 75);
-
-        if      (cpu < 70 && ram < 75 && !discoAlerta) pontos += 15;
-        else if (cpu < 85 && ram < 85 && !discoCrit)   pontos += 10;
-        else if (cpu < 95 && ram < 95 && !discoCrit)   pontos +=  5;
-        // recursos críticos = 0pts
-    } else {
-        pontos += 10; // sem dados de máquina = parcial (não penalizar agente antigo)
-    }
-
-    // ── Situação financeira não entra no score ────────────────────────────────
-    // Bloqueio financeiro força status "Crítico" diretamente (ver abaixo)
-    // mas não altera o score numérico pois é questão administrativa, não técnica
-
-    pontos = Math.max(0, pontos);
-    const pct = total > 0 ? Math.round((pontos/total)*100) : 0;
-
-    // Status base pelo score
-    let status = pct>=85?'Saudável':pct>=65?'Estável':pct>=45?'Atenção':pct>=25?'Crítico':'Grave';
-
-    // Forçar status mínimo por condições críticas independente do score
-    if (snapshot.servidor_goomer === 'offline') {
-        // Servidor Goomer offline = no mínimo Crítico
-        if (status === 'Saudável' || status === 'Estável' || status === 'Atenção') {
-            status = 'Crítico';
-        }
-    }
-    if (snapshot.inadimplente) {
-        // Bloqueio financeiro = no mínimo Crítico
-        if (status === 'Saudável' || status === 'Estável') {
-            status = 'Crítico';
-        }
-    }
-    if (snapshot.retry_expirados > 0) {
-        // Pedidos sem ERP = no mínimo Atenção
-        if (status === 'Saudável' || status === 'Estável') {
-            status = 'Atenção';
-        }
-    }
-
-    snapshot.score  = pct;
-    snapshot.nota   = status; // mantido para compatibilidade
-    snapshot.status = status;
-
-    // Alertas resumidos
-    const alertas_criticos = [
-        snapshot.inadimplente,
-        snapshot.servidor_goomer === 'offline',
-        snapshot.retry_expirados > 0,
-        (snapshot.tablets_criticos||0) > 0
-    ].filter(Boolean).length;
-
-    const alertas_avisos = [
-        snapshot.erros_log > 100,
-        snapshot.erros_impressora > 0
-    ].filter(Boolean).length;
-
-    snapshot.alertas_criticos = alertas_criticos;
-    snapshot.alertas_avisos   = alertas_avisos;
-
-    // Alertas de máquina (para exibição — não afetam score)
-    if (snapshot.maquina) {
-        const cpu  = parseInt(snapshot.maquina.cpu||0);
-        const ram  = parseInt(snapshot.maquina.ram_pct||0);
-        const discoCrit = (snapshot.maquina.discos||[]).some(d=>parseInt(d.pct)>90);
-        if (discoCrit)           snapshot.alertas_criticos++;
-        if (cpu > 90 || ram > 90) snapshot.alertas_avisos++;
-    }
-
-    return snapshot;
+    return cat;
 }
 
-// ── Enviar para Supabase ──────────────────────────────────────────────────────
-async function enviarSupabase(snap) {
-    // Payload leve — KPIs essenciais sempre enviados
-    // Dados detalhados (logs, máquina, top erros) só a cada 30min para economizar espaço
+// Status descritivo para exibição (considera forçamentos)
+function statusLabel(l) {
+    if (!l.servidor_online) return 'Crítico';
+    const pay = l.payload||{};
+    if (pay.inadimplente)          return 'Crítico';
+    return l.status||l.nota||'?';
+}
+
+function renderResumo() {
+    const total    = _dados.length;
+    const graves   = _dados.filter(l=>normStatus(l)==='grave').length;
+    const atencao  = _dados.filter(l=>normStatus(l)==='atencao').length;
+    const ok       = _dados.filter(l=>normStatus(l)==='ok').length;
+    const offline  = _dados.filter(l=>!l.servidor_online).length;
+    const agora_r  = new Date();
+    const semDados = _dados.filter(l=>Math.round((agora_r-new Date(l.criado_em))/60000)>60).length;
+    const scoreAvg = total>0 ? Math.round(_dados.reduce((s,l)=>s+(l.score||0),0)/total) : 0;
+    const tabAtivos= _dados.reduce((s,l)=>s+(l.tablets_ativos||0),0);
+
+    document.getElementById('resumo').innerHTML = [
+        {lbl:'Lojas monitoradas', val:total,            sub:'',              cor:''},
+        {lbl:'Crítico / Grave',   val:graves,           sub:'ação imediata', cor:graves>0?'var(--red)':'var(--green)'},
+        {lbl:'Atenção',           val:atencao,          sub:'monitorar',     cor:atencao>0?'var(--amber)':'var(--sub)'},
+        {lbl:'Estável / Saudável',val:ok,               sub:'operação normal',cor:'var(--green)'},
+        {lbl:'Servidor Goomer offline',  val:offline,          sub:'',              cor:offline>0?'var(--red)':'var(--green)'},
+        {lbl:'Sem dados (+1h)',    val:semDados,         sub:'desconectados',  cor:semDados>0?'var(--red)':'var(--sub)'},
+        {lbl:'Saúde média',       val:scoreAvg+'%',     sub:'saúde geral',   cor:''},
+        {lbl:'Tablets ativos',    val:tabAtivos,        sub:'total nas lojas',cor:''},
+    ].map(c=>`<div class="rc" style="${c.cor?'border-color:'+c.cor+'40':''}">
+        <div class="rc-lbl">${c.lbl}</div>
+        <div class="rc-val" style="color:${c.cor||'var(--text)'}">${c.val}</div>
+        ${c.sub?`<div class="rc-sub">${c.sub}</div>`:''}
+    </div>`).join('');
+}
+
+function toggleOrder() {
+    _order = _order === 'asc' ? 'desc' : 'asc';
+    const btn = document.getElementById('btn-order');
+    if (btn) btn.textContent = _order === 'asc' ? '↑ score' : '↓ score';
+    filtrar();
+}
+
+function setFiltro(f) {
+    _filtro = f;
+    document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('ativo'));
+    document.getElementById('f-'+f)?.classList.add('ativo');
+    filtrar();
+}
+
+function filtrar() {
+    const busca = (document.getElementById('busca')?.value||'').toLowerCase();
     const agora = new Date();
-    const minuto = agora.getMinutes();
-    const isSnapCompleto = (minuto % 30 < 5); // janela de 5min a cada 30min
+    const lista = _dados.filter(l => {
+        const nome   = (l.nome_loja||'').toLowerCase();
+        const ip     = (l.ip_servidor||l.payload?.ip_servidor||'').toLowerCase();
+        const mins_l = Math.round((agora - new Date(l.criado_em)) / 60000);
+        if (busca && !nome.includes(busca) && !ip.includes(busca)) return false;
+        const ns = normStatus(l);
+        if (_filtro==='critico') return ns==='grave';
+        if (_filtro==='atencao') return ns==='atencao';
+        if (_filtro==='ok')      return ns==='ok';
+        if (_filtro==='offline') return !l.servidor_online || mins_l > 60;
+        return true;
+    });
+    lista.sort((a,b) => _order==='asc' ? a.score-b.score : b.score-a.score);
+    renderGrid(lista);
+}
 
-    // Payload compacto do snapshot (sem dados pesados)
-    const snapLeve = {
-        token_loja:      snap.token_loja,
-        nome_loja:       snap.nome_loja,
-        score:           snap.score,
-        nota:            snap.nota,
-        status:          snap.status,
-        servidor_goomer: snap.servidor_goomer,
-        ip_servidor:     snap.ip_servidor,
-        goomer_version:  snap.goomer_version,
-        db_port:         snap.db_port,
-        db_versao:       snap.db_versao,
-        db_instalado:    snap.db_instalado,
-        inadimplente:    snap.inadimplente,
-        pedidos_hoje:    snap.pedidos_hoje,
-        retry_expirados: snap.retry_expirados,
-        erros_erp:       snap.erros_erp,
-        erros_log:       snap.erros_log,
-        erros_impressora:snap.erros_impressora,
-        tablets_total:   snap.tablets_total,
-        tablets_ativos:  snap.tablets_ativos,
-        tablets_criticos:snap.tablets_criticos,
-        alertas_criticos:snap.alertas_criticos,
-        alertas_avisos:  snap.alertas_avisos,
-        coletado_em:     snap.coletado_em,
-        // Tablets com dados básicos (sem histórico detalhado)
-        tablets: (snap.tablets||[]).map(t => ({
-            mesa:    t.mesa,
-            modelo:  t.modelo,
-            ip:      t.ip,
-            bateria: t.bateria,
-            sinal:   t.sinal,
-            versao:  t.versao,
-            ping:    t.ping,
-            fonte_bateria: t.fonte_bateria
-        })),
-        impressoras: snap.impressoras,
-    };
-
-    // Dados de máquina sempre incluídos (tamanho pequeno, muito útil no NOC)
-    snapLeve.maquina = snap.maquina;
-
-    // Logs detalhados só a cada 30min (são os dados mais pesados)
-    if (isSnapCompleto) {
-        snapLeve.top_erros      = snap.top_erros;
-        snapLeve.erros_por_hora = snap.erros_por_hora;
-        console.log(`[snapshot completo com logs detalhados]`);
+function renderGrid(lista) {
+    if (!lista.length) {
+        document.getElementById('grid').innerHTML='<div class="empty">Nenhuma loja encontrada com esses filtros.</div>';
+        return;
     }
+    document.getElementById('grid').innerHTML = '<div class="grid">'+lista.map(l=>{
+        const cor   = corLoja(l);
+        const pay   = l.payload||{};
+        const agora = new Date();
+        const mins  = Math.round((agora-new Date(l.criado_em))/60000);
+        const tempoLabel = mins<60?`${mins}min atrás`:`${Math.round(mins/60)}h atrás`;
+        const desatual = mins>15;
+        const ip    = l.ip_servidor||pay.ip_servidor||'—';
 
-    const payload = {
-        token_loja:       snap.token_loja,
-        nome_loja:        snap.nome_loja,
-        score:            snap.score,
-        nota:             snap.nota,
-        servidor_online:  snap.servidor_goomer === 'online',
-        tablets_ativos:   snap.tablets_ativos || 0,
-        tablets_total:    snap.tablets_total  || 0,
-        erros_log:        snap.erros_log      || 0,
-        retry_expirados:  snap.retry_expirados|| 0,
-        alertas_criticos: snap.alertas_criticos|| 0,
-        alertas_avisos:   snap.alertas_avisos  || 0,
-        ip_servidor:      snap.ip_servidor    || null,
-        payload:          snapLeve  // payload compacto em vez do snap completo
-    };
+        // Alertas — apenas os mais críticos e relevantes
+        const als=[];
+        if (!l.servidor_online)          als.push({c:'crit',m:'Servidor Goomer offline'});
+        if (pay.ip_divergente)             als.push({c:'crit',m:`IP divergente: tablets sem comunicação (${pay.ip_configurado} ≠ ${pay.ip_servidor})`});
+        if (pay.inadimplente)              als.push({c:'crit',m:'Bloqueio financeiro'});
+        if (l.retry_expirados>0)           als.push({c:'crit',m:`${l.retry_expirados} pedido(s) sem ERP`});
+        if (l.erros_log>500)               als.push({c:'warn',m:`Volume alto de erros recentes: ${l.erros_log}`});
+        // sem alertas = card limpo
 
-    const resp = await axios.post(
-        `${SUPABASE_URL}/rest/v1/snapshots`,
-        payload,
-        {
-            headers: {
-                'apikey':        SUPABASE_KEY,
-                'Authorization': `Bearer ${SUPABASE_KEY}`,
-                'Content-Type':  'application/json',
-                'Prefer':        'return=minimal'
-            },
-            timeout: 10000
-        }
+        return `<div class="loja" onclick="abrirLoja('${h(l.token_loja)}')">
+            <div class="loja-head" style="background:${mins>60?'rgba(255,68,85,.05)':mins>15?'rgba(255,184,48,.04)':'var(--bg3)'}">
+                <div class="score-circle" style="color:${mins>60?'#505068':cor};border-color:${mins>60?'#505068':cor};opacity:${mins>60?.5:1}">${l.score||0}%</div>
+                <div class="loja-info">
+                    <div class="loja-nome">${h(l.nome_loja||'Loja')}</div>
+                    <div class="loja-ip">${ip}${pay.goomer_version?' · v'+pay.goomer_version:''}</div>
+                </div>
+                <div class="status-badge" style="color:${cor};border-color:${cor}50;background:${cor}15">${statusLabel(l)}</div>
+            </div>
+            <div class="loja-body" style="padding:10px 14px">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+                    <div style="text-align:center;flex:1">
+                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${l.servidor_online?'var(--green)':'var(--red)'}">${l.servidor_online?'ON':'OFF'}</div>
+                        <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">servidor</div>
+                    </div>
+                    <div style="text-align:center;flex:1">
+                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:#e8eef8">${l.tablets_ativos||0}<span style="font-size:12px;color:#8096b8">/${l.tablets_total||0}</span></div>
+                        <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">tablets</div>
+                    </div>
+                    <div style="text-align:center;flex:1">
+                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${l.erros_log>200?'var(--red)':l.erros_log>50?'var(--amber)':'#e8eef8'}">${l.erros_log||0}</div>
+                        <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">erros recentes</div>
+                    </div>
+                    <div style="text-align:center;flex:1">
+                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${(l.payload?.pedidos_hoje||0)>0?'#e8eef8':'#8096b8'}">${l.payload?.pedidos_hoje||0}</div>
+                        <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">pedidos</div>
+                    </div>
+                </div>
+                <div class="alertas">
+                    ${als.slice(0,2).map(a=>`<div class="al al-${a.c}">${a.c==='crit'?'✕':'⚠'} ${h(a.m)}</div>`).join('')}
+                </div>
+            </div>
+            <div class="loja-foot" style="border-top:1px solid ${mins>60?'rgba(255,68,85,.2)':mins>15?'rgba(255,184,48,.2)':'var(--border)'}">
+                <span style="color:${mins>60?'var(--red)':mins>15?'var(--amber)':'#a0b8d0'}">
+                    ${mins>60?'⚠ sem dados há '+tempoLabel:mins>15?'⚠ '+tempoLabel:tempoLabel}
+                </span>
+                <span class="badge ${mins>60?'br':mins>15?'ba':l.servidor_online?'bg':'br'}">
+                    ${mins>60?'desconectado':mins>15?'desatualizado':l.servidor_online?'online':'offline'}
+                </span>
+            </div>
+        </div>`;
+    }).join('')+'</div>';
+}
+
+// ── Modal de detalhe ──────────────────────────────────────────────────────────
+let _tokenAtual = null;
+
+async function abrirLoja(token) {
+    _tokenAtual = token;
+    document.getElementById('overlay').classList.add('on');
+    document.getElementById('m-titulo').textContent = 'carregando...';
+    document.getElementById('m-sub').textContent = '';
+    ['resumo','tablets','erros','topologia','maquina','historico'].forEach(t=>
+        document.getElementById('tab-'+t).innerHTML='<div class="loading">buscando dados...</div>');
+    showTab('resumo');
+
+    const rows = await sb('snapshots',
+        `?token_loja=eq.${encodeURIComponent(token)}&order=criado_em.desc&limit=20`
     );
-    return resp.status;
+    if (!Array.isArray(rows)||!rows.length) return;
+
+    const l   = rows[0];
+    const pay = l.payload||{};
+    const cor = corLoja(l);
+    const ip  = l.ip_servidor||pay.ip_servidor||'—';
+
+    document.getElementById('m-titulo').textContent = l.nome_loja||'Loja';
+    document.getElementById('m-sub').textContent    = `IP: ${ip}  ·  Token: ${(l.token_loja||'').slice(0,16)}…  ·  ${new Date(l.criado_em).toLocaleString('pt-BR')}`;
+
+    // ── Tab Resumo ──────────────────────────────────────────────────────────
+    const ipsHistorico = [...new Set(rows.map(r=>r.ip_servidor||r.payload?.ip_servidor).filter(Boolean))];
+    const ipMudou = ipsHistorico.length > 1;
+
+    document.getElementById('tab-resumo').innerHTML = `
+        <div style="display:flex;align-items:center;gap:14px;padding:14px;background:var(--bg3);border-radius:10px;border:1px solid ${cor}40;margin-bottom:16px">
+            <div class="score-circle" style="color:${cor};border-color:${cor};width:56px;height:56px;font-size:15px">${l.score}%</div>
+            <div style="flex:1">
+                <div style="font-size:18px;font-weight:800;color:${cor}">${statusLabel(l)}</div>
+                <div style="font-size:12px;color:#8096b8;margin-top:2px">${l.alertas_criticos||0} crítico(s) · ${l.alertas_avisos||0} aviso(s)</div>
+            </div>
+            <div style="text-align:right">
+                <div class="badge ${l.servidor_online?'bg':'br'}" style="font-size:11px">${l.servidor_online?'● Servidor online':'○ Servidor Goomer offline'}</div>
+            </div>
+        </div>
+
+        ${ipMudou?`<div class="al al-warn" style="margin-bottom:12px">⚠ Mudança de IP detectada nos últimos snapshots: ${ipsHistorico.join(' → ')}</div>`:''}
+        ${pay.ip_divergente?`<div class="al al-crit" style="margin-bottom:12px">
+            ✕ IP divergente — tablets sem comunicação com o servidor<br>
+            <span style="font-size:11px;font-family:var(--mono)">Configurado: ${h(pay.ip_configurado||'?')} · Real: ${h(pay.ip_servidor||'?')}</span><br>
+            <span style="font-size:11px;color:#ff9aaa">Acesse o painel Goomer → Configurações → Servidor Local e atualize o IP.</span>
+        </div>`:''}
+
+        <div class="sec">
+            <div class="sec-t">operação</div>
+            <div class="row"><span class="rl">IP real da máquina</span><span class="rv" style="color:${pay.ip_divergente?'var(--red)':'#e8eef8'}">${h(pay.ip_servidor||ip||'—')}</span></div>
+            <div class="row"><span class="rl">IP configurado no Goomer</span><span class="rv" style="color:${pay.ip_divergente?'var(--red)':'#e8eef8'}">${h(pay.ip_configurado||'—')}${pay.ip_divergente?' ⚠':''}</span></div>
+            <div class="row"><span class="rl">Servidor Goomer</span><span class="rv" style="color:${l.servidor_online?'var(--green)':'var(--red)'}">${l.servidor_online?'online':'offline'}${pay.goomer_version?' · v'+pay.goomer_version:''}</span></div>
+            <div class="row"><span class="rl">Pedidos hoje</span><span class="rv">${pay.pedidos_hoje||0}</span></div>
+            <div class="row"><span class="rl">Retry expirados (ERP)</span><span class="rv" style="color:${l.retry_expirados>0?'var(--red)':'var(--green)'}">${l.retry_expirados||0}</span></div>
+            <div class="row"><span class="rl">Erros recentes</span><span class="rv" style="color:${l.erros_log>200?'var(--red)':l.erros_log>50?'var(--amber)':'var(--green)'}">${l.erros_log||0}</span></div>
+            <div class="row"><span class="rl">Erros de impressão (2h)</span><span class="rv" style="color:${(pay.erros_impressora||0)>0?'var(--amber)':'var(--green)'}">${pay.erros_impressora||0}</span></div>
+            ${pay.inadimplente?'<div class="row"><span class="rl">Situação financeira</span><span class="rv" style="color:var(--red)">⚠ Bloqueio financeiro</span></div>':''}
+        </div>
+
+        ${pay.db_versao||pay.db_port?`<div class="sec">
+            <div class="sec-t">banco de dados</div>
+            ${pay.db_port?`<div class="row"><span class="rl">Porta MySQL</span><span class="rv">mysql:${pay.db_port}</span></div>`:''}
+            ${pay.db_versao?`<div class="row"><span class="rl">Versão MySQL</span><span class="rv">${h(pay.db_versao)}</span></div>`:''}
+            ${pay.db_instalado?`<div class="row"><span class="rl">Instalado em</span><span class="rv">${new Date(pay.db_instalado).toLocaleDateString('pt-BR')}</span></div>`:''}
+        </div>`:''}
+
+        <div class="sec">
+            <div class="sec-t">tablets</div>
+            <div class="row"><span class="rl">Ativos</span><span class="rv">${l.tablets_ativos||0} / ${l.tablets_total||0}</span></div>
+            <div class="row"><span class="rl">Com problema</span><span class="rv" style="color:${(pay.tablets_criticos||0)>0?'var(--red)':'var(--green)'}">${pay.tablets_criticos||0}</span></div>
+        </div>
+
+        <div class="sec">
+            <div class="sec-t">impressoras</div>
+            ${(pay.impressoras||[]).map(i=>`
+            <div class="row">
+                <span class="rl">${h(i.nome)}${i.padrao?' <span class="badge bm">padrão</span>':''}</span>
+                <span class="rv" style="font-size:11px;color:#8096b8">${h(i.uri||'—')}</span>
+            </div>`).join('')||'<div style="font-size:12px;color:#8096b8;padding:6px 0">Nenhuma impressora cadastrada</div>'}
+        </div>`;
+
+    // ── Tab Tablets ─────────────────────────────────────────────────────────
+    const tabs = pay.tablets||[];
+    document.getElementById('tab-tablets').innerHTML = tabs.length ? tabs.map(t=>{
+        const bat   = parseInt(t.bateria||0);
+        const sinal = parseInt(t.sinal||0);
+        const ping  = t.ping||{};
+        const batCor   = BAR_COR(bat,   40, 20);  // invertido: baixo é ruim
+        const sinalCor = BAR_COR(sinal, 60, 30);
+        const pingLabel = ping.status==='sem resposta'?'offline':ping.status==='sem_ip'?'sem IP':ping.latencia?`${ping.latencia}ms`:'—';
+        const pingCor   = ping.status==='sem resposta'?'var(--red)':ping.latencia>150?'var(--amber)':'var(--green)';
+        return `<div class="tab-card">
+            <div class="tab-head">
+                <div class="tab-nome">${t.mesa?`Mesa ${t.mesa}`:h(t.modelo||'Tablet')}
+                    <span style="font-size:11px;font-weight:400;color:#8096b8"> · ${h(t.versao||'—')}</span>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center">
+                    <span style="font-family:var(--mono);font-size:11px;color:${pingCor}">${pingLabel}</span>
+                    <span class="badge ${ping.status==='sem resposta'?'br':ping.status==='sem_ip'?'bm':'bg'}">${ping.status==='sem resposta'?'offline':ping.status==='sem_ip'?'sem IP':'online'}</span>
+                </div>
+            </div>
+            <div style="font-size:11px;color:var(--sub);font-family:var(--mono);margin-bottom:8px">${h(t.ip||'sem IP')}${t.fonte_bateria?' · bat: tempo real':''}</div>
+            <div class="bar-row"><span style="width:40px">Bat</span>
+                <div class="bar-track"><div class="bar-fill" style="width:${bat}%;background:${bat<20?'var(--red)':bat<40?'var(--amber)':'var(--green)'}"></div></div>
+                <span style="color:${bat<20?'var(--red)':bat<40?'var(--amber)':'var(--green)'}">${bat}%</span>
+            </div>
+            <div class="bar-row"><span style="width:40px">Wi-Fi</span>
+                <div class="bar-track"><div class="bar-fill" style="width:${sinal}%;background:${sinal<30?'var(--red)':sinal<60?'var(--amber)':'var(--green)'}"></div></div>
+                <span style="color:${sinal<30?'var(--red)':sinal<60?'var(--amber)':'var(--green)'}">${sinal}%</span>
+            </div>
+        </div>`;
+    }).join('') : '<div class="empty">Sem dados de tablets neste snapshot.</div>';
+
+    // ── Tab Erros ────────────────────────────────────────────────────────────
+    const topErros = pay.top_erros||[];
+    const errHora  = pay.erros_por_hora||[];
+    let errosHtml = '';
+    if (errHora.length > 1) {
+        const maxE = Math.max(...errHora.map(h=>parseInt(h.erros||0)),1);
+        errosHtml += `<div class="sec"><div class="sec-t">volume por hora (últimas 6h)</div>
+            <div class="hist">${errHora.map(h=>{
+                const hh=Math.max(Math.round((parseInt(h.erros||0)/maxE)*52),1);
+                const c=parseInt(h.erros||0)>100?'var(--red)':parseInt(h.erros||0)>20?'var(--amber)':'var(--green)';
+                return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+                    <div style="font-size:8px;color:#8096b8">${h.erros||0}</div>
+                    <div class="hist-bar" style="height:${hh}px;background:${c}" title="${h.hora}: ${h.erros} erros"></div>
+                    <div style="font-size:8px;color:#8096b8">${(h.hora||'').slice(0,5)}</div>
+                </div>`;
+            }).join('')}</div></div>`;
+    }
+    if (topErros.length) {
+        errosHtml += `<div class="sec"><div class="sec-t">top erros por frequência</div>
+            ${topErros.map(e=>`<div class="erro-item">
+                <div class="erro-msg">${h(e.msg_resumo||e.message||'—')}</div>
+                <div class="erro-meta">
+                    <span class="badge ${e.type==='print'?'ba':e.type==='order'?'br':'bb'}">${h(e.type||'?')}</span>
+                    <span>${e.total}x</span>
+                    <span>último: ${new Date(e.ultima_vez).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+                </div>
+            </div>`).join('')}
+        </div>`;
+    } else {
+        errosHtml += '<div class="empty">✓ Nenhum erro de log nas últimas 2 horas.</div>';
+    }
+    document.getElementById('tab-erros').innerHTML = errosHtml;
+
+    // ── Tab Topologia interativa ─────────────────────────────────────────────
+    const tablets_t = pay.tablets||[];
+    const imps_t    = pay.impressoras||[];
+    document.getElementById('tab-topologia').innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--sub)">topologia de rede (snapshot)</div>
+            <div style="display:flex;gap:4px">
+                <button id="btn-topo-plus"  style="background:var(--bg3);border:1px solid var(--border);color:var(--sub);width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1">＋</button>
+                <button id="btn-topo-minus" style="background:var(--bg3);border:1px solid var(--border);color:var(--sub);width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1">－</button>
+                <button id="btn-topo-fit"   style="background:var(--bg3);border:1px solid var(--border);color:var(--sub);padding:0 10px;height:28px;border-radius:5px;cursor:pointer;font-size:11px">⊙ centralizar</button>
+            </div>
+        </div>
+        <div style="font-size:11px;color:var(--sub);margin-bottom:8px">arraste nó para mover · scroll para zoom · espaço+arrastar para mover o mapa</div>
+        <div id="topo-noc-wrap" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;height:420px;position:relative;cursor:default">
+            <svg id="topo-noc-svg" width="100%" height="100%" style="display:block;overflow:visible"></svg>
+        </div>`;
+    setTimeout(() => renderTopoNoc(tablets_t, imps_t, ip), 50);
+
+    // ── Tab Máquina ──────────────────────────────────────────────────────────
+    const maq = pay.maquina;
+    if (maq) {
+        const cpuCor = maq.cpu>90?'var(--red)':maq.cpu>70?'var(--amber)':'var(--green)';
+        const ramCor = maq.ram_pct>90?'var(--red)':maq.ram_pct>75?'var(--amber)':'var(--green)';
+        document.getElementById('tab-maquina').innerHTML = `
+        <div class="sec"><div class="sec-t">identificação</div>
+            <div class="row"><span class="rl">Hostname</span><span class="rv">${h(maq.host||'—')}</span></div>
+            <div class="row"><span class="rl">Sistema Operacional</span><span class="rv">${h(maq.so||'—')}</span></div>
+            <div class="row"><span class="rl">Build Windows</span><span class="rv">${h(maq.build||'—')}</span></div>
+            <div class="row"><span class="rl">Uptime</span><span class="rv">${h(maq.uptime||'—')}</span></div>
+        </div>
+        <div class="sec"><div class="sec-t">recursos</div>
+            <div class="row"><span class="rl">CPU</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <div class="bar-track" style="width:80px"><div class="bar-fill" style="width:${maq.cpu}%;background:${cpuCor}"></div></div>
+                    <span class="rv" style="color:${cpuCor}">${maq.cpu}%</span>
+                </div>
+            </div>
+            <div class="row"><span class="rl">RAM</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <div class="bar-track" style="width:80px"><div class="bar-fill" style="width:${maq.ram_pct}%;background:${ramCor}"></div></div>
+                    <span class="rv" style="color:${ramCor}">${maq.ram_usado}GB / ${maq.ram}GB (${maq.ram_pct}%)</span>
+                </div>
+            </div>
+        </div>
+        <div class="sec"><div class="sec-t">discos</div>
+            ${(maq.discos||[]).map(d=>{
+                const dc=d.pct>90?'var(--red)':d.pct>75?'var(--amber)':'var(--green)';
+                return `<div class="row"><span class="rl">${h(d.drive)}</span>
+                    <div style="display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end">
+                        <div class="bar-track" style="width:80px"><div class="bar-fill" style="width:${d.pct}%;background:${dc}"></div></div>
+                        <span class="rv" style="color:${dc}">${d.usado}GB/${d.total}GB (${d.pct}%)</span>
+                    </div>
+                </div>`;
+            }).join('')||'<div style="font-size:12px;color:var(--sub);padding:6px 0">Sem dados de disco</div>'}
+        </div>`;
+    } else {
+        document.getElementById('tab-maquina').innerHTML =
+            '<div class="empty">Dados de máquina não disponíveis.<br><span style="font-size:12px">Atualize o agente para coletar essas informações.</span></div>';
+    }
+
+    // ── Tab Histórico com filtro de período ─────────────────────────────────
+    const hoje_h = new Date();
+    const ontem_h = new Date(hoje_h); ontem_h.setDate(ontem_h.getDate()-1);
+    const fmt_h = d => d.toISOString().slice(0,16);
+
+    document.getElementById('tab-historico').innerHTML = `
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px;padding:12px;background:var(--bg3);border-radius:8px;border:1px solid var(--border)">
+            <div style="display:flex;flex-direction:column;gap:4px">
+                <label style="font-size:10px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.06em">De</label>
+                <input type="datetime-local" id="hist-de" value="${fmt_h(ontem_h)}"
+                    style="background:var(--bg2);border:1px solid var(--border2);color:#e8eef8;padding:6px 10px;border-radius:6px;font-size:12px;font-family:var(--mono)">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+                <label style="font-size:10px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.06em">Até</label>
+                <input type="datetime-local" id="hist-ate" value="${fmt_h(hoje_h)}"
+                    style="background:var(--bg2);border:1px solid var(--border2);color:#e8eef8;padding:6px 10px;border-radius:6px;font-size:12px;font-family:var(--mono)">
+            </div>
+            <button onclick="buscarHistorico('${h(l.token_loja)}')"
+                style="background:var(--blue);border:none;color:#fff;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;height:34px">
+                🔍 Buscar
+            </button>
+            <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap">
+                <button onclick="atalhoHist(1,'${h(l.token_loja)}')"  style="background:var(--bg2);border:1px solid var(--border);color:#a0b8d0;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px">Hoje</button>
+                <button onclick="atalhoHist(2,'${h(l.token_loja)}')"  style="background:var(--bg2);border:1px solid var(--border);color:#a0b8d0;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px">24h</button>
+                <button onclick="atalhoHist(7,'${h(l.token_loja)}')"  style="background:var(--bg2);border:1px solid var(--border);color:#a0b8d0;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px">7 dias</button>
+                <button onclick="atalhoHist(10,'${h(l.token_loja)}')" style="background:var(--bg2);border:1px solid var(--border);color:#a0b8d0;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px">10 dias</button>
+            </div>
+        </div>
+        <div id="hist-resultado"><div class="loading">Carregando últimas 24h...</div></div>`;
+
+    // Carregar últimas 24h automaticamente
+    setTimeout(() => buscarHistorico('${h(l.token_loja)}'), 50);
 }
 
-// ── Loop principal ────────────────────────────────────────────────────────────
-async function ciclo() {
-    const agora = new Date().toLocaleTimeString('pt-BR');
-    try {
-        console.log(`[${agora}] Coletando snapshot...`);
-        const snap = await coletarSnapshot();
-        const status = await enviarSupabase(snap);
-        console.log(`[${agora}] ✓ Enviado — loja: ${snap.nome_loja} | nota: ${snap.nota} (${snap.score}%) | status HTTP: ${status}`);
-    } catch(e) {
-        console.error(`[${agora}] ✗ Erro na coleta: ${e.message}`);
-        // Enviar snapshot mínimo de emergência para o NOC saber que a máquina está online
-        try {
-            const os = require('os');
-            const ips = Object.values(os.networkInterfaces())
-                .flat().filter(i => i.family==='IPv4' && !i.internal && !i.address.startsWith('169.254'))
-                .map(i => i.address);
-            const snapMin = {
-                token_loja:       'desconhecido',
-                nome_loja:        os.hostname(),
-                score:            0,
-                nota:             'Grave',
-                servidor_online:  false,
-                tablets_ativos:   0,
-                tablets_total:    0,
-                erros_log:        0,
-                retry_expirados:  0,
-                alertas_criticos: 1,
-                alertas_avisos:   0,
-                payload: {
-                    db_offline:     true,
-                    erro:           e.message,
-                    ip_servidor:    ips[0] || null,
-                    status:         'Grave',
-                    coletado_em:    new Date().toISOString()
-                }
-            };
-            // Tentar recuperar token do banco mesmo com erro parcial
-            try {
-                const db = await getDb();
-                const [rows] = await db.execute('SELECT token FROM store WHERE deletedAt IS NULL LIMIT 1');
-                const [nome] = await db.execute('SELECT store_name FROM app_configuration LIMIT 1');
-                await db.end();
-                if (rows[0]?.token) snapMin.token_loja = rows[0].token.trim();
-                if (nome[0]?.store_name) snapMin.nome_loja = nome[0].store_name;
-                snapMin.payload.db_offline = false; // banco respondeu, erro foi em outro lugar
-            } catch(e2) {
-                snapMin.payload.db_offline = true;
-                console.error(`[${agora}] ✗ Banco também offline: ${e2.message}`);
-            }
-            await enviarSupabase(snapMin);
-            console.log(`[${agora}] ⚠ Snapshot de emergência enviado`);
-        } catch(e3) {
-            console.error(`[${agora}] ✗ Falha no snapshot de emergência: ${e3.message}`);
-        }
+function showTab(name) {
+    document.querySelectorAll('.modal-tab').forEach((b,i)=>b.classList.remove('on'));
+    document.querySelectorAll('.modal-panel').forEach(p=>p.classList.remove('on'));
+    const tabs=['resumo','tablets','erros','topologia','maquina','historico'];
+    const idx=tabs.indexOf(name);
+    if(idx>=0){
+        document.querySelectorAll('.modal-tab')[idx]?.classList.add('on');
+        document.getElementById('tab-'+name)?.classList.add('on');
     }
 }
 
-// Rodar imediatamente e depois a cada INTERVALO_MS
-ciclo();
-setInterval(ciclo, INTERVALO_MS);
-console.log(`Goomer Agente iniciado — enviando a cada ${INTERVALO_MS/60000} minutos para Supabase`);
+function closeOverlay(e){
+    if(e.target===document.getElementById('overlay'))
+        document.getElementById('overlay').classList.remove('on');
+}
+
+carregar();
+setInterval(carregar, 5*60*1000);
+
+// ── Histórico com filtro de período ──────────────────────────────────────────
+function atalhoHist(dias, token) {
+    const ate  = new Date();
+    const de   = new Date();
+    if (dias === 1) {
+        // Hoje: meia-noite até agora
+        de.setHours(0,0,0,0);
+    } else {
+        de.setDate(de.getDate() - dias);
+    }
+    const fmt = d => d.toISOString().slice(0,16);
+    const elDe  = document.getElementById('hist-de');
+    const elAte = document.getElementById('hist-ate');
+    if (elDe)  elDe.value  = fmt(de);
+    if (elAte) elAte.value = fmt(ate);
+    buscarHistorico(token);
+}
+
+async function buscarHistorico(token) {
+    const elRes = document.getElementById('hist-resultado');
+    const elDe  = document.getElementById('hist-de');
+    const elAte = document.getElementById('hist-ate');
+    if (!elRes || !elDe || !elAte) return;
+
+    const de  = elDe.value;
+    const ate = elAte.value;
+    if (!de || !ate) { elRes.innerHTML = '<div class="empty">Selecione o período.</div>'; return; }
+
+    elRes.innerHTML = '<div class="loading">Buscando...</div>';
+
+    const rows = await sb('snapshots',
+        `?token_loja=eq.${encodeURIComponent(token)}&criado_em=gte.${encodeURIComponent(new Date(de).toISOString())}&criado_em=lte.${encodeURIComponent(new Date(ate).toISOString())}&order=criado_em.asc&limit=500`
+    );
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+        elRes.innerHTML = '<div class="empty">Nenhum snapshot encontrado neste período.</div>';
+        return;
+    }
+
+    // Gráfico de score
+    const maxBars = 60;
+    const step = Math.max(1, Math.floor(rows.length / maxBars));
+    const amostra = rows.filter((_,i) => i % step === 0);
+
+    // Resumo do período
+    const scoreMin  = Math.min(...rows.map(r=>r.score||0));
+    const scoreMax  = Math.max(...rows.map(r=>r.score||0));
+    const scoreMed  = Math.round(rows.reduce((s,r)=>s+(r.score||0),0)/rows.length);
+    const offlines  = rows.filter(r=>!r.servidor_online).length;
+    const comErro   = rows.filter(r=>(r.retry_expirados||0)>0).length;
+    const trocouIP  = [...new Set(rows.map(r=>r.ip_servidor||r.payload?.ip_servidor).filter(Boolean))];
+
+    elRes.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+            <div style="background:var(--bg3);border-radius:7px;padding:10px;text-align:center">
+                <div style="font-size:18px;font-weight:800;font-family:var(--mono)">${rows.length}</div>
+                <div style="font-size:10px;color:#a0b8d0;margin-top:2px">snapshots</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:7px;padding:10px;text-align:center">
+                <div style="font-size:18px;font-weight:800;font-family:var(--mono);color:${scoreMed>=75?'var(--green)':scoreMed>=45?'var(--amber)':'var(--red)'}">${scoreMed}%</div>
+                <div style="font-size:10px;color:#a0b8d0;margin-top:2px">saúde média</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:7px;padding:10px;text-align:center">
+                <div style="font-size:18px;font-weight:800;font-family:var(--mono);color:${offlines>0?'var(--red)':'var(--green)'}">${offlines}</div>
+                <div style="font-size:10px;color:#a0b8d0;margin-top:2px">servidor offline</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:7px;padding:10px;text-align:center">
+                <div style="font-size:18px;font-weight:800;font-family:var(--mono);color:${comErro>0?'var(--red)':'var(--green)'}">${comErro}</div>
+                <div style="font-size:10px;color:#a0b8d0;margin-top:2px">com pedido sem ERP</div>
+            </div>
+        </div>
+
+        ${trocouIP.length>1?`<div style="background:rgba(255,184,48,.08);border:1px solid rgba(255,184,48,.3);border-radius:7px;padding:8px 12px;font-size:12px;color:var(--amber);margin-bottom:12px">
+            ⚠ Mudança de IP detectada no período: ${trocouIP.map(h).join(' → ')}
+        </div>`:''}
+
+        <div class="sec"><div class="sec-t">saúde ao longo do período (${rows.length} snapshots)</div>
+            <div class="hist" style="height:60px;gap:1px">${amostra.map(s=>{
+                const c=COR_STATUS(s.status||s.nota);
+                const hh=Math.max(Math.round(((s.score||0)/100)*56),2);
+                const hora=new Date(s.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+                return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">
+                    <div class="hist-bar" style="height:${hh}px;background:${c};width:100%" title="${hora}: ${s.score}% — ${statusLabel(s)}"></div>
+                </div>`;
+            }).join('')}</div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:#8096b8;margin-top:4px;font-family:var(--mono)">
+                <span>${new Date(rows[0].criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+                <span>mín: ${scoreMin}% · méd: ${scoreMed}% · máx: ${scoreMax}%</span>
+                <span>${new Date(rows[rows.length-1].criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+            </div>
+        </div>
+
+        <div class="sec"><div class="sec-t">registros do período</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <tr style="color:#a0b8d0;font-size:10px;text-transform:uppercase;letter-spacing:.05em">
+                    <td style="padding:5px 0">Horário</td>
+                    <td style="padding:5px 0;text-align:center">Saúde</td>
+                    <td style="padding:5px 0;text-align:center">Status</td>
+                    <td style="padding:5px 0;text-align:center">Servidor</td>
+                    <td style="padding:5px 0;text-align:center">Sem ERP</td>
+                    <td style="padding:5px 0;text-align:center">Erros</td>
+                    <td style="padding:5px 0;text-align:right">IP</td>
+                </tr>
+                ${rows.map(s=>{
+                    const c   = COR_STATUS(s.status||s.nota);
+                    const sip = s.ip_servidor||s.payload?.ip_servidor||'—';
+                    const hora= new Date(s.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+                    return `<tr style="border-top:1px solid rgba(255,255,255,.04)">
+                        <td style="padding:5px 0;font-family:var(--mono);color:#b0c4de;font-size:11px">${hora}</td>
+                        <td style="padding:5px 0;text-align:center;font-weight:700;color:${c};font-family:var(--mono)">${s.score||0}%</td>
+                        <td style="padding:5px 0;text-align:center;color:${c};font-size:11px">${statusLabel(s)}</td>
+                        <td style="padding:5px 0;text-align:center;font-size:11px;color:${s.servidor_online?'var(--green)':'var(--red)'}">${s.servidor_online?'ON':'OFF'}</td>
+                        <td style="padding:5px 0;text-align:center;font-family:var(--mono);color:${(s.retry_expirados||0)>0?'var(--red)':'#8096b8'}">${s.retry_expirados||0}</td>
+                        <td style="padding:5px 0;text-align:center;font-family:var(--mono);color:${(s.erros_log||0)>200?'var(--red)':(s.erros_log||0)>50?'var(--amber)':'#8096b8'}">${s.erros_log||0}</td>
+                        <td style="padding:5px 0;text-align:right;font-family:var(--mono);color:#7ab3ff;font-size:11px">${h(sip)}</td>
+                    </tr>`;
+                }).join('')}
+            </table>
+        </div>`;
+}
+
+// ── Topologia NOC interativa ───────────────────────────────────────────────
+let nocTopoScale=1, nocVX=0, nocVY=0;
+let nocDragging=null, nocNodes={};
+let nocPanActive=false, nocPanSX=0, nocPanSY=0, nocPanVX=0, nocPanVY=0;
+let nocSpaceDown=false;
+let _nocTablets=[], _nocImps=[], _nocIP='';
+
+document.addEventListener('keydown',e=>{
+    if(e.code==='Space'&&document.getElementById('tab-topologia')?.classList.contains('on')){
+        e.preventDefault(); nocSpaceDown=true;
+        const el=document.getElementById('topo-noc-wrap');
+        if(el) el.style.cursor='grab';
+    }
+});
+document.addEventListener('keyup',e=>{ if(e.code==='Space') nocSpaceDown=false; });
+
+function applyNocTransform(){
+    const g=document.getElementById('topo-noc-g');
+    if(g) g.setAttribute('transform',`translate(${nocVX},${nocVY}) scale(${nocTopoScale})`);
+}
+function nocTopoZoom(d){
+    nocTopoScale=Math.max(0.25,Math.min(3,nocTopoScale+d));
+    applyNocTransform();
+}
+function nocTopoCentralizar(){
+    const keys=Object.keys(nocNodes).filter(k=>!['gw','srv'].includes(k)||nocNodes[k]);
+    if(!keys.length) return;
+    const wrap=document.getElementById('topo-noc-wrap');
+    if(!wrap) return;
+    const W=wrap.clientWidth, H=wrap.clientHeight;
+    const xs=keys.map(k=>nocNodes[k].x), ys=keys.map(k=>nocNodes[k].y);
+    const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+    const mapW=maxX-minX+220, mapH=maxY-minY+220;
+    nocTopoScale=Math.min(Math.max(Math.min(W/mapW,H/mapH)*0.88,0.3),2);
+    nocVX=W/2-((minX+maxX)/2)*nocTopoScale;
+    nocVY=H/2-((minY+maxY)/2)*nocTopoScale;
+    applyNocTransform();
+}
+
+function renderTopoNoc(tablets, imps, serverIp) {
+    _nocTablets=tablets; _nocImps=imps; _nocIP=serverIp;
+    const wrap = document.getElementById('topo-noc-wrap');
+    const svg  = document.getElementById('topo-noc-svg');
+    if(!wrap||!svg) return;
+
+    const W=1000, H=700, cx=W/2;
+
+    // Só resetar posição/scale se for primeira renderização
+    if(Object.keys(nocNodes).length===0){
+        nocTopoScale=1; nocVX=0; nocVY=0;
+    }
+
+    // Calcular posições se não existirem
+    const posGW  = nocNodes['gw']  || {x:cx, y:80};
+    const posSRV = nocNodes['srv'] || {x:cx, y:210};
+    nocNodes['gw']  = posGW;
+    nocNodes['srv'] = posSRV;
+
+    const ativos  = tablets.filter(t=>t.ip&&t.ip!=='null');
+    const impRede = imps.filter(i=>i.uri?.match(/\d+\.\d+\.\d+\.\d+/));
+    const impUsb  = imps.filter(i=>!i.uri?.match(/\d+\.\d+\.\d+\.\d+/));
+
+    ativos.forEach((t,i) => {
+        if(!nocNodes['t'+i]){
+            const tot=ativos.length, frac=tot===1?.5:i/(tot-1);
+            const r=Math.max(240,100+tot*55);
+            const ang=-Math.PI*.85+frac*Math.PI*.7;
+            nocNodes['t'+i]={x:cx-70+r*Math.cos(ang), y:340+r*.55*Math.sin(ang)};
+        }
+    });
+    impRede.forEach((p,i) => {
+        if(!nocNodes['ir'+i]){
+            const tot=impRede.length, frac=tot===1?.5:i/(tot-1);
+            const r=Math.max(230,100+tot*65);
+            const ang=-Math.PI*.15-frac*Math.PI*.7;
+            nocNodes['ir'+i]={x:cx+70+r*Math.cos(ang), y:340+r*.5*Math.sin(ang)};
+        }
+    });
+    impUsb.forEach((p,i) => {
+        if(!nocNodes['iu'+i]) nocNodes['iu'+i]={x:cx+160+i*130, y:220};
+    });
+
+    // Resolver colisões
+    const all=['gw','srv',...ativos.map((_,i)=>'t'+i),...impRede.map((_,i)=>'ir'+i),...impUsb.map((_,i)=>'iu'+i)];
+    for(let it=0;it<25;it++){
+        for(let a=0;a<all.length;a++) for(let b=a+1;b<all.length;b++){
+            const na=nocNodes[all[a]],nb=nocNodes[all[b]];
+            if(!na||!nb) continue;
+            const dx=nb.x-na.x,dy=nb.y-na.y,dist=Math.sqrt(dx*dx+dy*dy);
+            if(dist<130&&dist>0){
+                const push=(130-dist)/2,nx=dx/dist*push,ny=dy/dist*push;
+                if(!['gw','srv'].includes(all[b])){nb.x+=nx;nb.y+=ny;}
+                if(!['gw','srv'].includes(all[a])){na.x-=nx;na.y-=ny;}
+            }
+        }
+    }
+
+    const sCor=p=>!p||p.status==='sem_ip'?'#505068':p.status==='sem resposta'||p.perda===100?'#ff4455':p.latencia>150?'#ffb830':'#00d68f';
+    const lLbl=p=>!p||p.status==='sem_ip'?'—':p.status==='sem resposta'?'offline':p.latencia?p.latencia+'ms':'…';
+
+    let g=``;
+
+    // Internet
+    g+=`<circle cx="${cx}" cy="16" r="14" fill="#0d1626" stroke="rgba(255,255,255,.15)" stroke-width="1.5"/>`;
+    g+=`<text x="${cx}" y="21" text-anchor="middle" fill="#b0c4de" font-size="13">☁</text>`;
+    g+=`<line x1="${cx}" y1="30" x2="${cx}" y2="${posGW.y-32}" stroke="rgba(255,255,255,.12)" stroke-width="1.5" stroke-dasharray="5,3"/>`;
+
+    // GW → SRV
+    g+=`<line x1="${cx}" y1="${posGW.y+32}" x2="${cx}" y2="${posSRV.y-32}" stroke="#4d8fff" stroke-width="2.5"/>`;
+
+    // SRV → tablets
+    ativos.forEach((t,i)=>{
+        const pt=nocNodes['t'+i],cor=sCor(t.ping);
+        g+=`<line x1="${cx}" y1="${posSRV.y+32}" x2="${pt.x}" y2="${pt.y-34}" stroke="${cor}" stroke-width="1.8" opacity=".8"/>`;
+        const mx=(cx+pt.x)/2,my=(posSRV.y+34+pt.y-34)/2;
+        const ll=lLbl(t.ping);
+        g+=`<rect x="${mx-14}" y="${my-9}" width="${ll.length*6.5+6}" height="18" rx="4" fill="#0a1020" opacity=".9"/>`;
+        g+=`<text x="${mx-11}" y="${my+5}" fill="${cor}" font-size="11" font-family="monospace" font-weight="600">${ll}</text>`;
+    });
+
+    // SRV → imp rede
+    impRede.forEach((p,i)=>{
+        const pp=nocNodes['ir'+i];
+        g+=`<line x1="${cx}" y1="${posSRV.y+32}" x2="${pp.x}" y2="${pp.y-32}" stroke="#00d68f" stroke-width="1.8" opacity=".7"/>`;
+    });
+
+    // SRV → imp USB
+    impUsb.forEach((p,i)=>{
+        const pp=nocNodes['iu'+i];
+        g+=`<line x1="${cx}" y1="${posSRV.y}" x2="${pp.x}" y2="${pp.y+32}" stroke="#7c5cfc" stroke-width="1.5" stroke-dasharray="6,3" opacity=".8"/>`;
+        const mx=(cx+pp.x)/2,my=(posSRV.y+pp.y)/2;
+        g+=`<rect x="${mx-16}" y="${my-9}" width="34" height="18" rx="4" fill="#0a1020" opacity=".9"/>`;
+        g+=`<text x="${mx}" y="${my+5}" text-anchor="middle" fill="#7c5cfc" font-size="11" font-family="monospace" font-weight="600">USB</text>`;
+    });
+
+    // Helper nó
+    const nodo=(pos,cor,l1,l2,icon,nid)=>{
+        const NW=120,NH=72,x=pos.x-NW/2,y=pos.y-NH/2;
+        const drag=nid?`class="noc-node" data-nid="${nid}" style="cursor:grab"`:'';
+        return `<g ${drag}>
+            <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="10" fill="#0d1626" stroke="${cor}" stroke-width="2"/>
+            <text x="${pos.x}" y="${pos.y-10}" text-anchor="middle" fill="${cor}" font-size="16">${icon}</text>
+            <text x="${pos.x}" y="${pos.y+9}" text-anchor="middle" fill="#e8eef8" font-size="12" font-weight="700" font-family="monospace">${h(l1)}</text>
+            <text x="${pos.x}" y="${pos.y+24}" text-anchor="middle" fill="#c8d8e8" font-size="10" font-family="monospace">${h(l2||'')}</text>
+        </g>`;
+    };
+
+    g+=nodo(posGW,'#4d8fff','gateway','','⌘','');
+    g+=nodo(posSRV,'#0e5cfe',serverIp||'servidor','servidor','⬡','');
+
+    ativos.forEach((t,i)=>{
+        const pt=nocNodes['t'+i],cor=sCor(t.ping);
+        const bat=parseInt(t.bateria||0),bc=bat<20?'#ff4455':bat<40?'#ffb830':'#00d68f';
+        const NW=120,NH=76,x=pt.x-NW/2,y=pt.y-NH/2;
+        g+=`<g class="noc-node" data-nid="t${i}" style="cursor:grab">
+            <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="10" fill="#0d1626" stroke="${cor}" stroke-width="2"/>
+            <text x="${pt.x}" y="${pt.y-11}" text-anchor="middle" fill="${cor}" font-size="15">📱</text>
+            <text x="${pt.x}" y="${pt.y+7}" text-anchor="middle" fill="#e8eef8" font-size="12" font-weight="700" font-family="monospace">${t.mesa?`Mesa ${t.mesa}`:h((t.ip||'').split('.').slice(-1)[0]?'...'+t.ip.split('.').slice(-1)[0]:'?')}</text>
+            <text x="${pt.x}" y="${pt.y+22}" text-anchor="middle" fill="#c8d8e8" font-size="10" font-family="monospace">${h(t.ip||'sem IP')}</text>
+            ${bat>0?`<rect x="${x+NW-30}" y="${y+5}" width="24" height="12" rx="2" fill="#0d1626" stroke="${bc}" stroke-width="1.3"/>
+            <rect x="${x+NW-29}" y="${y+6}" width="${Math.round(bat/100*22)}" height="10" rx="1" fill="${bc}" opacity=".85"/>
+            <text x="${pt.x+NW/2-20}" y="${y+23}" text-anchor="middle" fill="${bc}" font-size="9" font-family="monospace">${bat}%</text>`:''}
+        </g>`;
+    });
+
+    impRede.forEach((p,i)=>{
+        const pp=nocNodes['ir'+i];
+        g+=nodo(pp,'#00d68f',h((p.nome||'').slice(0,12)),h((p.uri||'').match(/(\d+\.\d+\.\d+\.\d+)/)?.[1]||'rede'),'🖨','ir'+i);
+    });
+    impUsb.forEach((p,i)=>{
+        const pp=nocNodes['iu'+i];
+        g+=nodo(pp,'#7c5cfc',h((p.nome||'').slice(0,12)),'USB','🖨','iu'+i);
+    });
+
+    // Atualizar SVG preservando o elemento
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    svg.innerHTML = `<defs><filter id="nf"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g id="topo-noc-g">${g}</g>`;
+
+    applyNocTransform();
+
+    // Eventos no wrap (pan + wheel)
+    wrap.onmousedown = e => {
+        if(e.button===2||e.button===1||nocSpaceDown){
+            nocPanActive=true; nocPanSX=e.clientX; nocPanSY=e.clientY;
+            nocPanVX=nocVX; nocPanVY=nocVY; wrap.style.cursor='grabbing'; e.preventDefault();
+        }
+    };
+    wrap.onmousemove = e => {
+        if(nocPanActive){
+            nocVX=nocPanVX+(e.clientX-nocPanSX); nocVY=nocPanVY+(e.clientY-nocPanSY);
+            applyNocTransform();
+        }
+        if(nocDragging){
+            const rect=wrap.getBoundingClientRect();
+            nocNodes[nocDragging]={x:(e.clientX-rect.left-nocVX)/nocTopoScale, y:(e.clientY-rect.top-nocVY)/nocTopoScale};
+            renderTopoNoc(_nocTablets,_nocImps,_nocIP);
+        }
+    };
+    wrap.onmouseup  = () => { nocPanActive=false; nocDragging=null; wrap.style.cursor='default'; };
+    wrap.onmouseleave = () => { nocPanActive=false; nocDragging=null; };
+    wrap.oncontextmenu = e => e.preventDefault();
+    wrap.onwheel = e => { e.preventDefault(); nocTopoZoom(e.deltaY<0?.1:-.1); };
+
+    // Drag nos nós
+    svg.querySelectorAll('.noc-node').forEach(el=>{
+        el.onmousedown = e => {
+            if(e.button!==0||nocSpaceDown) return;
+            e.stopPropagation(); nocDragging=el.dataset.nid; wrap.style.cursor='grabbing';
+        };
+    });
+
+    // Botões externos
+    const bp=document.getElementById('btn-topo-plus');
+    const bm=document.getElementById('btn-topo-minus');
+    const bf=document.getElementById('btn-topo-fit');
+    if(bp) { bp.onclick=()=>nocTopoZoom(.15); }
+    if(bm) { bm.onclick=()=>nocTopoZoom(-.15); }
+    if(bf) { bf.onclick=()=>nocTopoCentralizar(); }
+
+    setTimeout(nocTopoCentralizar, 80);
+}
+</script>
+</body>
+</html>
