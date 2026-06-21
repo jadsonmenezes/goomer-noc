@@ -322,7 +322,10 @@ function renderGrid(lista) {
         // Alertas — apenas os mais críticos e relevantes
         const als=[];
         if (!l.servidor_online)          als.push({c:'crit',m:'Servidor Goomer offline'});
-        if (pay.ip_divergente)             als.push({c:'crit',m:`IP divergente: tablets sem comunicação (${pay.ip_configurado} ≠ ${pay.ip_servidor})`});
+        const _ipDiv = l.ip_divergente || pay.ip_divergente;
+        const _ipCfg = l.ip_configurado || pay.ip_configurado;
+        const _ipReal= l.ip_servidor    || pay.ip_servidor;
+        if (_ipDiv) als.push({c:'crit',m:`IP divergente — tablets sem comunicação (${h(_ipCfg||'?')} ≠ ${h(_ipReal||'?')})`});
         if (pay.inadimplente)              als.push({c:'crit',m:'Bloqueio financeiro'});
         if (l.retry_expirados>0)           als.push({c:'crit',m:`${l.retry_expirados} pedido(s) sem ERP`});
         if (l.erros_log>500)               als.push({c:'warn',m:`Volume alto de erros recentes: ${l.erros_log}`});
@@ -414,16 +417,20 @@ async function abrirLoja(token) {
         </div>
 
         ${ipMudou?`<div class="al al-warn" style="margin-bottom:12px">⚠ Mudança de IP detectada nos últimos snapshots: ${ipsHistorico.join(' → ')}</div>`:''}
-        ${pay.ip_divergente?`<div class="al al-crit" style="margin-bottom:12px">
+        ${(pay.ip_divergente||l.ip_divergente)?`<div class="al al-crit" style="margin-bottom:12px">
             ✕ IP divergente — tablets sem comunicação com o servidor<br>
             <span style="font-size:11px;font-family:var(--mono)">Configurado: ${h(pay.ip_configurado||'?')} · Real: ${h(pay.ip_servidor||'?')}</span><br>
-            <span style="font-size:11px;color:#ff9aaa">Acesse o painel Goomer → Configurações → Servidor Local e atualize o IP.</span>
+            <span style="font-size:11px;color:#ff9aaa">Verifique as configurações no servidor local Goomer.</span>
         </div>`:''}
 
         <div class="sec">
             <div class="sec-t">operação</div>
-            <div class="row"><span class="rl">IP real da máquina</span><span class="rv" style="color:${pay.ip_divergente?'var(--red)':'#e8eef8'}">${h(pay.ip_servidor||ip||'—')}</span></div>
-            <div class="row"><span class="rl">IP configurado no Goomer</span><span class="rv" style="color:${pay.ip_divergente?'var(--red)':'#e8eef8'}">${h(pay.ip_configurado||'—')}${pay.ip_divergente?' ⚠':''}</span></div>
+            <div class="row"><span class="rl">IP real da máquina</span>
+                <span class="rv" style="color:${(pay.ip_divergente||l.ip_divergente)?'var(--red)':'#e8eef8'}">${h(pay.ip_servidor||l.ip_servidor||ip||'—')}</span></div>
+            <div class="row"><span class="rl">IP configurado no Goomer</span>
+                <span class="rv" style="color:${(pay.ip_divergente||l.ip_divergente)?'var(--red)':'#e8eef8'}">
+                    ${h(pay.ip_configurado||l.ip_configurado||'—')}${(pay.ip_divergente||l.ip_divergente)?' ⚠':''}
+                </span></div>
             <div class="row"><span class="rl">Servidor Goomer</span><span class="rv" style="color:${l.servidor_online?'var(--green)':'var(--red)'}">${l.servidor_online?'online':'offline'}${pay.goomer_version?' · v'+pay.goomer_version:''}</span></div>
             <div class="row"><span class="rl">Pedidos hoje</span><span class="rv">${pay.pedidos_hoje||0}</span></div>
             <div class="row"><span class="rl">Retry expirados (ERP)</span><span class="rv" style="color:${l.retry_expirados>0?'var(--red)':'var(--green)'}">${l.retry_expirados||0}</span></div>
@@ -733,20 +740,24 @@ async function buscarHistorico(token) {
                     <td style="padding:5px 0;text-align:center">Servidor</td>
                     <td style="padding:5px 0;text-align:center">Sem ERP</td>
                     <td style="padding:5px 0;text-align:center">Erros</td>
-                    <td style="padding:5px 0;text-align:right">IP</td>
+                    <td style="padding:5px 0;text-align:center">IP máquina</td>
+                    <td style="padding:5px 0;text-align:right">IP configurado</td>
                 </tr>
                 ${rows.map(s=>{
-                    const c   = COR_STATUS(s.status||s.nota);
-                    const sip = s.ip_servidor||s.payload?.ip_servidor||'—';
-                    const hora= new Date(s.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-                    return `<tr style="border-top:1px solid rgba(255,255,255,.04)">
+                    const c    = COR_STATUS(s.status||s.nota);
+                    const sipR = s.ip_servidor||s.payload?.ip_servidor||'—';
+                    const sipC = s.ip_configurado||s.payload?.ip_configurado||'—';
+                    const divg = s.ip_divergente||s.payload?.ip_divergente;
+                    const hora = new Date(s.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+                    return `<tr style="border-top:1px solid rgba(255,255,255,.04);background:${divg?'rgba(255,68,85,.04)':'transparent'}">
                         <td style="padding:5px 0;font-family:var(--mono);color:#b0c4de;font-size:11px">${hora}</td>
                         <td style="padding:5px 0;text-align:center;font-weight:700;color:${c};font-family:var(--mono)">${s.score||0}%</td>
                         <td style="padding:5px 0;text-align:center;color:${c};font-size:11px">${statusLabel(s)}</td>
                         <td style="padding:5px 0;text-align:center;font-size:11px;color:${s.servidor_online?'var(--green)':'var(--red)'}">${s.servidor_online?'ON':'OFF'}</td>
                         <td style="padding:5px 0;text-align:center;font-family:var(--mono);color:${(s.retry_expirados||0)>0?'var(--red)':'#8096b8'}">${s.retry_expirados||0}</td>
                         <td style="padding:5px 0;text-align:center;font-family:var(--mono);color:${(s.erros_log||0)>200?'var(--red)':(s.erros_log||0)>50?'var(--amber)':'#8096b8'}">${s.erros_log||0}</td>
-                        <td style="padding:5px 0;text-align:right;font-family:var(--mono);color:#7ab3ff;font-size:11px">${h(sip)}</td>
+                        <td style="padding:5px 0;text-align:center;font-family:var(--mono);color:${divg?'var(--red)':'#7ab3ff'};font-size:11px">${h(sipR)}${divg?' ⚠':''}</td>
+                        <td style="padding:5px 0;text-align:right;font-family:var(--mono);color:${divg?'var(--red)':'#8096b8'};font-size:11px">${h(sipC)}</td>
                     </tr>`;
                 }).join('')}
             </table>
