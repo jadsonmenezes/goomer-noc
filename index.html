@@ -196,7 +196,13 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
         <div style="font-size:16px;font-weight:700" id="m-titulo">—</div>
         <div style="font-size:11px;color:#8096b8;margin-top:3px;font-family:var(--mono)" id="m-sub">—</div>
       </div>
-      <button class="modal-close" onclick="document.getElementById('overlay').classList.remove('on')">✕</button>
+      <div style="display:flex;align-items:center;gap:8px">
+          <button onclick="bloquearLoja()" title="Bloquear loja no NOC"
+              style="background:rgba(255,68,85,.1);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
+              ⊘ bloquear loja
+          </button>
+          <button class="modal-close" onclick="document.getElementById('overlay').classList.remove('on')">✕</button>
+      </div>
     </div>
     <div class="modal-body">
       <div class="modal-tabs">
@@ -259,16 +265,25 @@ async function carregar() {
     document.getElementById('last-update').textContent =
         new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
 
-    const rows = await sb('snapshots','?select=*&order=criado_em.desc&limit=500');
+    // Carregar bloqueadas e snapshots em paralelo
+    const [rows, bloqueadas] = await Promise.all([
+        sb('snapshots','?select=*&order=criado_em.desc&limit=500'),
+        sb('lojas_bloqueadas','?select=token_loja').catch(()=>[])
+    ]);
+    const tokensBloqueados = new Set((Array.isArray(bloqueadas)?bloqueadas:[]).map(b=>b.token_loja));
+
     if (!Array.isArray(rows)||!rows.length) {
         document.getElementById('grid').innerHTML =
             '<div class="empty">📡 Nenhuma loja conectada ainda.<br><span style="font-size:12px;color:#8096b8">Instale o agente nas lojas piloto e aguarde o primeiro envio.</span></div>';
         return;
     }
 
-    // Agrupar por token — mais recente de cada loja
+    // Agrupar por token — mais recente de cada loja (excluir bloqueadas)
     const map = {};
-    rows.forEach(r => { if (!map[r.token_loja]||r.criado_em>map[r.token_loja].criado_em) map[r.token_loja]=r; });
+    rows.forEach(r => {
+        if (tokensBloqueados.has(r.token_loja)) return; // ignorar bloqueadas
+        if (!map[r.token_loja]||r.criado_em>map[r.token_loja].criado_em) map[r.token_loja]=r;
+    });
     _dados = Object.values(map).sort((a,b)=>a.score-b.score);
 
     renderResumo();
@@ -745,6 +760,42 @@ function closeOverlay(e){
 
 carregar();
 setInterval(carregar, 5*60*1000);
+
+// ── Gerenciar lojas bloqueadas ────────────────────────────────────────────────
+async function bloquearLoja() {
+    const token = _tokenAtual;
+    if (!token) return;
+    const nome = document.getElementById('m-titulo')?.textContent || 'Loja';
+    const motivo = prompt(`Motivo do bloqueio de "${nome}":
+(Ex: Cancelamento de contrato, Loja encerrada)`, 'Cancelamento de contrato');
+    if (motivo === null) return; // cancelou
+
+    const r = await fetch(`${SB_URL}/rest/v1/lojas_bloqueadas`, {
+        method: 'POST',
+        headers: {
+            'apikey': SB_KEY,
+            'Authorization': `Bearer ${SB_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({
+            token_loja:   token,
+            nome_loja:    nome,
+            motivo:       motivo || 'Sem motivo informado',
+            bloqueado_por: 'NOC'
+        })
+    });
+
+    if (r.ok || r.status === 409) { // 409 = já existe
+        document.getElementById('overlay').classList.remove('on');
+        await carregar();
+        alert(`✓ Loja "${nome}" bloqueada. Não aparecerá mais no NOC.`);
+    } else {
+        const err = await r.text().catch(()=>'');
+        // Se der erro de permissão, orientar a bloquear via SQL
+        alert(`Não foi possível bloquear via interface.\n\nBloqueie pelo Supabase SQL Editor:\n\nINSERT INTO lojas_bloqueadas (token_loja, nome_loja, motivo, bloqueado_por)\nVALUES ('${token}', '${nome.replace(/'/g,"\'")}', '${(motivo||'').replace(/'/g,"\'")}', 'NOC');`);
+    }
+}
 
 // ── Funções de erros históricos ───────────────────────────────────────────────
 function atalhoErros(dias, token) {
