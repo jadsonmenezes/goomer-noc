@@ -540,7 +540,27 @@ async function abrirLoja(token) {
             <div class="score-circle" style="color:${cor};border-color:${cor};width:56px;height:56px;font-size:15px">${l.score}%</div>
             <div style="flex:1">
                 <div style="font-size:18px;font-weight:800;color:${cor}">${statusLabel(l)}</div>
-                <div style="font-size:12px;margin-top:2px">
+                <div style="font-size:10px;color:#8096b8;margin-top:5px;font-family:var(--mono);display:flex;gap:6px;flex-wrap:wrap">
+                    ${(()=>{
+                        const p=l.payload||{};
+                        const el=l.erros_log||0;
+                        const logsVal=el>=500?'0/20':el>=200?'5/20':el>=50?'10/20':el>=1?'16/20':'20/20';
+                        const logsOk=el<50;
+                        const maq=p.maquina;
+                        const cpu=parseInt(maq?.cpu||0),ram=parseInt(maq?.ram_pct||0),dc=(maq?.discos||[]).some(d=>parseInt(d.pct)>90);
+                        const maqVal=!maq?'?/15':cpu<70&&ram<75&&!dc?'15/15':cpu<85&&ram<85&&!dc?'10/15':cpu<95&&ram<95&&!dc?'5/15':'0/15';
+                        const maqOk=!maq||cpu<70&&ram<75&&!dc;
+                        const g=(ok,txt)=>`<span style="background:${ok?'rgba(0,214,143,.1)':'rgba(255,68,85,.1)'};color:${ok?'var(--green)':'var(--red)'};padding:2px 7px;border-radius:4px">${txt}</span>`;
+                        return [
+                            g(l.servidor_online, l.servidor_online?'servidor 40/40':'servidor 0/40'),
+                            g(!(l.retry_expirados>0), (l.retry_expirados>0)?'ERP 0/25':'ERP 25/25'),
+                            g(logsOk, 'logs '+logsVal),
+                            g(maqOk, 'máquina '+maqVal),
+                            p.ip_divergente?g(false,'IP −20'):'',
+                        ].filter(Boolean).join('');
+                    })()}
+                </div>
+                <div style="font-size:12px;margin-top:6px">
                     ${(l.alertas_criticos||0)===0&&(l.alertas_avisos||0)===0
                         ? '<span style=\"color:var(--green)\">✓ sem alertas ativos</span>'
                         : [
@@ -775,7 +795,11 @@ async function abrirLoja(token) {
                 <button onpointerdown="nocPanBtn('down',true)"  onpointerup="nocPanBtn('down',false)"  onpointerleave="nocPanBtn('down',false)"  style="background:var(--bg2);border:1px solid var(--border);color:#e8eef8;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:14px;touch-action:none">▼</button>
             </div>
         </div>`;
-    setTimeout(() => renderTopoNoc(tablets_t, imps_t, ip), 50);
+    // Renderizar e centralizar automaticamente
+    setTimeout(() => {
+        nocTopoScale = 1; nocVX = 0; nocVY = 0; nocNodes = {};
+        renderTopoNoc(tablets_t, imps_t, ip);
+    }, 50);
 
     // ── Tab Diagnóstico de Correlação ────────────────────────────────────────
     const corrs = pay.correlacoes || [];
@@ -805,10 +829,60 @@ async function abrirLoja(token) {
     });
     diagHtml += '</div>';
 
+    // ── Breakdown do score ────────────────────────────────────────────────────
+    const _score = l.score || 0;
+    const _srvPts  = l.servidor_online ? 40 : 0;
+    const _erpPts  = (l.retry_expirados||0)===0 && !(pay.erros_erp>0) ? 25 : (l.retry_expirados||0)===0 ? 18 : 0;
+    const _logPts  = (l.erros_log||0)===0 ? 20 : (l.erros_log||0)<50 ? 16 : (l.erros_log||0)<200 ? 10 : (l.erros_log||0)<500 ? 5 : 0;
+    const _maqPts  = maqD ? (maqD.cpu<70&&maqD.ram_pct<75&&!(maqD.discos||[]).some(d=>d.pct>75)?15:maqD.cpu<85&&maqD.ram_pct<85?10:5) : 10;
+    const _ipPen   = (pay.ip_divergente||l.ip_divergente) ? -20 : 0;
+    const _total   = 40+25+20+15 + ((_ipPen<0)?20:0);
+    const _calc    = _srvPts+_erpPts+_logPts+_maqPts;
+
+    const scoreBar = (pts, max, cor) => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="width:120px;font-size:11px;color:#a0b8d0">${pts}/${max} pts</div>
+        <div style="flex:1;height:5px;background:var(--bg4);border-radius:3px;overflow:hidden">
+            <div style="width:${Math.round(pts/max*100)}%;height:100%;background:${cor};border-radius:3px"></div>
+        </div>
+    </div>`;
+
+    diagHtml += `<div style="background:var(--bg3);border-radius:10px;padding:14px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-size:13px;font-weight:700;color:#a0b8d0">Composição do score</div>
+            <div style="font-size:22px;font-weight:800;font-family:var(--mono);color:${_score>=85?'var(--green)':_score>=65?'#4d8fff':_score>=45?'var(--amber)':'var(--red)'}">${_score}%</div>
+        </div>
+        <div style="font-size:12px;color:#e8eef8;margin-bottom:3px">Servidor Goomer
+            <span style="float:right;color:${_srvPts===40?'var(--green)':'var(--red)'}">${_srvPts}/40 pts ${_srvPts<40?'⚠':''}</span>
+        </div>
+        ${scoreBar(_srvPts,40,_srvPts===40?'var(--green)':'var(--red)')}
+        <div style="font-size:12px;color:#e8eef8;margin-bottom:3px">Integração ERP
+            <span style="float:right;color:${_erpPts===25?'var(--green)':_erpPts>=18?'var(--amber)':'var(--red)'}">${_erpPts}/25 pts ${_erpPts<25?'⚠':''}</span>
+        </div>
+        ${scoreBar(_erpPts,25,_erpPts===25?'var(--green)':_erpPts>=18?'var(--amber)':'var(--red)')}
+        <div style="font-size:12px;color:#e8eef8;margin-bottom:3px">Erros de log
+            <span style="float:right;color:${_logPts===20?'var(--green)':_logPts>=10?'var(--amber)':'var(--red)'}">${_logPts}/20 pts ${_logPts<20?`⚠ (${l.erros_log||0} erros)`:''}</span>
+        </div>
+        ${scoreBar(_logPts,20,_logPts===20?'var(--green)':_logPts>=10?'var(--amber)':'var(--red)')}
+        <div style="font-size:12px;color:#e8eef8;margin-bottom:3px">Saúde da máquina
+            <span style="float:right;color:${_maqPts===15?'var(--green)':_maqPts>=10?'var(--amber)':'var(--red)'}">${_maqPts}/15 pts ${_maqPts<15?'⚠':''}</span>
+        </div>
+        ${scoreBar(_maqPts,15,_maqPts===15?'var(--green)':_maqPts>=10?'var(--amber)':'var(--red)')}
+        ${_ipPen<0?`<div style="font-size:12px;color:var(--red);margin-top:4px">IP divergente: penalidade -20pts ⚠</div>`:''}
+        <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-size:11px;color:#8096b8">
+            Para chegar a 100%: ${[
+                _srvPts<40?'servidor Goomer precisa estar online':'',
+                _erpPts<25?'zerar pedidos sem ERP':'',
+                _logPts<20?`reduzir erros de log (${l.erros_log||0} → 0)  `:' ',
+                _maqPts<15?'melhorar performance da máquina':'',
+                _ipPen<0?'corrigir IP divergente':''
+            ].filter(Boolean).join(' · ') || 'score máximo atingido!'}
+        </div>
+    </div>`;
+
     if (corrs.length === 0) {
         diagHtml += `<div class="corr-item corr-info">
-            <div class="corr-titulo" style="color:var(--green)">✓ Nenhuma correlação de problema detectada</div>
-            <div class="corr-detalhe">As métricas coletadas não indicam correlação entre os dados neste snapshot.</div>
+            <div class="corr-titulo" style="color:var(--green)">✓ Nenhum problema detectado</div>
+            <div class="corr-detalhe">As métricas coletadas não indicam problemas neste snapshot.</div>
         </div>`;
     } else {
         const catIcon = c => ({
@@ -969,19 +1043,59 @@ async function exportarLoja() {
             tablets_total:   ultimo.tablets_total,
             erros_log:       ultimo.erros_log,
             retry_expirados: ultimo.retry_expirados,
-            ip_servidor:     ultimo.ip_servidor,
-            ip_configurado:  pay.ip_configurado,
-            ip_divergente:   pay.ip_divergente,
+            erros_impressora:pay.erros_impressora,
+            ip_servidor:     ultimo.ip_servidor||pay.ip_servidor,
+            ip_configurado:  ultimo.ip_configurado||pay.ip_configurado,
+            ip_divergente:   ultimo.ip_divergente||pay.ip_divergente,
+            conflito_ip_rede:pay.conflito_ip_rede,
             goomer_version:  pay.goomer_version,
             db_versao:       pay.db_versao,
             db_port:         pay.db_port,
+            db_instalado:    pay.db_instalado,
         },
-        maquina:     pay.maquina || null,
-        latencia:    pay.latencia || null,
-        correlacoes: pay.correlacoes || [],
-        tablets:     pay.tablets || [],
-        impressoras: pay.impressoras || [],
-        top_erros:   pay.top_erros || [],
+        performance: pay.maquina ? {
+            cpu_pct:     pay.maquina.cpu,
+            ram_pct:     pay.maquina.ram_pct,
+            ram_usado_gb:pay.maquina.ram_usado,
+            ram_total_gb:pay.maquina.ram,
+            discos:      pay.maquina.discos,
+            so:          pay.maquina.so,
+            build:       pay.maquina.build,
+            hostname:    pay.maquina.host,
+            uptime:      pay.maquina.uptime,
+        } : null,
+        qualidade_rede: pay.latencia ? {
+            gateway:  pay.latencia.gateway  ? { ...pay.latencia.gateway,  alvo:pay.latencia.gateway.alvo  } : null,
+            internet: pay.latencia.internet ? { ...pay.latencia.internet, alvo:pay.latencia.internet.alvo } : null,
+            api:      pay.latencia.api      ? { ...pay.latencia.api,      alvo:pay.latencia.api.alvo      } : null,
+            servidor: pay.latencia.servidor ? { ...pay.latencia.servidor, alvo:pay.latencia.servidor.alvo } : null,
+        } : null,
+        diagnostico: {
+            criticos: (pay.correlacoes||[]).filter(c=>c.nivel==='critico').map(c=>({categoria:c.categoria,titulo:c.titulo,acao:c.acao})),
+            avisos:   (pay.correlacoes||[]).filter(c=>c.nivel==='aviso').map(c=>({categoria:c.categoria,titulo:c.titulo,acao:c.acao})),
+        },
+        erros_recentes: (pay.top_erros||[]).map(e=>({
+            tipo:      e.type,
+            mensagem:  e.msg_resumo,
+            frequencia:e.total,
+            ultima_vez:e.ultima_vez
+        })),
+        volume_erros_por_hora: pay.erros_por_hora||[],
+        tablets: (pay.tablets||[]).map(t=>({
+            mesa:    t.mesa,
+            modelo:  t.modelo,
+            ip:      t.ip,
+            bateria: t.bateria,
+            sinal_wifi:t.sinal,
+            versao:  t.versao,
+            ping_ms: t.ping?.ms||t.ping?.latencia,
+            ping_status: t.ping?.status,
+        })),
+        impressoras: (pay.impressoras||[]).map(i=>({
+            nome:   i.nome,
+            uri:    i.uri,
+            padrao: i.padrao
+        })),
         historico_snapshots: rows.map(r => {
             const rp = r.payload||{};
             return {
@@ -1549,7 +1663,11 @@ function renderTopoNoc(tablets, imps, serverIp) {
     if(bm) { bm.onclick=()=>nocTopoZoom(-.15); }
     if(bf) { bf.onclick=()=>nocTopoCentralizar(); }
 
-    setTimeout(nocTopoCentralizar, 80);
+    // Aguardar SVG estar pronto e centralizar com fit completo
+    setTimeout(() => {
+        nocTopoCentralizar();
+        setTimeout(nocTopoCentralizar, 200); // segunda passagem para garantir
+    }, 100);
 }
 </script>
 </body>
