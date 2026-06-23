@@ -96,7 +96,7 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
 .bar-fill{height:100%;border-radius:2px}
 /* Erros */
 .erro-item{background:var(--bg3);border-radius:7px;padding:9px 12px;margin-bottom:6px;border-left:3px solid var(--red)}
-.erro-msg{font-size:12px;color:var(--text);font-family:var(--mono);margin-bottom:4px;word-break:break-all}
+.erro-msg{font-size:12px;color:#e8eef8;font-family:var(--mono);margin-bottom:4px;word-break:break-word;white-space:normal;line-height:1.5}
 .erro-meta{font-size:10px;color:#8096b8;display:flex;gap:10px}
 /* Histórico */
 .hist{display:flex;align-items:flex-end;gap:3px;height:56px;margin-top:6px}
@@ -110,6 +110,20 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
 .ba{background:rgba(255,184,48,.12);color:#ffc94d;border-color:rgba(255,184,48,.3)}
 .bm{background:rgba(255,255,255,.06);color:var(--sub);border-color:rgba(255,255,255,.1)}
 .bb{background:rgba(14,92,254,.12);color:var(--blue-l);border-color:rgba(14,92,254,.3)}
+.corr-item{border-radius:8px;padding:10px 14px;margin-bottom:8px;border-left:3px solid}
+.corr-crit{background:rgba(255,68,85,.07);border-color:var(--red)}
+.corr-aviso{background:rgba(255,184,48,.07);border-color:var(--amber)}
+.corr-info{background:rgba(14,92,254,.07);border-color:var(--blue)}
+.corr-titulo{font-size:13px;font-weight:700;margin-bottom:4px}
+.corr-detalhe{font-size:12px;color:#a0b8d0;margin-bottom:4px;line-height:1.5}
+.corr-acao{font-size:11px;color:#8096b8;font-style:italic}
+.lat-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px}
+.lat-row:last-child{border:none}
+.lat-lbl{width:80px;color:#a0b8d0;flex-shrink:0}
+.lat-bar-wrap{flex:1;height:6px;background:var(--bg4);border-radius:3px;overflow:hidden}
+.lat-bar{height:100%;border-radius:3px;transition:width .4s}
+.lat-val{width:90px;text-align:right;font-family:var(--mono);font-weight:600;font-size:11px}
+.lat-sub{font-size:10px;color:#8096b8;margin-left:4px}
 .empty{text-align:center;padding:40px 20px;color:#8096b8;font-size:14px}
 .loading{text-align:center;padding:40px;color:var(--sub);font-size:13px;animation:pulse 1.5s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
@@ -196,10 +210,14 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
         <div style="font-size:16px;font-weight:700" id="m-titulo">—</div>
         <div style="font-size:11px;color:#8096b8;margin-top:3px;font-family:var(--mono)" id="m-sub">—</div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <button onclick="exportarLoja()" title="Exportar dados da loja"
+              style="background:rgba(14,92,254,.1);border:1px solid rgba(14,92,254,.3);color:#7ab3ff;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
+              ↓ exportar
+          </button>
           <button onclick="bloquearLoja()" title="Bloquear loja no NOC"
               style="background:rgba(255,68,85,.1);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
-              ⊘ bloquear loja
+              ⊘ bloquear
           </button>
           <button class="modal-close" onclick="document.getElementById('overlay').classList.remove('on')">✕</button>
       </div>
@@ -207,18 +225,20 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
     <div class="modal-body">
       <div class="modal-tabs">
         <button class="modal-tab on" onclick="showTab('resumo')">Resumo</button>
+        <button class="modal-tab"    onclick="showTab('diagnostico')">🔍 Diagnóstico</button>
         <button class="modal-tab"    onclick="showTab('tablets')">Tablets</button>
         <button class="modal-tab"    onclick="showTab('erros')">Logs de Erro</button>
         <button class="modal-tab"    onclick="showTab('topologia')">Topologia</button>
         <button class="modal-tab"    onclick="showTab('maquina')">Máquina</button>
         <button class="modal-tab"    onclick="showTab('historico')">Histórico</button>
       </div>
-      <div id="tab-resumo"    class="modal-panel on"></div>
-      <div id="tab-tablets"   class="modal-panel"></div>
-      <div id="tab-erros"     class="modal-panel"></div>
-      <div id="tab-topologia" class="modal-panel"></div>
-      <div id="tab-maquina"   class="modal-panel"></div>
-      <div id="tab-historico" class="modal-panel"></div>
+      <div id="tab-resumo"      class="modal-panel on"></div>
+      <div id="tab-diagnostico" class="modal-panel"></div>
+      <div id="tab-tablets"     class="modal-panel"></div>
+      <div id="tab-erros"       class="modal-panel"></div>
+      <div id="tab-topologia"   class="modal-panel"></div>
+      <div id="tab-maquina"     class="modal-panel"></div>
+      <div id="tab-historico"   class="modal-panel"></div>
     </div>
   </div>
 </div>
@@ -399,9 +419,13 @@ function renderGrid(lista) {
         const _ipCfg = l.ip_configurado || pay.ip_configurado;
         const _ipReal= l.ip_servidor    || pay.ip_servidor;
         if (_ipDiv) als.push({c:'crit',m:`IP divergente — tablets sem comunicação (${h(_ipCfg||'?')} ≠ ${h(_ipReal||'?')})`});
+        const _confRede = (pay.conflito_ip_rede||[]).length;
+        if (_confRede>0) als.push({c:'crit',m:`Conflito de IP na rede — servidor com mesmo IP de outro dispositivo`});
         if (pay.inadimplente)              als.push({c:'crit',m:'Bloqueio financeiro'});
         if (l.retry_expirados>0)           als.push({c:'crit',m:`${l.retry_expirados} pedido(s) sem ERP`});
         if (l.erros_log>500)               als.push({c:'warn',m:`Volume alto de erros recentes: ${l.erros_log}`});
+        const _corrCrit = (pay.correlacoes||[]).filter(c=>c.nivel==='critico').length;
+        if (_corrCrit>0)                    als.push({c:'crit',m:`${_corrCrit} correlação(ões) crítica(s) detectada(s)`});
         // sem alertas = card limpo
 
         return `<div class="loja" onclick="abrirLoja('${h(l.token_loja)}')">
@@ -436,6 +460,30 @@ function renderGrid(lista) {
                     ${als.slice(0,2).map(a=>`<div class="al al-${a.c}">${a.c==='crit'?'✕':'⚠'} ${h(a.m)}</div>`).join('')}
                 </div>
             </div>
+            ${(()=>{
+                const lat = (l.payload||{}).latencia;
+                if (!lat) return '';
+                const latCor = v => !v||v===null?'#505068':v<50?'var(--green)':v<150?'var(--amber)':'var(--red)';
+                const latLbl = v => !v||v===null?'—':v+'ms';
+                return `<div style="padding:8px 14px;border-top:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap">
+                    ${lat.gateway?`<div style="display:flex;align-items:center;gap:4px;font-size:10px">
+                        <span style="color:#8096b8">GW</span>
+                        <span style="color:${latCor(lat.gateway.med)};font-family:var(--mono);font-weight:700">${latLbl(lat.gateway.med)}</span>
+                    </div>`:''}
+                    ${lat.internet?`<div style="display:flex;align-items:center;gap:4px;font-size:10px">
+                        <span style="color:#8096b8">WAN</span>
+                        <span style="color:${latCor(lat.internet.med)};font-family:var(--mono);font-weight:700">${latLbl(lat.internet.med)}</span>
+                    </div>`:''}
+                    ${lat.api?`<div style="display:flex;align-items:center;gap:4px;font-size:10px">
+                        <span style="color:#8096b8">API</span>
+                        <span style="color:${latCor(lat.api.med)};font-family:var(--mono);font-weight:700">${latLbl(lat.api.med)}</span>
+                    </div>`:''}
+                    ${lat.servidor?`<div style="display:flex;align-items:center;gap:4px;font-size:10px">
+                        <span style="color:#8096b8">GOOMER</span>
+                        <span style="color:${latCor(lat.servidor.med)};font-family:var(--mono);font-weight:700">${latLbl(lat.servidor.med)}</span>
+                    </div>`:''}
+                </div>`;
+            })()}
             <div class="loja-foot" style="border-top:1px solid ${mins>60?'rgba(255,68,85,.2)':mins>15?'rgba(255,184,48,.2)':'var(--border)'}">
                 <span style="color:${mins>60?'var(--red)':mins>15?'var(--amber)':'#a0b8d0'}">
                     ${mins>60?'⚠ sem dados há '+tempoLabel:mins>15?'⚠ '+tempoLabel:tempoLabel}
@@ -456,7 +504,7 @@ async function abrirLoja(token) {
     document.getElementById('overlay').classList.add('on');
     document.getElementById('m-titulo').textContent = 'carregando...';
     document.getElementById('m-sub').textContent = '';
-    ['resumo','tablets','erros','topologia','maquina','historico'].forEach(t=>
+    ['resumo','diagnostico','tablets','erros','topologia','maquina','historico'].forEach(t=>
         document.getElementById('tab-'+t).innerHTML='<div class="loading">buscando dados...</div>');
     showTab('resumo');
 
@@ -474,22 +522,54 @@ async function abrirLoja(token) {
     document.getElementById('m-sub').textContent    = `IP: ${ip}  ·  ${new Date(l.criado_em).toLocaleString('pt-BR')}`;
 
     // ── Tab Resumo ──────────────────────────────────────────────────────────
-    const ipsHistorico = [...new Set(rows.map(r=>r.ip_servidor||r.payload?.ip_servidor).filter(Boolean))];
-    const ipMudou = ipsHistorico.length > 1;
+    // Verificar mudança de IP nos últimos 20 snapshots com data/hora
+    const ipTimeline = [];
+    let ipAnterior = null;
+    rows.slice(0,20).reverse().forEach(r => {
+        const ip = r.ip_servidor||r.payload?.ip_servidor||null;
+        if (ip && ip !== ipAnterior) {
+            ipTimeline.push({ ip, quando: r.criado_em });
+            ipAnterior = ip;
+        }
+    });
+    const ipMudou = ipTimeline.length > 1;
+    const ipsHistorico = ipTimeline.map(t=>t.ip); // compatibilidade
 
     document.getElementById('tab-resumo').innerHTML = `
         <div style="display:flex;align-items:center;gap:14px;padding:14px;background:var(--bg3);border-radius:10px;border:1px solid ${cor}40;margin-bottom:16px">
             <div class="score-circle" style="color:${cor};border-color:${cor};width:56px;height:56px;font-size:15px">${l.score}%</div>
             <div style="flex:1">
                 <div style="font-size:18px;font-weight:800;color:${cor}">${statusLabel(l)}</div>
-                <div style="font-size:12px;color:#8096b8;margin-top:2px">${l.alertas_criticos||0} crítico(s) · ${l.alertas_avisos||0} aviso(s)</div>
+                <div style="font-size:12px;margin-top:2px">
+                    ${(l.alertas_criticos||0)===0&&(l.alertas_avisos||0)===0
+                        ? '<span style=\"color:var(--green)\">✓ sem alertas ativos</span>'
+                        : [
+                            (l.alertas_criticos||0)>0?`<span style=\"color:var(--red)\">${l.alertas_criticos} crítico(s)</span>`:'',
+                            (l.alertas_avisos||0)>0?`<span style=\"color:var(--amber)\">${l.alertas_avisos} aviso(s)</span>`:''
+                          ].filter(Boolean).join(' · ')
+                    }
+                </div>
             </div>
             <div style="text-align:right">
                 <div class="badge ${l.servidor_online?'bg':'br'}" style="font-size:11px">${l.servidor_online?'● Servidor online':'○ Servidor Goomer offline'}</div>
             </div>
         </div>
 
-        ${ipMudou?`<div class="al al-warn" style="margin-bottom:12px">⚠ Mudança de IP detectada nos últimos snapshots: ${ipsHistorico.join(' → ')}</div>`:''}
+        ${ipMudou?`<div class="al al-warn" style="margin-bottom:12px;flex-direction:column;align-items:flex-start;gap:4px">
+            <span>⚠ Mudança de IP detectada nos últimos 20 snapshots:</span>
+            ${ipTimeline.map((t,i)=>`<span style="font-family:var(--mono);font-size:11px;color:#e8eef8">
+                ${i===0?'':'→ '}<b>${h(t.ip)}</b>
+                <span style="color:#8096b8"> desde ${new Date(t.quando).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+            </span>`).join('')}
+        </div>`:''}
+        ${(pay.conflito_ip_rede||[]).length>0?`<div class="al al-crit" style="margin-bottom:12px">
+            ✕ Conflito de IP na rede detectado<br>
+            <span style="font-size:11px;font-family:var(--mono)">
+                O servidor (${h(pay.ip_servidor||'?')}) compartilha IP com:
+                ${(pay.conflito_ip_rede||[]).map(c=>`${c.tipo} (${h(c.ip||c.uri||'?')})`).join(', ')}
+            </span><br>
+            <span style="font-size:11px;color:#ff9aaa">Dois dispositivos com o mesmo IP causam falhas intermitentes de comunicação.</span>
+        </div>`:''}
         ${(pay.ip_divergente||l.ip_divergente)?`<div class="al al-crit" style="margin-bottom:12px">
             ✕ IP divergente — tablets sem comunicação com o servidor<br>
             <span style="font-size:11px;font-family:var(--mono)">Configurado: ${h(pay.ip_configurado||'?')} · Real: ${h(pay.ip_servidor||'?')}</span><br>
@@ -514,6 +594,37 @@ async function abrirLoja(token) {
             ${pay.inadimplente?'<div class="row"><span class="rl">Situação financeira</span><span class="rv" style="color:var(--red)">⚠ Bloqueio financeiro</span></div>':''}
         </div>
 
+        ${pay.latencia?`<div class="sec">
+            <div class="sec-t">qualidade de rede (média dos últimos 5min)</div>
+            ${(()=>{
+                const lat = pay.latencia;
+                const cor = v => !v?'#505068':v<50?'var(--green)':v<150?'var(--amber)':'var(--red)';
+                const pct = v => !v?0:Math.min(100,Math.round(v/3));
+                const fmt = v => !v?'sem resposta':v+'ms';
+                const targets = [
+                    {k:'gateway',  lbl:'Gateway (rede local)', desc:'Qualidade da rede interna da loja'},
+                    {k:'internet', lbl:'Internet (8.8.8.8)',   desc:'Qualidade do link com a internet'},
+                    {k:'api',      lbl:'API Abrahão/Goomer',   desc:'Ping ICMP para os servidores Goomer (mesma metodologia do CMD)'},
+                    {k:'servidor', lbl:'Servidor Goomer (TCP)', desc:'Tempo de conexão TCP com o servidor Goomer local'},
+                ];
+                return targets.filter(t=>lat[t.k]).map(t=>{
+                    const d=lat[t.k];
+                    const c=cor(d.med);
+                    return `<div class="lat-row" title="${t.desc}">
+                        <div class="lat-lbl">${t.lbl.split(' (')[0]}</div>
+                        <div class="lat-bar-wrap"><div class="lat-bar" style="width:${pct(d.med)}%;background:${c}"></div></div>
+                        <div class="lat-val" style="color:${c}">${fmt(d.med)}
+                            ${d.perda_pct>0?`<span class="lat-sub">⚠${d.perda_pct}%</span>`:''}
+                        </div>
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;font-size:10px;color:#8096b8;margin-bottom:4px;padding-right:0">
+                        min:${d.min||'—'} · méd:${d.med||'—'} · máx:${d.max||'—'}ms
+                        ${d.alvo?`<span style="margin-left:6px;color:#505068">${d.alvo}</span>`:''}
+                    </div>`;
+                }).join('');
+            })()}
+        </div>`:''}
+
         ${pay.db_versao||pay.db_port?`<div class="sec">
             <div class="sec-t">banco de dados</div>
             ${pay.db_port?`<div class="row"><span class="rl">Porta MySQL</span><span class="rv">mysql:${pay.db_port}</span></div>`:''}
@@ -524,7 +635,7 @@ async function abrirLoja(token) {
         <div class="sec">
             <div class="sec-t">tablets</div>
             <div class="row"><span class="rl">Ativos</span><span class="rv">${l.tablets_ativos||0} / ${l.tablets_total||0}</span></div>
-            <div class="row"><span class="rl">Com problema</span><span class="rv" style="color:${(pay.tablets_criticos||0)>0?'var(--red)':'var(--green)'}">${pay.tablets_criticos||0}</span></div>
+
         </div>
 
         <div class="sec">
@@ -591,11 +702,11 @@ async function abrirLoja(token) {
     if (topErros.length) {
         errosHtml += `<div class="sec"><div class="sec-t">top erros por frequência (snapshot atual)</div>
             ${topErros.map(e=>`<div class="erro-item">
-                <div class="erro-msg">${h(e.msg_resumo||e.message||'—')}</div>
-                <div class="erro-meta">
+                <div class="erro-msg" style="font-size:12px;line-height:1.5;word-break:break-word;white-space:normal">${h(e.msg_resumo||e.message||'—')}</div>
+                <div class="erro-meta" style="margin-top:5px">
                     <span class="badge ${e.type==='print'?'ba':e.type==='order'?'br':'bb'}">${h(e.type||'?')}</span>
-                    <span>${e.total}x</span>
-                    <span>último: ${new Date(e.ultima_vez).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+                    <span style="font-weight:700;color:#e8eef8">${e.total}x</span>
+                    <span>último: ${new Date(e.ultima_vez).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
                 </div>
             </div>`).join('')}
         </div>`;
@@ -665,6 +776,74 @@ async function abrirLoja(token) {
             </div>
         </div>`;
     setTimeout(() => renderTopoNoc(tablets_t, imps_t, ip), 50);
+
+    // ── Tab Diagnóstico de Correlação ────────────────────────────────────────
+    const corrs = pay.correlacoes || [];
+    const maqD  = pay.maquina;
+    const latD  = pay.latencia;
+    const corrCrit  = corrs.filter(c=>c.nivel==='critico');
+    const corrAviso = corrs.filter(c=>c.nivel==='aviso');
+    const corrInfo  = corrs.filter(c=>c.nivel==='info');
+
+    let diagHtml = '';
+
+    // Resumo visual das métricas correlacionadas
+    diagHtml += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:16px">`;
+    const metricas = [
+        {lbl:'CPU',        val:maqD?maqD.cpu+'%':null,        cor:maqD&&maqD.cpu>85?'var(--red)':maqD&&maqD.cpu>70?'var(--amber)':'var(--green)'},
+        {lbl:'RAM',        val:maqD?maqD.ram_pct+'%':null,     cor:maqD&&maqD.ram_pct>85?'var(--red)':maqD&&maqD.ram_pct>70?'var(--amber)':'var(--green)'},
+        {lbl:'Erros (2h)', val:l.erros_log||0,               cor:(l.erros_log||0)>200?'var(--red)':(l.erros_log||0)>50?'var(--amber)':'var(--green)'},
+        {lbl:'Sem ERP',    val:l.retry_expirados||0,          cor:(l.retry_expirados||0)>0?'var(--red)':'var(--green)'},
+        {lbl:'Lat. API',   val:latD?.api?.med?latD.api.med+'ms':null,      cor:!latD?.api?.med?'#8096b8':latD.api.med>300?'var(--red)':latD.api.med>150?'var(--amber)':'var(--green)'},
+        {lbl:'Lat. GW',    val:latD?.gateway?.med?latD.gateway.med+'ms':null, cor:!latD?.gateway?.med?'#8096b8':latD.gateway.med>50?'var(--amber)':'var(--green)'},
+    ];
+    metricas.forEach(m=>{
+        diagHtml+=`<div style="background:var(--bg3);border-radius:7px;padding:10px;text-align:center;border:1px solid ${m.cor}20">
+            <div style="font-size:18px;font-weight:800;font-family:var(--mono);color:${m.cor}">${m.val||'—'}</div>
+            <div style="font-size:10px;color:#a0b8d0;margin-top:3px">${m.lbl}</div>
+        </div>`;
+    });
+    diagHtml += '</div>';
+
+    if (corrs.length === 0) {
+        diagHtml += `<div class="corr-item corr-info">
+            <div class="corr-titulo" style="color:var(--green)">✓ Nenhuma correlação de problema detectada</div>
+            <div class="corr-detalhe">As métricas coletadas não indicam correlação entre os dados neste snapshot.</div>
+        </div>`;
+    } else {
+        const catIcon = c => ({
+            score:'📊', impressao:'🖨', erp:'⇄', rede:'🌐',
+            internet:'☁', maquina:'💻', geral:'✓'
+        }[c.categoria||'geral']||'•');
+
+        const renderCorr = (lista, cls, cor, titulo_sec) => {
+            if (!lista.length) return '';
+            let html = `<div class="sec-t" style="margin-bottom:10px">${titulo_sec} (${lista.length})</div>`;
+            lista.forEach(c => {
+                html += `<div class="corr-item ${cls}">
+                    <div class="corr-titulo" style="color:${cor};display:flex;align-items:center;gap:6px">
+                        <span>${catIcon(c)}</span><span>${h(c.titulo)}</span>
+                    </div>
+                    <div class="corr-detalhe" style="margin-top:5px">${h(c.detalhe)}</div>
+                    ${c.acao?`<div class="corr-acao" style="margin-top:5px;padding:5px 8px;background:rgba(255,255,255,.04);border-radius:5px">
+                        💡 ${h(c.acao)}
+                    </div>`:''}
+                </div>`;
+            });
+            return html;
+        };
+
+        diagHtml += renderCorr(corrCrit,  'corr-crit',  'var(--red)',   '🔴 O que está causando problemas');
+        diagHtml += renderCorr(corrAviso, 'corr-aviso', 'var(--amber)', '🟡 Pontos de atenção');
+        diagHtml += renderCorr(corrInfo,  'corr-info',  'var(--blue-l)','ℹ Informativo');
+    }
+
+    // Nota sobre o snapshot
+    diagHtml += `<div style="font-size:11px;color:#505068;margin-top:12px;text-align:right">
+        Análise baseada no snapshot de ${new Date(l.criado_em).toLocaleString('pt-BR')}
+    </div>`;
+
+    document.getElementById('tab-diagnostico').innerHTML = diagHtml;
 
     // ── Tab Máquina ──────────────────────────────────────────────────────────
     const maq = pay.maquina;
@@ -745,7 +924,7 @@ async function abrirLoja(token) {
 function showTab(name) {
     document.querySelectorAll('.modal-tab').forEach((b,i)=>b.classList.remove('on'));
     document.querySelectorAll('.modal-panel').forEach(p=>p.classList.remove('on'));
-    const tabs=['resumo','tablets','erros','topologia','maquina','historico'];
+    const tabs=['resumo','diagnostico','tablets','erros','topologia','maquina','historico'];
     const idx=tabs.indexOf(name);
     if(idx>=0){
         document.querySelectorAll('.modal-tab')[idx]?.classList.add('on');
@@ -762,6 +941,134 @@ carregar();
 setInterval(carregar, 5*60*1000);
 
 // ── Gerenciar lojas bloqueadas ────────────────────────────────────────────────
+async function exportarLoja() {
+    if (!_tokenAtual) return;
+    const nome = document.getElementById('m-titulo')?.textContent || 'loja';
+    const nomeArq = nome.replace(/[^a-zA-Z0-9]/g,'_').toLowerCase();
+
+    // Buscar últimos 100 snapshots
+    const rows = await sb('snapshots',
+        `?token_loja=eq.${encodeURIComponent(_tokenAtual)}&order=criado_em.desc&limit=100`
+    );
+    if (!Array.isArray(rows)||!rows.length) { alert('Sem dados para exportar.'); return; }
+
+    const ultimo = rows[0];
+    const pay    = ultimo.payload || {};
+
+    // ── Formato JSON completo ─────────────────────────────────────────────────
+    const exportJSON = {
+        exportado_em:  new Date().toISOString(),
+        loja:          nome,
+        token:         _tokenAtual,
+        ultimo_snapshot: ultimo.criado_em,
+        resumo: {
+            score:           ultimo.score,
+            status:          ultimo.status||ultimo.nota,
+            servidor_online: ultimo.servidor_online,
+            tablets_ativos:  ultimo.tablets_ativos,
+            tablets_total:   ultimo.tablets_total,
+            erros_log:       ultimo.erros_log,
+            retry_expirados: ultimo.retry_expirados,
+            ip_servidor:     ultimo.ip_servidor,
+            ip_configurado:  pay.ip_configurado,
+            ip_divergente:   pay.ip_divergente,
+            goomer_version:  pay.goomer_version,
+            db_versao:       pay.db_versao,
+            db_port:         pay.db_port,
+        },
+        maquina:     pay.maquina || null,
+        latencia:    pay.latencia || null,
+        correlacoes: pay.correlacoes || [],
+        tablets:     pay.tablets || [],
+        impressoras: pay.impressoras || [],
+        top_erros:   pay.top_erros || [],
+        historico_snapshots: rows.map(r => {
+            const rp = r.payload||{};
+            return {
+                criado_em:       r.criado_em,
+                score:           r.score,
+                status:          r.status||r.nota,
+                servidor_online: r.servidor_online,
+                erros_log:       r.erros_log,
+                retry_expirados: r.retry_expirados,
+                ip_servidor:     r.ip_servidor||rp.ip_servidor,
+                ip_configurado:  r.ip_configurado||rp.ip_configurado,
+                ip_divergente:   r.ip_divergente||rp.ip_divergente,
+                // Performance da máquina no momento
+                maquina: rp.maquina ? {
+                    cpu:      rp.maquina.cpu,
+                    ram_pct:  rp.maquina.ram_pct,
+                    ram_usado:rp.maquina.ram_usado,
+                    ram:      rp.maquina.ram,
+                    uptime:   rp.maquina.uptime,
+                    discos:   rp.maquina.discos
+                } : null,
+                // Latências no momento
+                latencia: rp.latencia ? {
+                    gateway:  rp.latencia.gateway  ? { med:rp.latencia.gateway.med,  max:rp.latencia.gateway.max,  perda_pct:rp.latencia.gateway.perda_pct  } : null,
+                    internet: rp.latencia.internet ? { med:rp.latencia.internet.med, max:rp.latencia.internet.max, perda_pct:rp.latencia.internet.perda_pct } : null,
+                    api:      rp.latencia.api      ? { med:rp.latencia.api.med,      max:rp.latencia.api.max,      perda_pct:rp.latencia.api.perda_pct      } : null,
+                    servidor: rp.latencia.servidor ? { med:rp.latencia.servidor.med, max:rp.latencia.servidor.max, perda_pct:rp.latencia.servidor.perda_pct } : null,
+                } : null,
+                // Top erros no momento
+                top_erros: rp.top_erros ? rp.top_erros.map(e=>({
+                    tipo: e.type, mensagem: e.msg_resumo, frequencia: e.total, ultima_vez: e.ultima_vez
+                })) : [],
+                // Diagnósticos do momento
+                diagnosticos: (rp.correlacoes||[]).filter(c=>c.nivel!=='info').map(c=>({
+                    nivel:     c.nivel,
+                    categoria: c.categoria,
+                    titulo:    c.titulo,
+                    acao:      c.acao
+                }))
+            };
+        })
+    };
+
+    // ── Gerar CSV do histórico ────────────────────────────────────────────────
+    const csvHeader = 'Data/Hora,Score,Status,Servidor,Erros,Sem ERP,IP Maquina,IP Configurado\n';
+    const csvRows = rows.map(r => {
+        const hora = new Date(r.criado_em).toLocaleString('pt-BR');
+        return [
+            `"${hora}"`,
+            r.score||0,
+            `"${r.status||r.nota||'?'}"`,
+            r.servidor_online?'online':'offline',
+            r.erros_log||0,
+            r.retry_expirados||0,
+            `"${r.ip_servidor||r.payload?.ip_servidor||'—'}"`,
+            `"${r.ip_configurado||r.payload?.ip_configurado||'—'}"`,
+        ].join(',');
+    }).join('\n');
+    const csvContent = csvHeader + csvRows;
+
+    // ── Perguntar formato ─────────────────────────────────────────────────────
+    const formato = confirm(
+        `Exportar dados de "${nome}"
+
+` +
+        `OK = JSON completo (todos os dados, ideal para análise)
+` +
+        `Cancelar = CSV (histórico de snapshots, ideal para planilha)`
+    );
+
+    const conteudo = formato
+        ? JSON.stringify(exportJSON, null, 2)
+        : csvContent;
+    const extensao = formato ? 'json' : 'csv';
+    const tipo     = formato ? 'application/json' : 'text/csv';
+
+    const blob = new Blob([conteudo], { type: tipo });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `goomer_noc_${nomeArq}_${new Date().toISOString().slice(0,10)}.${extensao}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 async function bloquearLoja() {
     const token = _tokenAtual;
     if (!token) return;
@@ -871,8 +1178,8 @@ async function buscarErrosHistorico(token) {
             </div>
         </div>
         ${lista.map(e=>`<div class="erro-item">
-            <div class="erro-msg">${h(e.msg)}</div>
-            <div class="erro-meta">
+            <div class="erro-msg" style="font-size:12px;line-height:1.5;word-break:break-word;white-space:normal">${h(e.msg)}</div>
+            <div class="erro-meta" style="margin-top:5px">
                 <span class="badge ${e.type==='print'?'ba':e.type==='order'?'br':'bb'}">${h(e.type||'?')}</span>
                 <span style="font-weight:700;color:#e8eef8">${e.total}x</span>
                 <span>último: ${e.ultima_vez?new Date(e.ultima_vez).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'}</span>
