@@ -253,6 +253,7 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
         <button class="modal-tab"    onclick="showTab('topologia')">Topologia</button>
         <button class="modal-tab"    onclick="showTab('maquina')">Máquina</button>
         <button class="modal-tab"    onclick="showTab('historico')">Histórico</button>
+        <button class="modal-tab"    onclick="showTab('config')">⚙ Agente</button>
       </div>
       <div id="tab-resumo"      class="modal-panel on"></div>
       <div id="tab-diagnostico" class="modal-panel"></div>
@@ -261,6 +262,7 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
       <div id="tab-topologia"   class="modal-panel"></div>
       <div id="tab-maquina"     class="modal-panel"></div>
       <div id="tab-historico"   class="modal-panel"></div>
+      <div id="tab-config"      class="modal-panel"></div>
     </div>
   </div>
 </div>
@@ -558,7 +560,7 @@ async function abrirLoja(token) {
     document.getElementById('overlay').classList.add('on');
     document.getElementById('m-titulo').textContent = 'carregando...';
     document.getElementById('m-sub').textContent = '';
-    ['resumo','diagnostico','tablets','erros','topologia','maquina','historico'].forEach(t=>
+    ['resumo','diagnostico','tablets','erros','topologia','maquina','historico','config'].forEach(t=>
         document.getElementById('tab-'+t).innerHTML='<div class="loading">buscando dados...</div>');
     showTab('resumo');
 
@@ -1038,6 +1040,66 @@ async function abrirLoja(token) {
             '<div class="empty">Dados de máquina não disponíveis.<br><span style="font-size:12px">Atualize o agente para coletar essas informações.</span></div>';
     }
 
+    // ── Tab Configuração do Agente ───────────────────────────────────────────
+    const flags = [
+        { chave: 'autocorrecao_ip',      label: 'Autocorreção de IP',          desc: 'Sincroniza automaticamente o IP quando divergente ou vazio' },
+        { chave: 'autocorrecao_spooler', label: 'Autocorreção do Spooler',      desc: 'Reinicia o spooler ao detectar volume alto de erros de impressão' },
+        { chave: 'autocorrecao_disco',   label: 'Limpeza automática de disco',  desc: 'Remove arquivos temporários quando disco acima de 85%' },
+        { chave: 'autocorrecao_cache',   label: 'Limpeza de cache (madrugada)', desc: 'Limpa cache Chrome/QZ entre 2h e 5h quando RAM está alta' },
+        { chave: 'coleta_logs',          label: 'Coleta de logs de erro',       desc: 'Busca erros no device_log a cada snapshot' },
+        { chave: 'coleta_latencia',      label: 'Medição de latência',          desc: 'Mede latência de rede a cada 30s (gateway, internet, API, servidor)' },
+        { chave: 'coleta_maquina',       label: 'Performance da máquina',       desc: 'Coleta CPU, RAM e disco a cada snapshot' },
+        { chave: 'coleta_tablets',       label: 'Status dos tablets',           desc: 'Coleta dados e faz ping nos tablets a cada snapshot' },
+    ];
+
+    // Carregar config atual da loja do Supabase
+    const cfgAtual = {};
+    try {
+        const cfgRows = await sb('agente_config',
+            `?or=(token_loja.is.null,token_loja.eq.${encodeURIComponent(l.token_loja)})&select=chave,valor,token_loja`
+        );
+        (cfgRows||[]).forEach(r => { cfgAtual[r.chave] = { valor: r.valor, especifico: !!r.token_loja }; });
+    } catch(e) {}
+
+    const getValor = chave => {
+        if (cfgAtual[chave]?.especifico) return cfgAtual[chave].valor; // config específica da loja
+        if (cfgAtual[chave]) return cfgAtual[chave].valor;             // config global
+        return 'true'; // padrão
+    };
+
+    let configHtml = `
+        <div style="background:rgba(14,92,254,.06);border:1px solid rgba(14,92,254,.2);border-radius:8px;padding:10px 14px;font-size:12px;color:#a0b8d0;margin-bottom:16px">
+            ℹ As configurações marcadas como <b style="color:#e8eef8">específica desta loja</b> sobrescrevem a configuração global.
+            Alterações são aplicadas no próximo ciclo do agente (até 5 minutos).
+        </div>
+        <div style="display:grid;gap:8px">
+        ${flags.map(f => {
+            const ativo = getValor(f.chave) !== 'false';
+            const especifico = cfgAtual[f.chave]?.especifico;
+            return `<div style="background:var(--bg3);border:1px solid ${ativo?'var(--border)':'rgba(255,68,85,.2)'};border-radius:8px;padding:12px 14px;display:flex;align-items:center;gap:12px">
+                <div style="flex:1">
+                    <div style="font-size:13px;font-weight:600;color:${ativo?'#e8eef8':'#8096b8'}">${h(f.label)}
+                        ${especifico?`<span style="background:rgba(14,92,254,.15);color:var(--blue-l);font-size:10px;padding:1px 6px;border-radius:4px;margin-left:6px;font-weight:400">específica desta loja</span>`:''}
+                    </div>
+                    <div style="font-size:11px;color:#8096b8;margin-top:3px">${h(f.desc)}</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <button onclick="toggleFlag('${h(l.token_loja)}','${f.chave}',${!ativo})"
+                        style="background:${ativo?'var(--green)':'rgba(255,68,85,.2)'};border:none;color:${ativo?'#0a0a1a':'#ff6b7a'};padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;min-width:60px">
+                        ${ativo?'ON':'OFF'}
+                    </button>
+                    ${especifico?`<button onclick="removerFlagEspecifica('${h(l.token_loja)}','${f.chave}')" title="Remover config específica — voltará a usar global"
+                        style="background:rgba(255,255,255,.05);border:1px solid var(--border);color:#8096b8;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:11px">
+                        ↺ global
+                    </button>`:''}
+                </div>
+            </div>`;
+        }).join('')}
+        </div>
+        <div id="config-status" style="margin-top:12px;font-size:12px;text-align:center;color:#8096b8"></div>`;
+
+    document.getElementById('tab-config').innerHTML = configHtml;
+
     // ── Tab Histórico com filtro de período ─────────────────────────────────
     const hoje_h = new Date();
     const ontem_h = new Date(hoje_h); ontem_h.setDate(ontem_h.getDate()-1);
@@ -1075,7 +1137,7 @@ async function abrirLoja(token) {
 function showTab(name) {
     document.querySelectorAll('.modal-tab').forEach((b,i)=>b.classList.remove('on'));
     document.querySelectorAll('.modal-panel').forEach(p=>p.classList.remove('on'));
-    const tabs=['resumo','diagnostico','tablets','erros','topologia','maquina','historico'];
+    const tabs=['resumo','diagnostico','tablets','erros','topologia','maquina','historico','config'];
     const idx=tabs.indexOf(name);
     if(idx>=0){
         document.querySelectorAll('.modal-tab')[idx]?.classList.add('on');
@@ -1090,6 +1152,56 @@ function closeOverlay(e){
 
 carregar();
 setInterval(carregar, 5*60*1000);
+
+// ── Controle de flags do agente ──────────────────────────────────────────────
+async function toggleFlag(token, chave, novoValor) {
+    const st = document.getElementById('config-status');
+    if (st) st.innerHTML = '<span style="color:#8096b8">Salvando...</span>';
+
+    const r = await fetch(`${SB_URL}/rest/v1/agente_config`, {
+        method: 'POST',
+        headers: {
+            'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'resolution=merge-duplicates,return=minimal'
+        },
+        body: JSON.stringify({
+            token_loja:    token,
+            chave:         chave,
+            valor:         novoValor ? 'true' : 'false',
+            descricao:     `Alterado via NOC`,
+            atualizado_por:'NOC',
+            atualizado_em: new Date().toISOString()
+        })
+    });
+
+    if (r.ok) {
+        if (st) st.innerHTML = `<span style="color:var(--green)">✓ ${novoValor?'Ativado':'Desativado'} — será aplicado no próximo ciclo do agente</span>`;
+        // Reabrir a aba para refletir mudança
+        setTimeout(() => showTab('config'), 800);
+    } else {
+        if (st) st.innerHTML = '<span style="color:var(--red)">✗ Erro ao salvar</span>';
+    }
+}
+
+async function removerFlagEspecifica(token, chave) {
+    const st = document.getElementById('config-status');
+    if (!confirm(`Remover configuração específica desta loja para "${chave}"?
+A configuração global será usada.`)) return;
+    if (st) st.textContent = 'Removendo...';
+
+    const r = await fetch(`${SB_URL}/rest/v1/agente_config?chave=eq.${encodeURIComponent(chave)}&token_loja=eq.${encodeURIComponent(token)}`, {
+        method: 'DELETE',
+        headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}` }
+    });
+
+    if (r.ok) {
+        if (st) st.innerHTML = '<span style="color:var(--green)">✓ Removido — usando configuração global</span>';
+        setTimeout(() => showTab('config'), 800);
+    } else {
+        if (st) st.innerHTML = '<span style="color:var(--red)">✗ Erro ao remover</span>';
+    }
+}
 
 // ── Gestão de versões padrão ──────────────────────────────────────────────────
 async function salvarVersoes() {
