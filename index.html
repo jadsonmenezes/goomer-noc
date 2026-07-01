@@ -110,6 +110,8 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
 .ba{background:rgba(255,184,48,.12);color:#ffc94d;border-color:rgba(255,184,48,.3)}
 .bm{background:rgba(255,255,255,.06);color:var(--sub);border-color:rgba(255,255,255,.1)}
 .bb{background:rgba(14,92,254,.12);color:var(--blue-l);border-color:rgba(14,92,254,.3)}
+.autocorr-item{background:rgba(0,214,143,.06);border:1px solid rgba(0,214,143,.2);border-radius:8px;padding:10px 14px;margin-bottom:8px;font-size:12px}
+.autocorr-falhou{background:rgba(255,184,48,.06);border-color:rgba(255,184,48,.2)}
 .corr-item{border-radius:8px;padding:10px 14px;margin-bottom:8px;border-left:3px solid}
 .corr-crit{background:rgba(255,68,85,.07);border-color:var(--red)}
 .corr-aviso{background:rgba(255,184,48,.07);border-color:var(--amber)}
@@ -469,6 +471,10 @@ function renderGrid(lista) {
         if (_ipDiv) als.push({c:'crit',m:`IP divergente — tablets sem comunicação (${h(_ipCfg||'?')} ≠ ${h(_ipReal||'?')})`});
         const _confRede = (pay.conflito_ip_rede||[]).length;
         if (_confRede>0) als.push({c:'crit',m:`Conflito de IP na rede — servidor com mesmo IP de outro dispositivo`});
+        const _autoCorr = (pay.autocorrecoes||[]).filter(a=>a.resultado==='sucesso');
+        const _autoCorrFalhou = (pay.autocorrecoes||[]).filter(a=>a.resultado!=='sucesso');
+        if (_autoCorr.length>0) als.push({c:'ok',m:`IP corrigido automaticamente: ${_autoCorr[0].ip_antigo} → ${_autoCorr[0].ip_novo}`});
+        if (_autoCorrFalhou.length>0) als.push({c:'warn',m:`Tentativa de correção automática de IP falhou — verificar manualmente`});
         if (pay.inadimplente)              als.push({c:'crit',m:'Bloqueio financeiro'});
         if (l.retry_expirados>0)           als.push({c:'crit',m:`${l.retry_expirados} pedido(s) sem ERP`});
         if (l.erros_log>500)               als.push({c:'warn',m:`Volume alto de erros recentes: ${l.erros_log}`});
@@ -691,6 +697,27 @@ async function abrirLoja(token) {
                     </div>`;
                 }).join('');
             })()}
+        </div>`:''}
+
+        ${(pay.autocorrecoes||[]).length>0?`<div class="sec">
+            <div class="sec-t">⚙ correções automáticas (último snapshot)</div>
+            ${(pay.autocorrecoes||[]).map(a=>`
+                <div class="autocorr-item ${a.resultado!=='sucesso'?'autocorr-falhou':''}">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <span style="font-weight:700;color:${a.resultado==='sucesso'?'var(--green)':'var(--amber)'}">${a.resultado==='sucesso'?'✓':'⚠'} ${
+                            a.tipo==='ip_sincronizado'?'IP sincronizado automaticamente':a.tipo
+                        }</span>
+                        <span style="color:#8096b8;font-size:10px;font-family:var(--mono)">${new Date(a.horario).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+                    </div>
+                    ${a.tipo==='ip_sincronizado'?`
+                        <div style="font-family:var(--mono);font-size:11px;color:#a0b8d0">
+                            ${a.ip_antigo} → ${a.ip_novo||'não identificado'}
+                        </div>
+                        <div style="color:#8096b8;font-size:11px;margin-top:3px">método: ${h(a.metodo)}</div>
+                    `:''}
+                    ${a.resultado!=='sucesso'?`<div style="color:var(--amber);font-size:11px;margin-top:4px">Não foi possível corrigir automaticamente — verificação manual necessária.</div>`:''}
+                </div>
+            `).join('')}
         </div>`:''}
 
         ${pay.db_versao||pay.db_port?`<div class="sec">
