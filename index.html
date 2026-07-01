@@ -188,6 +188,24 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
 
 <div class="main">
   <div class="resumo" id="resumo"></div>
+  <div id="versoes-config" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em">Versões mínimas</div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px">
+        <label style="color:#8096b8">Servidor Goomer:</label>
+        <input id="ver-servidor" type="text" placeholder="ex: 2.4.114"
+            style="background:var(--bg3);border:1px solid var(--border2);color:#e8eef8;padding:5px 10px;border-radius:5px;font-family:var(--mono);font-size:12px;width:100px">
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px">
+        <label style="color:#8096b8">App tablet:</label>
+        <input id="ver-tablet" type="text" placeholder="ex: 2.10.3"
+            style="background:var(--bg3);border:1px solid var(--border2);color:#e8eef8;padding:5px 10px;border-radius:5px;font-family:var(--mono);font-size:12px;width:100px">
+    </div>
+    <button onclick="salvarVersoes()"
+        style="background:var(--blue);border:none;color:#fff;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
+        💾 Salvar
+    </button>
+    <div id="ver-status" style="font-size:11px;color:#8096b8"></div>
+  </div>
 
   <div class="toolbar">
     <input class="search-input" id="busca" placeholder="🔍  buscar loja por nome..." oninput="filtrar()">
@@ -195,8 +213,10 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
     <button class="filter-btn"       id="f-critico"  onclick="setFiltro('critico')">🔴 Crítico/Grave</button>
     <button class="filter-btn"       id="f-atencao"  onclick="setFiltro('atencao')">🟡 Atenção</button>
     <button class="filter-btn"       id="f-ok"       onclick="setFiltro('ok')">🟢 Estável/Saudável</button>
-    <button class="filter-btn"       id="f-offline"  onclick="setFiltro('offline')">⚫ Offline</button>
+    <button class="filter-btn"       id="f-offline"       onclick="setFiltro('offline')">⚫ Offline</button>
+    <button class="filter-btn"       id="f-desatualizado" onclick="setFiltro('desatualizado')">🔄 Desatualizado</button>
     <button class="filter-btn" id="btn-order" onclick="toggleOrder()" style="margin-left:auto" title="Ordenar por score">↑ score</button>
+    <button class="filter-btn" onclick="exportarDesatualizados()" title="Exportar lojas desatualizadas" style="background:rgba(14,92,254,.1);border-color:rgba(14,92,254,.3);color:#7ab3ff">↓ exportar desatualizados</button>
   </div>
 
   <div id="grid"><div class="loading">carregando lojas...</div></div>
@@ -265,6 +285,7 @@ function corLoja(l) {
 const BAR_COR = (v,lo,hi) => v>=hi?'#ff4455':v>=lo?'#ffb830':'#00d68f';
 
 let _dados = [], _filtro = 'todos', _order = 'asc'; // asc = piores primeiro
+let _versoesPadrao = {}; // versões mínimas carregadas do Supabase
 
 async function sb(path, q='') {
     const r = await fetch(`${SB_URL}/rest/v1/${path}${q}`,{
@@ -285,12 +306,18 @@ async function carregar() {
     document.getElementById('last-update').textContent =
         new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
 
-    // Carregar bloqueadas e snapshots em paralelo
-    const [rows, bloqueadas] = await Promise.all([
+    // Carregar tudo em paralelo
+    const [rows, bloqueadas, versoesPadrao] = await Promise.all([
         sb('snapshots','?select=*&order=criado_em.desc&limit=500'),
-        sb('lojas_bloqueadas','?select=token_loja').catch(()=>[])
+        sb('lojas_bloqueadas','?select=token_loja').catch(()=>[]),
+        sb('versoes_padrao','?select=*').catch(()=>[])
     ]);
     const tokensBloqueados = new Set((Array.isArray(bloqueadas)?bloqueadas:[]).map(b=>b.token_loja));
+
+    // Indexar versões padrão
+    const vPadrao = {};
+    (Array.isArray(versoesPadrao)?versoesPadrao:[]).forEach(v => { vPadrao[v.componente] = v.versao; });
+    _versoesPadrao = vPadrao; // guardar globalmente para filtros e exportação
 
     if (!Array.isArray(rows)||!rows.length) {
         document.getElementById('grid').innerHTML =
@@ -308,9 +335,22 @@ async function carregar() {
 
     renderResumo();
     filtrar();
+    preencherCamposVersao();
 }
 
 // Normalizar status — suporte a registros antigos (letras) e novos (texto)
+function compararVersao(versaoAtual, versaoMinima) {
+    if (!versaoAtual || !versaoMinima) return null; // sem dados
+    const parse = v => (v||'0').split('.').map(n=>parseInt(n)||0);
+    const a = parse(versaoAtual), m = parse(versaoMinima);
+    for (let i=0; i<Math.max(a.length,m.length); i++) {
+        const da = a[i]||0, dm = m[i]||0;
+        if (da < dm) return 'desatualizado';
+        if (da > dm) return 'atualizado';
+    }
+    return 'atualizado';
+}
+
 function normStatus(l) {
     const s = (l.status||l.nota||'').toLowerCase().trim();
     let cat;
@@ -391,7 +431,15 @@ function filtrar() {
         if (_filtro==='critico') return ns==='grave';
         if (_filtro==='atencao') return ns==='atencao';
         if (_filtro==='ok')      return ns==='ok';
-        if (_filtro==='offline') return !l.servidor_online || mins_l > 60;
+        if (_filtro==='offline')      return !l.servidor_online || mins_l > 60;
+        if (_filtro==='desatualizado') {
+            const pay = l.payload||{};
+            const srvDesat = _versoesPadrao.servidor_goomer &&
+                compararVersao(pay.goomer_version, _versoesPadrao.servidor_goomer) === 'desatualizado';
+            const tabDesat = _versoesPadrao.app_tablet &&
+                (pay.tablets||[]).some(t => compararVersao(t.versao, _versoesPadrao.app_tablet) === 'desatualizado');
+            return srvDesat || tabDesat;
+        }
         return true;
     });
     lista.sort((a,b) => _order==='asc' ? a.score-b.score : b.score-a.score);
@@ -681,6 +729,8 @@ async function abrirLoja(token) {
             <div class="tab-head">
                 <div class="tab-nome">${t.mesa?`Mesa ${t.mesa}`:h(t.modelo||'Tablet')}
                     <span style="font-size:11px;font-weight:400;color:#8096b8"> · ${h(t.versao||'—')}</span>
+                    ${_versoesPadrao.app_tablet&&t.versao&&compararVersao(t.versao,_versoesPadrao.app_tablet)==='desatualizado'
+                        ?`<span style="background:rgba(255,184,48,.12);color:var(--amber);font-size:10px;padding:1px 6px;border-radius:4px;font-weight:700;margin-left:4px">⚠ desatualizado</span>`:''}
                 </div>
                 <div style="display:flex;gap:6px;align-items:center">
                     <span style="font-family:var(--mono);font-size:11px;color:${pingCor}">${pingLabel}</span>
@@ -1013,6 +1063,115 @@ function closeOverlay(e){
 
 carregar();
 setInterval(carregar, 5*60*1000);
+
+// ── Gestão de versões padrão ──────────────────────────────────────────────────
+async function salvarVersoes() {
+    const srv = document.getElementById('ver-servidor')?.value?.trim();
+    const tab = document.getElementById('ver-tablet')?.value?.trim();
+    const st  = document.getElementById('ver-status');
+    if (!srv && !tab) { if(st) st.textContent = 'Informe pelo menos uma versão.'; return; }
+    if (st) st.textContent = 'Salvando...';
+
+    const salvar = async (componente, versao, descricao) => {
+        if (!versao) return true;
+        const r = await fetch(`${SB_URL}/rest/v1/versoes_padrao`, {
+            method: 'POST',
+            headers: {
+                'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'resolution=merge-duplicates,return=minimal'
+            },
+            body: JSON.stringify({ componente, versao, descricao, atualizado_por:'NOC', atualizado_em: new Date().toISOString() })
+        });
+        return r.ok || r.status === 409;
+    };
+
+    const ok1 = await salvar('servidor_goomer', srv, 'Servidor Goomer / Abrahão');
+    const ok2 = await salvar('app_tablet',      tab, 'App tablet Goomer');
+
+    if (ok1 && ok2) {
+        if (srv) _versoesPadrao.servidor_goomer = srv;
+        if (tab) _versoesPadrao.app_tablet      = tab;
+        if (st) st.innerHTML = '<span style="color:var(--green)">✓ Salvo</span>';
+        await carregar(); // recarregar para aplicar badges
+    } else {
+        if (st) st.innerHTML = '<span style="color:var(--red)">✗ Erro ao salvar</span>';
+    }
+}
+
+// Preencher campos com versões atuais ao carregar
+function preencherCamposVersao() {
+    const vs = document.getElementById('ver-servidor');
+    const vt = document.getElementById('ver-tablet');
+    if (vs && _versoesPadrao.servidor_goomer) vs.value = _versoesPadrao.servidor_goomer;
+    if (vt && _versoesPadrao.app_tablet)      vt.value = _versoesPadrao.app_tablet;
+}
+
+// ── Exportar lojas desatualizadas ─────────────────────────────────────────────
+async function exportarDesatualizados() {
+    if (!Object.keys(_versoesPadrao).length) {
+        alert('Defina as versões mínimas antes de exportar.');
+        return;
+    }
+
+    const agora = new Date();
+    const lojas = _dados.filter(l => {
+        const pay = l.payload||{};
+        const srvDesat = _versoesPadrao.servidor_goomer &&
+            compararVersao(pay.goomer_version, _versoesPadrao.servidor_goomer) === 'desatualizado';
+        const tabDesat = _versoesPadrao.app_tablet &&
+            (pay.tablets||[]).some(t => compararVersao(t.versao, _versoesPadrao.app_tablet) === 'desatualizado');
+        return srvDesat || tabDesat;
+    });
+
+    if (!lojas.length) {
+        alert('Nenhuma loja desatualizada encontrada com os critérios atuais.');
+        return;
+    }
+
+    // CSV detalhado
+    const linhas = [
+        'Loja,IP Servidor,Versão Servidor,Status Servidor,App Desatualizado (tablets),Tablets Desatualizados,Score,Status,Último Snapshot'
+    ];
+
+    lojas.forEach(l => {
+        const pay = l.payload||{};
+        const srvVer  = pay.goomer_version || '—';
+        const srvDesat= compararVersao(srvVer, _versoesPadrao.servidor_goomer) === 'desatualizado';
+        const tabsDesat = (pay.tablets||[]).filter(t =>
+            compararVersao(t.versao, _versoesPadrao.app_tablet) === 'desatualizado'
+        );
+        const tabDesatStr = tabsDesat.length > 0
+            ? tabsDesat.map(t=>`${t.mesa?'Mesa '+t.mesa:t.ip||'?'} (v${t.versao})`).join(' | ')
+            : '—';
+        const hora = new Date(l.criado_em).toLocaleString('pt-BR');
+
+        linhas.push([
+            `"${(l.nome_loja||'?').replace(/"/g,'')}"`,
+            `"${l.ip_servidor||pay.ip_servidor||'—'}"`,
+            `"${srvVer}${srvDesat?' ⚠':''}"`,
+            l.servidor_online?'online':'offline',
+            tabsDesat.length > 0 ? 'SIM' : 'não',
+            `"${tabDesatStr}"`,
+            l.score||0,
+            `"${l.status||l.nota||'?'}"`,
+            `"${hora}"`
+        ].join(','));
+    });
+
+    const csv = linhas.join('\n');
+    const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `goomer_versoes_desatualizadas_${agora.toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    alert(`✓ ${lojas.length} loja(s) exportada(s).\nArquivo: ${a.download}`);
+}
 
 // ── Gerenciar lojas bloqueadas ────────────────────────────────────────────────
 async function exportarLoja() {
