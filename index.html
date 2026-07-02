@@ -662,7 +662,22 @@ async function abrirLoja(token) {
                 <span class="rv" style="color:${(pay.ip_divergente||l.ip_divergente)?'var(--red)':'#e8eef8'}">
                     ${h(pay.ip_configurado||l.ip_configurado||'—')}${(pay.ip_divergente||l.ip_divergente)?' ⚠':''}
                 </span></div>
-            <div class="row"><span class="rl">Servidor Goomer</span><span class="rv" style="color:${l.servidor_online?'var(--green)':'var(--red)'}">${l.servidor_online?'online':'offline'}${pay.goomer_version?' · v'+pay.goomer_version:''}</span></div>
+            <div class="row"><span class="rl">Servidor Goomer</span><span class="rv" style="color:${l.servidor_online?'var(--green)':'var(--red)'}">${l.servidor_online?'online':'offline'}${pay.goomer_version?' · v'+pay.goomer_version:''}${_versoesPadrao.servidor_goomer&&pay.goomer_version&&compararVersao(pay.goomer_version,_versoesPadrao.servidor_goomer)==='desatualizado'?' <span style=\"color:var(--amber);font-size:11px\">⚠ desatualizado</span>':''}</span></div>
+            ${pay.anydesk_id||pay.teamviewer_id?`
+            <div style="margin:12px 0 6px;font-size:10px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em">Acesso Remoto</div>
+            ${pay.anydesk_id?`<div class="row"><span class="rl">AnyDesk ID</span>
+                <span class="rv" style="display:flex;align-items:center;gap:8px">
+                    <span style="font-family:var(--mono);font-size:15px;font-weight:800;color:#e8eef8;letter-spacing:.08em">${h(pay.anydesk_id)}</span>
+                    <button onclick="navigator.clipboard.writeText('${pay.anydesk_id}').then(()=>this.textContent='✓').catch(()=>{})"
+                        style="background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px">copiar</button>
+                </span></div>`:''}
+            ${pay.teamviewer_id?`<div class="row"><span class="rl">TeamViewer ID</span>
+                <span class="rv" style="display:flex;align-items:center;gap:8px">
+                    <span style="font-family:var(--mono);font-size:15px;font-weight:800;color:#e8eef8;letter-spacing:.08em">${h(pay.teamviewer_id)}</span>
+                    <button onclick="navigator.clipboard.writeText('${pay.teamviewer_id}').then(()=>this.textContent='✓').catch(()=>{})"
+                        style="background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px">copiar</button>
+                </span></div>`:''}
+            `:''}
             <div class="row"><span class="rl">Pedidos hoje</span><span class="rv">${pay.pedidos_hoje||0}</span></div>
             <div class="row"><span class="rl">Retry expirados (ERP)</span><span class="rv" style="color:${l.retry_expirados>0?'var(--red)':'var(--green)'}">${l.retry_expirados||0}</span></div>
             <div class="row"><span class="rl">Erros recentes</span><span class="rv" style="color:${l.erros_log>200?'var(--red)':l.erros_log>50?'var(--amber)':'var(--green)'}">${l.erros_log||0}</span></div>
@@ -1044,8 +1059,7 @@ async function abrirLoja(token) {
     const flags = [
         { chave: 'autocorrecao_ip',      label: 'Autocorreção de IP',          desc: 'Sincroniza automaticamente o IP quando divergente ou vazio' },
         { chave: 'autocorrecao_spooler', label: 'Autocorreção do Spooler',      desc: 'Reinicia o spooler ao detectar volume alto de erros de impressão' },
-        { chave: 'autocorrecao_disco',   label: 'Limpeza automática de disco',  desc: 'Remove arquivos temporários quando disco acima de 85%' },
-        { chave: 'autocorrecao_cache',   label: 'Limpeza de cache (madrugada)', desc: 'Limpa cache Chrome/QZ entre 2h e 5h quando RAM está alta' },
+        { chave: 'autocorrecao_mysql',   label: 'Reinício automático do MySQL', desc: 'Reinicia o serviço MySQL quando cair, se a máquina estiver de pé' },
         { chave: 'coleta_logs',          label: 'Coleta de logs de erro',       desc: 'Busca erros no device_log a cada snapshot' },
         { chave: 'coleta_latencia',      label: 'Medição de latência',          desc: 'Mede latência de rede a cada 30s (gateway, internet, API, servidor)' },
         { chave: 'coleta_maquina',       label: 'Performance da máquina',       desc: 'Coleta CPU, RAM e disco a cada snapshot' },
