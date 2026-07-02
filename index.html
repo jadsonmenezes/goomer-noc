@@ -727,10 +727,17 @@ async function abrirLoja(token) {
                         <span style="color:#8096b8;font-size:10px;font-family:var(--mono)">${new Date(a.horario).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
                     </div>
                     ${a.tipo==='ip_sincronizado'?`
-                        <div style="font-family:var(--mono);font-size:11px;color:#a0b8d0">
-                            ${a.ip_antigo} → ${a.ip_novo||'não identificado'}
+                        <div style="font-family:var(--mono);font-size:11px;color:#a0b8d0;margin-top:4px">
+                            ${h(a.ip_antigo||'vazio')} → ${h(a.ip_novo||'não identificado')}
                         </div>
-                        <div style="color:#8096b8;font-size:11px;margin-top:3px">método: ${h(a.metodo)}</div>
+                        <div style="color:#8096b8;font-size:11px;margin-top:2px">método: ${h(a.metodo||'—')}</div>
+                        ${a.servidor_notificado===false?`
+                        <div style="background:rgba(255,184,48,.1);border:1px solid rgba(255,184,48,.2);border-radius:5px;padding:5px 8px;margin-top:6px;font-size:11px;color:var(--amber)">
+                            ⚠ IP atualizado no banco mas o servidor Goomer não foi notificado automaticamente.<br>
+                            <span style="color:#8096b8">Reinicie o servidor Goomer manualmente para aplicar o novo IP na interface.</span>
+                        </div>`:a.servidor_notificado===true?`
+                        <div style="font-size:11px;color:var(--green);margin-top:4px">✓ Servidor Goomer notificado — IP aplicado sem reinício manual</div>
+                        `:''}
                     `:''}
                     ${a.resultado!=='sucesso'?`<div style="color:var(--amber);font-size:11px;margin-top:4px">Não foi possível corrigir automaticamente — verificação manual necessária.</div>`:''}
                 </div>
