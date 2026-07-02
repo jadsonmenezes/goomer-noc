@@ -217,6 +217,7 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
     <button class="filter-btn"       id="f-ok"       onclick="setFiltro('ok')">🟢 Estável/Saudável</button>
     <button class="filter-btn"       id="f-offline"       onclick="setFiltro('offline')">⚫ Offline</button>
     <button class="filter-btn"       id="f-desatualizado" onclick="setFiltro('desatualizado')">🔄 Desatualizado</button>
+    <button class="filter-btn"       id="f-inativas"      onclick="setFiltro('inativas')">⊘ Inativas</button>
     <button class="filter-btn" id="btn-order" onclick="toggleOrder()" style="margin-left:auto" title="Ordenar por score">↑ score</button>
     <button class="filter-btn" onclick="exportarDesatualizados()" title="Exportar lojas desatualizadas" style="background:rgba(14,92,254,.1);border-color:rgba(14,92,254,.3);color:#7ab3ff">↓ exportar desatualizados</button>
   </div>
@@ -237,10 +238,16 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
               style="background:rgba(14,92,254,.1);border:1px solid rgba(14,92,254,.3);color:#7ab3ff;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
               ↓ exportar
           </button>
-          <button onclick="bloquearLoja()" title="Bloquear loja no NOC"
-              style="background:rgba(255,68,85,.1);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
-              ⊘ bloquear
-          </button>
+          ${_lojasBloqueadas.some(b=>b.token_loja===_tokenAtual)
+            ? `<button onclick="desbloquearLoja()" title="Reativar loja"
+                style="background:rgba(0,214,143,.1);border:1px solid rgba(0,214,143,.3);color:var(--green);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
+                ✓ reativar loja
+               </button>`
+            : `<button onclick="bloquearLoja()" title="Inativar loja no NOC"
+                style="background:rgba(255,68,85,.1);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
+                ⊘ inativar
+               </button>`
+          }
           <button class="modal-close" onclick="document.getElementById('overlay').classList.remove('on')">✕</button>
       </div>
     </div>
@@ -290,6 +297,7 @@ const BAR_COR = (v,lo,hi) => v>=hi?'#ff4455':v>=lo?'#ffb830':'#00d68f';
 
 let _dados = [], _filtro = 'todos', _order = 'asc'; // asc = piores primeiro
 let _versoesPadrao = {}; // versões mínimas carregadas do Supabase
+let _lojasBloqueadas = []; // lojas inativas carregadas do Supabase
 
 async function sb(path, q='') {
     const r = await fetch(`${SB_URL}/rest/v1/${path}${q}`,{
@@ -313,10 +321,11 @@ async function carregar() {
     // Carregar tudo em paralelo
     const [rows, bloqueadas, versoesPadrao] = await Promise.all([
         sb('snapshots','?select=*&order=criado_em.desc&limit=500'),
-        sb('lojas_bloqueadas','?select=token_loja').catch(()=>[]),
+        sb('lojas_bloqueadas','?select=token_loja,nome_loja,motivo,bloqueado_em,bloqueado_por').catch(()=>[]),
         sb('versoes_padrao','?select=*').catch(()=>[])
     ]);
     const tokensBloqueados = new Set((Array.isArray(bloqueadas)?bloqueadas:[]).map(b=>b.token_loja));
+    _lojasBloqueadas = Array.isArray(bloqueadas) ? bloqueadas : [];
 
     // Indexar versões padrão
     const vPadrao = {};
@@ -645,6 +654,15 @@ async function abrirLoja(token) {
                 ${(pay.conflito_ip_rede||[]).map(c=>`${c.tipo} (${h(c.ip||c.uri||'?')})`).join(', ')}
             </span><br>
             <span style="font-size:11px;color:#ff9aaa">Dois dispositivos com o mesmo IP causam falhas intermitentes de comunicação.</span>
+        </div>`:''}
+        ${_lojasBloqueadas.some(b=>b.token_loja===l.token_loja)?`
+        <div style="background:rgba(255,68,85,.07);border:1px solid rgba(255,68,85,.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px">
+            <div style="font-weight:700;color:#ff6b7a;margin-bottom:4px">⊘ Loja inativada no NOC</div>
+            ${(()=>{const b=_lojasBloqueadas.find(b=>b.token_loja===l.token_loja);
+                return b?`<div style="color:#a0b8d0">Motivo: ${h(b.motivo||'—')}</div>
+                <div style="color:#8096b8;font-size:11px">Por ${h(b.bloqueado_por||'?')} em ${b.bloqueado_em?new Date(b.bloqueado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—'}</div>`:'';
+            })()}
+            <div style="color:#8096b8;font-size:11px;margin-top:4px">O agente não está mais enviando snapshots. Clique em "reativar loja" para retomar.</div>
         </div>`:''}
         ${(pay.ip_divergente||l.ip_divergente)?`<div class="al al-crit" style="margin-bottom:12px">
             ✕ IP divergente — tablets sem comunicação com o servidor<br>
@@ -1547,6 +1565,29 @@ async function exportarLoja() {
     URL.revokeObjectURL(url);
 }
 
+async function desbloquearLoja() {
+    const token = _tokenAtual;
+    if (!token) return;
+    const nome = document.getElementById('m-titulo')?.textContent || 'Loja';
+    if (!confirm(`Reativar "${nome}"?
+
+O agente voltará a enviar snapshots no próximo ciclo.`)) return;
+
+    const r = await fetch(
+        `${SB_URL}/rest/v1/lojas_bloqueadas?token_loja=eq.${encodeURIComponent(token)}`,
+        { method: 'DELETE', headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Prefer': 'return=minimal' } }
+    );
+
+    if (r.ok) {
+        _lojasBloqueadas = _lojasBloqueadas.filter(b => b.token_loja !== token);
+        document.getElementById('overlay').classList.remove('on');
+        await carregar();
+        alert(`✓ "${nome}" reativada. O agente voltará a enviar snapshots no próximo ciclo (até 5 minutos).`);
+    } else {
+        alert('Erro ao reativar a loja. Tente novamente.');
+    }
+}
+
 async function bloquearLoja() {
     const token = _tokenAtual;
     if (!token) return;
@@ -1574,7 +1615,7 @@ async function bloquearLoja() {
     if (r.ok || r.status === 409) { // 409 = já existe
         document.getElementById('overlay').classList.remove('on');
         await carregar();
-        alert(`✓ Loja "${nome}" bloqueada. Não aparecerá mais no NOC.`);
+        alert(`✓ "${nome}" inativada. O agente parará de enviar snapshots no próximo ciclo.\n\nPara reativar, abra a loja no filtro "Inativas" e clique em "reativar loja".`);
     } else {
         const err = await r.text().catch(()=>'');
         // Se der erro de permissão, orientar a bloquear via SQL
