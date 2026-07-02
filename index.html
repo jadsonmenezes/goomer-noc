@@ -424,13 +424,28 @@ function setFiltro(f) {
 }
 
 function filtrar() {
-    const busca = (document.getElementById('busca')?.value||'').toLowerCase();
-    const agora = new Date();
-    const lista = _dados.filter(l => {
+    const busca  = (document.getElementById('busca')?.value||'').toLowerCase();
+    const agora  = new Date();
+
+    // Para filtro inativas: usar _lojasBloqueadas como fonte de dados
+    const fonte = _filtro === 'inativas'
+        ? _lojasBloqueadas.map(b => ({
+            token_loja:     b.token_loja,
+            nome_loja:      b.nome_loja,
+            score:          0,
+            nota:           'Inativa',
+            servidor_online:false,
+            criado_em:      b.bloqueado_em || new Date(0).toISOString(),
+            payload:        { motivo: b.motivo, bloqueado_por: b.bloqueado_por, bloqueado_em: b.bloqueado_em }
+          }))
+        : _dados;
+
+    const lista = fonte.filter(l => {
         const nome   = (l.nome_loja||'').toLowerCase();
         const ip     = (l.ip_servidor||l.payload?.ip_servidor||'').toLowerCase();
-        const mins_l = Math.round((agora - new Date(l.criado_em)) / 60000);
+        const mins_l = Math.round((agora - new Date(l.criado_em||0)) / 60000);
         if (busca && !nome.includes(busca) && !ip.includes(busca)) return false;
+        if (_filtro==='inativas')    return true; // já filtrado pela fonte
         const ns = normStatus(l);
         if (_filtro==='critico') return ns==='grave';
         if (_filtro==='atencao') return ns==='atencao';
@@ -456,6 +471,26 @@ function renderGrid(lista) {
         return;
     }
     document.getElementById('grid').innerHTML = '<div class="grid">'+lista.map(l=>{
+        // Card especial para lojas inativas
+        const estaInativa = _lojasBloqueadas.some(b => b.token_loja === l.token_loja);
+        if (estaInativa && _filtro === 'inativas') {
+            const bInfo = _lojasBloqueadas.find(b => b.token_loja === l.token_loja) || {};
+            return `<div class="loja-card" style="opacity:.7;cursor:pointer" onclick="abrirLoja('${h(l.token_loja)}')">
+                <div class="loja-head" style="background:rgba(255,68,85,.05)">
+                    <div class="score-circle" style="color:#505068;border-color:#505068;font-size:11px">⊘</div>
+                    <div style="flex:1;min-width:0">
+                        <div class="loja-nome">${h(l.nome_loja||'Loja inativa')}</div>
+                        <div class="loja-ip" style="color:#8096b8">Inativada em ${bInfo.bloqueado_em?new Date(bInfo.bloqueado_em).toLocaleDateString('pt-BR'):''}</div>
+                    </div>
+                    <span class="status-badge" style="background:rgba(255,68,85,.1);color:#ff6b7a;border:1px solid rgba(255,68,85,.3)">Inativa</span>
+                </div>
+                <div style="padding:10px 14px;font-size:12px;color:#8096b8">
+                    <div>Motivo: <span style="color:#a0b8d0">${h(bInfo.motivo||'—')}</span></div>
+                    <div style="margin-top:4px;font-size:11px">Por ${h(bInfo.bloqueado_por||'?')} · O agente não está mais enviando snapshots</div>
+                </div>
+            </div>`;
+        }
+
         const cor   = corLoja(l);
         const pay   = l.payload||{};
         const agora = new Date();
