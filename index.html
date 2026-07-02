@@ -2056,8 +2056,9 @@ function topoMaximizar() {
     svg.style.width  = '100%';
     svg.style.height = '100%';
 
-    // Reconfigurar eventos de mouse/touch no novo container
+    // Registrar todos os eventos no novo container
     _nocTopoContainer = cnt;
+    nocRegistrarEventos(cnt, svg);
     nocTopoCentralizar();
 
     // ESC para fechar
@@ -2074,14 +2075,15 @@ function fecharTopoMaximizar() {
 
     if (ov._onEsc) document.removeEventListener('keydown', ov._onEsc);
 
-    // Devolver SVG ao container original
+    // Devolver SVG ao container original e restaurar eventos
     wrap.appendChild(svg);
     svg.style.width  = '100%';
     svg.style.height = '100%';
     _nocTopoContainer = wrap;
+    nocRegistrarEventos(wrap, svg);
 
     ov.remove();
-    nocTopoCentralizar();
+    setTimeout(nocTopoCentralizar, 100);
 }
 
 
@@ -2183,8 +2185,8 @@ function renderTopoNoc(tablets, imps, serverIp) {
             const na=nocNodes[all[a]],nb=nocNodes[all[b]];
             if(!na||!nb) continue;
             const dx=nb.x-na.x,dy=nb.y-na.y,dist=Math.sqrt(dx*dx+dy*dy);
-            if(dist<130&&dist>0){
-                const push=(130-dist)/2,nx=dx/dist*push,ny=dy/dist*push;
+            if(dist<160&&dist>0){
+                const push=(160-dist)/2,nx=dx/dist*push,ny=dy/dist*push;
                 if(!['gw','srv'].includes(all[b])){nb.x+=nx;nb.y+=ny;}
                 if(!['gw','srv'].includes(all[a])){na.x-=nx;na.y-=ny;}
             }
@@ -2274,50 +2276,63 @@ function renderTopoNoc(tablets, imps, serverIp) {
 
     applyNocTransform();
 
-    // Eventos no wrap (pan + wheel)
-    wrap.onmousedown = e => {
+    // Registrar eventos no container ativo (normal ou maximizado)
+    nocRegistrarEventos(wrap, svg);
+
+    // Aguardar SVG estar pronto e centralizar com fit completo
+    setTimeout(() => {
+        nocTopoCentralizar();
+        setTimeout(nocTopoCentralizar, 200);
+    }, 100);
+}
+
+// ── Registrar todos os eventos de interação num container ────────────────────
+function nocRegistrarEventos(container, svg) {
+    // Limpar eventos anteriores
+    container.onmousedown  = null;
+    container.onmousemove  = null;
+    container.onmouseup    = null;
+    container.onmouseleave = null;
+    container.oncontextmenu= null;
+    container.onwheel      = null;
+
+    container.onmousedown = e => {
         if(e.button===2||e.button===1||nocSpaceDown){
             nocPanActive=true; nocPanSX=e.clientX; nocPanSY=e.clientY;
-            nocPanVX=nocVX; nocPanVY=nocVY; wrap.style.cursor='grabbing'; e.preventDefault();
+            nocPanVX=nocVX; nocPanVY=nocVY; container.style.cursor='grabbing'; e.preventDefault();
         }
     };
-    wrap.onmousemove = e => {
+    container.onmousemove = e => {
         if(nocPanActive){
             nocVX=nocPanVX+(e.clientX-nocPanSX); nocVY=nocPanVY+(e.clientY-nocPanSY);
             applyNocTransform();
         }
         if(nocDragging){
-            const rect=wrap.getBoundingClientRect();
+            const rect=container.getBoundingClientRect();
             nocNodes[nocDragging]={x:(e.clientX-rect.left-nocVX)/nocTopoScale, y:(e.clientY-rect.top-nocVY)/nocTopoScale};
             renderTopoNoc(_nocTablets,_nocImps,_nocIP);
         }
     };
-    wrap.onmouseup  = () => { nocPanActive=false; nocDragging=null; wrap.style.cursor='default'; };
-    wrap.onmouseleave = () => { nocPanActive=false; nocDragging=null; };
-    wrap.oncontextmenu = e => e.preventDefault();
-    wrap.onwheel = e => { e.preventDefault(); nocTopoZoom(e.deltaY<0?.1:-.1); };
+    container.onmouseup    = () => { nocPanActive=false; nocDragging=null; container.style.cursor='default'; };
+    container.onmouseleave = () => { nocPanActive=false; nocDragging=null; };
+    container.oncontextmenu= e => e.preventDefault();
+    container.onwheel      = e => { e.preventDefault(); nocTopoZoom(e.deltaY<0?.1:-.1); };
 
-    // Drag nos nós
+    // Drag nos nós — usar container para atualizar cursor
     svg.querySelectorAll('.noc-node').forEach(el=>{
         el.onmousedown = e => {
             if(e.button!==0||nocSpaceDown) return;
-            e.stopPropagation(); nocDragging=el.dataset.nid; wrap.style.cursor='grabbing';
+            e.stopPropagation(); nocDragging=el.dataset.nid; container.style.cursor='grabbing';
         };
     });
 
-    // Botões externos
+    // Botões externos (só no modo normal)
     const bp=document.getElementById('btn-topo-plus');
     const bm=document.getElementById('btn-topo-minus');
     const bf=document.getElementById('btn-topo-fit');
     if(bp) { bp.onclick=()=>nocTopoZoom(.15); }
     if(bm) { bm.onclick=()=>nocTopoZoom(-.15); }
     if(bf) { bf.onclick=()=>nocTopoCentralizar(); }
-
-    // Aguardar SVG estar pronto e centralizar com fit completo
-    setTimeout(() => {
-        nocTopoCentralizar();
-        setTimeout(nocTopoCentralizar, 200); // segunda passagem para garantir
-    }, 100);
 }
 </script>
 </body>
