@@ -251,16 +251,18 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
         <button class="modal-tab"    onclick="showTab('topologia')">Topologia</button>
         <button class="modal-tab"    onclick="showTab('maquina')">Máquina</button>
         <button class="modal-tab"    onclick="showTab('historico')">Histórico</button>
-        <button class="modal-tab"    onclick="showTab('config')">⚙ Agente</button>
+        <button class="modal-tab"    onclick="showTab('autocorrecoes')">⚙ Autocorreções</button>
+        <button class="modal-tab"    onclick="showTab('config')">Agente</button>
       </div>
-      <div id="tab-resumo"      class="modal-panel on"></div>
-      <div id="tab-diagnostico" class="modal-panel"></div>
-      <div id="tab-tablets"     class="modal-panel"></div>
-      <div id="tab-erros"       class="modal-panel"></div>
-      <div id="tab-topologia"   class="modal-panel"></div>
-      <div id="tab-maquina"     class="modal-panel"></div>
-      <div id="tab-historico"   class="modal-panel"></div>
-      <div id="tab-config"      class="modal-panel"></div>
+      <div id="tab-resumo"        class="modal-panel on"></div>
+      <div id="tab-diagnostico"   class="modal-panel"></div>
+      <div id="tab-tablets"       class="modal-panel"></div>
+      <div id="tab-erros"         class="modal-panel"></div>
+      <div id="tab-topologia"     class="modal-panel"></div>
+      <div id="tab-maquina"       class="modal-panel"></div>
+      <div id="tab-historico"     class="modal-panel"></div>
+      <div id="tab-autocorrecoes" class="modal-panel"></div>
+      <div id="tab-config"        class="modal-panel"></div>
     </div>
   </div>
 </div>
@@ -288,6 +290,8 @@ const BAR_COR = (v,lo,hi) => v>=hi?'#ff4455':v>=lo?'#ffb830':'#00d68f';
 
 let _dados = [], _filtro = 'todos', _order = 'asc'; // asc = piores primeiro
 let _versoesPadrao = {}; // versões mínimas carregadas do Supabase
+let _todosRows = []; // todos os snapshots para cálculo de tendência
+let _tendencias = {}; // tendência por loja
 let _lojasBloqueadas = []; // lojas inativas carregadas do Supabase
 
 async function sb(path, q='') {
@@ -329,6 +333,9 @@ async function carregar() {
         return;
     }
 
+    // Guardar todos os rows para cálculo de tendência
+    _todosRows = rows;
+
     // Agrupar por token — mais recente de cada loja (excluir bloqueadas)
     const map = {};
     rows.forEach(r => {
@@ -338,8 +345,35 @@ async function carregar() {
     _dados = Object.values(map).sort((a,b)=>a.score-b.score);
 
     renderResumo();
+    calcularTendencias();
     filtrar();
     preencherCamposVersao();
+}
+
+// ── Calcular tendência por loja ───────────────────────────────────────────────
+// Agrupa snapshots por loja (últimas 5 ocorrências) e calcula direção do score
+function calcularTendencias() {
+    // Agrupar todos os snapshots por loja
+    const porLoja = {};
+    (_todosRows||[]).forEach(r => {
+        if (!porLoja[r.token_loja]) porLoja[r.token_loja] = [];
+        porLoja[r.token_loja].push(r.score||0);
+    });
+
+    _tendencias = {};
+    Object.entries(porLoja).forEach(([token, scores]) => {
+        if (scores.length < 2) return;
+        const ultimos = scores.slice(0, 5); // já ordenados desc
+        const atual   = ultimos[0];
+        const media   = Math.round(ultimos.slice(1).reduce((s,v)=>s+v,0) / (ultimos.length-1));
+        const delta   = atual - media;
+
+        let seta = '→', cor = '#8096b8';
+        if      (delta >= 5)  { seta = '↑'; cor = 'var(--green)'; }
+        else if (delta <= -5) { seta = '↓'; cor = 'var(--red)'; }
+
+        _tendencias[token] = { seta, delta, cor, media };
+    });
 }
 
 // Normalizar status — suporte a registros antigos (letras) e novos (texto)
@@ -521,7 +555,10 @@ function renderGrid(lista) {
 
         return `<div class="loja" onclick="abrirLoja('${h(l.token_loja)}')">
             <div class="loja-head" style="background:${mins>60?'rgba(255,68,85,.05)':mins>15?'rgba(255,184,48,.04)':'var(--bg3)'}">
-                <div class="score-circle" style="color:${mins>60?'#505068':cor};border-color:${mins>60?'#505068':cor};opacity:${mins>60?.5:1}">${l.score||0}%</div>
+                <div style="position:relative;display:inline-block">
+                    <div class="score-circle" style="color:${mins>60?'#505068':cor};border-color:${mins>60?'#505068':cor};opacity:${mins>60?.5:1}">${l.score||0}%</div>
+                    ${(()=>{const t=_tendencias[l.token_loja];return t&&t.seta!=='→'?`<span style="position:absolute;top:-6px;right:-8px;font-size:13px;font-weight:900;color:${t.cor};text-shadow:0 1px 3px rgba(0,0,0,.5)" title="${t.seta==='↑'?'Melhorando':'Piorando'}: ${Math.abs(t.delta||0)}pts vs média">${t.seta}</span>`:'';})()}
+                </div>
                 <div class="loja-info">
                     <div class="loja-nome">${h(l.nome_loja||'Loja')}</div>
                     <div class="loja-ip">${ip}${pay.goomer_version?' · v'+pay.goomer_version:''}</div>
@@ -595,7 +632,7 @@ async function abrirLoja(token) {
     document.getElementById('overlay').classList.add('on');
     document.getElementById('m-titulo').textContent = 'carregando...';
     document.getElementById('m-sub').textContent = '';
-    ['resumo','diagnostico','tablets','erros','topologia','maquina','historico','config'].forEach(t=>
+    ['resumo','diagnostico','tablets','erros','topologia','maquina','historico','autocorrecoes','config'].forEach(t=>
         document.getElementById('tab-'+t).innerHTML='<div class="loading">buscando dados...</div>');
     showTab('resumo');
 
@@ -1180,6 +1217,93 @@ async function abrirLoja(token) {
 
     document.getElementById('tab-config').innerHTML = configHtml;
 
+    // ── Tab Autocorreções — histórico completo da loja ─────────────────────────
+    document.getElementById('tab-autocorrecoes').innerHTML = '<div class="loading">Buscando histórico...</div>';
+
+    // Buscar últimos 200 snapshots com autocorrecoes preenchidas
+    const rowsAC = await sb('snapshots',
+        `?token_loja=eq.${encodeURIComponent(l.token_loja)}&order=criado_em.desc&limit=200`
+    );
+
+    // Extrair todas as autocorreções de todos os snapshots
+    const todasAC = [];
+    (rowsAC||[]).forEach(r => {
+        const acs = r.payload?.autocorrecoes || [];
+        acs.forEach(a => todasAC.push({ ...a, snapshot_em: r.criado_em }));
+    });
+
+    // Ordenar por horário desc
+    todasAC.sort((a,b) => new Date(b.horario||b.snapshot_em) - new Date(a.horario||a.snapshot_em));
+
+    // Resumo por tipo
+    const resumoTipos = {};
+    todasAC.forEach(a => {
+        const tipo = a.tipo || 'desconhecido';
+        if (!resumoTipos[tipo]) resumoTipos[tipo] = { sucesso: 0, falhou: 0 };
+        if (a.resultado === 'sucesso') resumoTipos[tipo].sucesso++;
+        else resumoTipos[tipo].falhou++;
+    });
+
+    const tipoLabel = t => ({
+        'ip_sincronizado':   '🔄 Sincronização de IP',
+        'spooler_reiniciado':'🖨 Reinício do Spooler',
+        'mysql_reiniciado':  '🗄 Reinício do MySQL',
+    }[t] || t);
+
+    let acHtml = '';
+
+    if (todasAC.length === 0) {
+        acHtml = '<div class="empty">Nenhuma autocorreção registrada nos últimos 200 snapshots.</div>';
+    } else {
+        // Cards de resumo por tipo
+        acHtml += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:16px">
+            ${Object.entries(resumoTipos).map(([tipo,cnt])=>`
+                <div style="background:var(--bg3);border-radius:8px;padding:10px 14px;border:1px solid var(--border)">
+                    <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:6px">${tipoLabel(tipo)}</div>
+                    <div style="display:flex;gap:12px;font-size:12px">
+                        <span style="color:var(--green)">✓ ${cnt.sucesso}</span>
+                        ${cnt.falhou>0?`<span style="color:var(--red)">✗ ${cnt.falhou}</span>`:''}
+                    </div>
+                </div>`
+            ).join('')}
+        </div>`;
+
+        // Linha do tempo
+        acHtml += `<div class="sec"><div class="sec-t">linha do tempo (${todasAC.length} ocorrências)</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+            ${todasAC.map(a => {
+                const ok  = a.resultado === 'sucesso';
+                const cor = ok ? 'var(--green)' : 'var(--red)';
+                const ico = ok ? '✓' : '✗';
+                const hora = new Date(a.horario||a.snapshot_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+
+                let detalhe = '';
+                if (a.tipo === 'ip_sincronizado') {
+                    detalhe = `${h(a.ip_antigo||'?')} → ${h(a.ip_novo||'não identificado')}`;
+                    if (a.servidor_notificado === true)  detalhe += ' · servidor notificado ✓';
+                    if (a.servidor_notificado === false) detalhe += ' · servidor reiniciado manualmente';
+                } else if (a.tipo === 'spooler_reiniciado') {
+                    detalhe = `${a.erros_antes||0} erros de impressão${a.motivo?` · ${h(a.motivo)}`:''}`;
+                }
+                if (a.metodo) detalhe += ` · método: ${h(a.metodo)}`;
+
+                return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;background:var(--bg3);border-radius:8px;border-left:3px solid ${cor}">
+                    <div style="font-size:16px;color:${cor};font-weight:900;flex-shrink:0">${ico}</div>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:12px;font-weight:600;color:#e8eef8">${tipoLabel(a.tipo)}</div>
+                        ${detalhe?`<div style="font-size:11px;color:#a0b8d0;margin-top:2px">${detalhe}</div>`:''}
+                        ${a.obs?`<div style="font-size:11px;color:#8096b8;margin-top:2px;font-style:italic">${h(a.obs)}</div>`:''}
+                        ${!ok&&a.resultado?`<div style="font-size:11px;color:var(--amber);margin-top:2px">Resultado: ${h(a.resultado)}</div>`:''}
+                    </div>
+                    <div style="font-size:10px;color:#8096b8;font-family:var(--mono);flex-shrink:0">${hora}</div>
+                </div>`;
+            }).join('')}
+            </div>
+        </div>`;
+    }
+
+    document.getElementById('tab-autocorrecoes').innerHTML = acHtml;
+
     // ── Tab Histórico com filtro de período ─────────────────────────────────
     const hoje_h = new Date();
     const ontem_h = new Date(hoje_h); ontem_h.setDate(ontem_h.getDate()-1);
@@ -1217,7 +1341,7 @@ async function abrirLoja(token) {
 function showTab(name) {
     document.querySelectorAll('.modal-tab').forEach((b,i)=>b.classList.remove('on'));
     document.querySelectorAll('.modal-panel').forEach(p=>p.classList.remove('on'));
-    const tabs=['resumo','diagnostico','tablets','erros','topologia','maquina','historico','config'];
+    const tabs=['resumo','diagnostico','tablets','erros','topologia','maquina','historico','autocorrecoes','config'];
     const idx=tabs.indexOf(name);
     if(idx>=0){
         document.querySelectorAll('.modal-tab')[idx]?.classList.add('on');
