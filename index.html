@@ -1090,16 +1090,16 @@ async function abrirLoja(token) {
         ${flags.map(f => {
             const ativo = getValor(f.chave) !== 'false';
             const especifico = cfgAtual[f.chave]?.especifico;
-            return `<div style="background:var(--bg3);border:1px solid ${ativo?'var(--border)':'rgba(255,68,85,.2)'};border-radius:8px;padding:12px 14px;display:flex;align-items:center;gap:12px">
+            return `<div data-flag-card style="background:var(--bg3);border:1px solid ${ativo?'var(--border)':'rgba(255,68,85,.2)'};border-radius:8px;padding:12px 14px;display:flex;align-items:center;gap:12px">
                 <div style="flex:1">
-                    <div style="font-size:13px;font-weight:600;color:${ativo?'#e8eef8':'#8096b8'}">${h(f.label)}
+                    <div data-flag-nome style="font-size:13px;font-weight:600;color:${ativo?'#e8eef8':'#8096b8'}">${h(f.label)}
                         ${especifico?`<span style="background:rgba(14,92,254,.15);color:var(--blue-l);font-size:10px;padding:1px 6px;border-radius:4px;margin-left:6px;font-weight:400">específica desta loja</span>`:''}
                     </div>
                     <div style="font-size:11px;color:#8096b8;margin-top:3px">${h(f.desc)}</div>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px">
-                    <button onclick="toggleFlag('${h(l.token_loja)}','${f.chave}',${!ativo})"
-                        style="background:${ativo?'var(--green)':'rgba(255,68,85,.2)'};border:none;color:${ativo?'#0a0a1a':'#ff6b7a'};padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;min-width:60px">
+                    <button data-flag="${f.chave}" onclick="toggleFlag('${h(l.token_loja)}','${f.chave}',${!ativo},this)"
+                        style="background:${ativo?'var(--green)':'rgba(255,68,85,.2)'};border:none;color:${ativo?'#0a0a1a':'#ff6b7a'};padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;min-width:60px;transition:background .2s,color .2s">
                         ${ativo?'ON':'OFF'}
                     </button>
                     ${especifico?`<button onclick="removerFlagEspecifica('${h(l.token_loja)}','${f.chave}')" title="Remover config específica — voltará a usar global"
@@ -1168,13 +1168,15 @@ carregar();
 setInterval(carregar, 5*60*1000);
 
 // ── Controle de flags do agente ──────────────────────────────────────────────
-async function toggleFlag(token, chave, novoValor) {
-    const st = document.getElementById('config-status');
-    if (st) st.innerHTML = '<span style="color:#8096b8">Salvando...</span>';
+async function toggleFlag(token, chave, novoValor, btnEl) {
+    const st  = document.getElementById('config-status');
+    const btn = btnEl || document.querySelector(`[data-flag="${chave}"]`);
+    if (st)  st.innerHTML = '<span style="color:#8096b8">Salvando...</span>';
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
 
     const valor = novoValor ? 'true' : 'false';
-    const body  = { token_loja: token, chave, valor, descricao: 'Alterado via NOC', atualizado_por: 'NOC', atualizado_em: new Date().toISOString() };
     const hdrs  = { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Content-Type': 'application/json' };
+    const body  = { token_loja: token, chave, valor, descricao: 'Alterado via NOC', atualizado_por: 'NOC', atualizado_em: new Date().toISOString() };
 
     // Verificar se já existe registro para esta loja+chave
     const existing = await fetch(
@@ -1184,13 +1186,12 @@ async function toggleFlag(token, chave, novoValor) {
 
     let r;
     if (Array.isArray(existing) && existing.length > 0) {
-        // UPDATE
         r = await fetch(
             `${SB_URL}/rest/v1/agente_config?chave=eq.${encodeURIComponent(chave)}&token_loja=eq.${encodeURIComponent(token)}`,
-            { method: 'PATCH', headers: { ...hdrs, 'Prefer': 'return=minimal' }, body: JSON.stringify({ valor, atualizado_por: 'NOC', atualizado_em: new Date().toISOString() }) }
+            { method: 'PATCH', headers: { ...hdrs, 'Prefer': 'return=minimal' },
+              body: JSON.stringify({ valor, atualizado_por: 'NOC', atualizado_em: new Date().toISOString() }) }
         );
     } else {
-        // INSERT
         r = await fetch(
             `${SB_URL}/rest/v1/agente_config`,
             { method: 'POST', headers: { ...hdrs, 'Prefer': 'return=minimal' }, body: JSON.stringify(body) }
@@ -1198,12 +1199,33 @@ async function toggleFlag(token, chave, novoValor) {
     }
 
     if (r.ok) {
+        // ── Atualizar visual imediatamente sem recarregar ─────────────────
+        if (btn) {
+            btn.disabled   = false;
+            btn.textContent = novoValor ? 'ON' : 'OFF';
+            btn.style.background = novoValor ? 'var(--green)' : 'rgba(255,68,85,.2)';
+            btn.style.color      = novoValor ? '#0a0a1a'      : '#ff6b7a';
+            // Atualizar onclick para o próximo toggle
+            btn.setAttribute('onclick', `toggleFlag('${token}','${chave}',${!novoValor},this)`);
+        }
+
+        // Atualizar visual do card pai (borda e opacidade do nome)
+        const card = btn?.closest('[data-flag-card]');
+        if (card) {
+            card.style.border = novoValor
+                ? '1px solid var(--border)'
+                : '1px solid rgba(255,68,85,.2)';
+            const nome = card.querySelector('[data-flag-nome]');
+            if (nome) nome.style.color = novoValor ? '#e8eef8' : '#8096b8';
+        }
+
         if (st) st.innerHTML = `<span style="color:var(--green)">✓ ${novoValor?'Ativado':'Desativado'} — aplicado no próximo ciclo do agente</span>`;
-        setTimeout(() => showTab('config'), 800);
+        setTimeout(() => { if (st) st.innerHTML = ''; }, 4000);
     } else {
         const err = await r.text().catch(() => '');
         console.error('toggleFlag erro:', r.status, err);
-        if (st) st.innerHTML = `<span style="color:var(--red)">✗ Erro ao salvar (${r.status})</span>`;
+        if (btn) { btn.disabled = false; btn.textContent = novoValor ? 'ON' : 'OFF'; }
+        if (st)  st.innerHTML = `<span style="color:var(--red)">✗ Erro ao salvar (${r.status})</span>`;
     }
 }
 
