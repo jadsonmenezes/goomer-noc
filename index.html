@@ -1055,45 +1055,45 @@ async function abrirLoja(token) {
             '<div class="empty">Dados de máquina não disponíveis.<br><span style="font-size:12px">Atualize o agente para coletar essas informações.</span></div>';
     }
 
-    // ── Tab Configuração do Agente ───────────────────────────────────────────
+    // ── Tab Configuração do Agente — simples por loja ────────────────────────
     const flags = [
-        { chave: 'autocorrecao_ip',      label: 'Autocorreção de IP',          desc: 'Sincroniza automaticamente o IP quando divergente ou vazio' },
-        { chave: 'autocorrecao_spooler', label: 'Autocorreção do Spooler',      desc: 'Reinicia o spooler ao detectar volume alto de erros de impressão' },
-        { chave: 'autocorrecao_mysql',   label: 'Reinício automático do MySQL', desc: 'Reinicia o serviço MySQL quando cair, se a máquina estiver de pé' },
+        { chave: 'autocorrecao_ip',      label: 'Autocorreção de IP',          desc: 'Sincroniza o IP automaticamente quando divergente ou vazio' },
+        { chave: 'autocorrecao_spooler', label: 'Autocorreção do Spooler',      desc: 'Reinicia o spooler ao detectar erros altos de impressão' },
+        { chave: 'autocorrecao_mysql',   label: 'Reinício automático do MySQL', desc: 'Reinicia o MySQL quando cair, aguardando 5min após boot' },
         { chave: 'coleta_logs',          label: 'Coleta de logs de erro',       desc: 'Busca erros no device_log a cada snapshot' },
-        { chave: 'coleta_latencia',      label: 'Medição de latência',          desc: 'Mede latência de rede a cada 30s (gateway, internet, API, servidor)' },
+        { chave: 'coleta_latencia',      label: 'Medição de latência de rede',  desc: 'Mede latência a cada 30s (gateway, internet, API, servidor)' },
         { chave: 'coleta_maquina',       label: 'Performance da máquina',       desc: 'Coleta CPU, RAM e disco a cada snapshot' },
         { chave: 'coleta_tablets',       label: 'Status dos tablets',           desc: 'Coleta dados e faz ping nos tablets a cada snapshot' },
     ];
 
-    // Carregar config atual da loja do Supabase
-    const cfgAtual = {};
+    // Carregar config específica desta loja
+    const cfgLoja = {};
     try {
         const cfgRows = await sb('agente_config',
-            `?or=(token_loja.is.null,token_loja.eq.${encodeURIComponent(l.token_loja)})&select=chave,valor,token_loja`
+            `?token_loja=eq.${encodeURIComponent(l.token_loja)}&select=chave,valor`
         );
-        (cfgRows||[]).forEach(r => { cfgAtual[r.chave] = { valor: r.valor, especifico: !!r.token_loja }; });
+        (cfgRows||[]).forEach(r => { cfgLoja[r.chave] = r.valor; });
     } catch(e) {}
 
-    const getValor = chave => {
-        if (cfgAtual[chave]?.especifico) return cfgAtual[chave].valor; // config específica da loja
-        if (cfgAtual[chave]) return cfgAtual[chave].valor;             // config global
-        return 'true'; // padrão
-    };
+    // Regra simples: se há config específica usa ela, senão padrão é ATIVO
+    const getValor = chave => cfgLoja[chave] ?? 'true';
+    const temExcecao = chave => chave in cfgLoja;
 
     let configHtml = `
-        <div style="background:rgba(14,92,254,.06);border:1px solid rgba(14,92,254,.2);border-radius:8px;padding:10px 14px;font-size:12px;color:#a0b8d0;margin-bottom:16px">
-            ℹ As configurações marcadas como <b style="color:#e8eef8">específica desta loja</b> sobrescrevem a configuração global.
-            Alterações são aplicadas no próximo ciclo do agente (até 5 minutos).
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-size:12px;color:#a0b8d0;margin-bottom:16px;line-height:1.6">
+            Todos os recursos ficam <b style="color:var(--green)">ativos por padrão</b> em todas as lojas.<br>
+            Use os botões abaixo para <b style="color:#e8eef8">desativar pontualmente</b> nesta loja.<br>
+            <span style="color:#8096b8;font-size:11px">Alterações aplicadas no próximo ciclo do agente (até 5 minutos).</span>
         </div>
         <div style="display:grid;gap:8px">
         ${flags.map(f => {
             const ativo = getValor(f.chave) !== 'false';
-            const especifico = cfgAtual[f.chave]?.especifico;
+            const excecao = temExcecao(f.chave);
             return `<div data-flag-card style="background:var(--bg3);border:1px solid ${ativo?'var(--border)':'rgba(255,68,85,.2)'};border-radius:8px;padding:12px 14px;display:flex;align-items:center;gap:12px">
                 <div style="flex:1">
-                    <div data-flag-nome style="font-size:13px;font-weight:600;color:${ativo?'#e8eef8':'#8096b8'}">${h(f.label)}
-                        ${especifico?`<span style="background:rgba(14,92,254,.15);color:var(--blue-l);font-size:10px;padding:1px 6px;border-radius:4px;margin-left:6px;font-weight:400">específica desta loja</span>`:''}
+                    <div data-flag-nome style="font-size:13px;font-weight:600;color:${ativo?'#e8eef8':'#8096b8'}">
+                        ${h(f.label)}
+                        ${excecao && !ativo ? `<span style="background:rgba(255,68,85,.12);color:#ff9aaa;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:6px;font-weight:400">desativado nesta loja</span>` : ''}
                     </div>
                     <div style="font-size:11px;color:#8096b8;margin-top:3px">${h(f.desc)}</div>
                 </div>
@@ -1102,10 +1102,10 @@ async function abrirLoja(token) {
                         style="background:${ativo?'var(--green)':'rgba(255,68,85,.2)'};border:none;color:${ativo?'#0a0a1a':'#ff6b7a'};padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;min-width:60px;transition:background .2s,color .2s">
                         ${ativo?'ON':'OFF'}
                     </button>
-                    ${especifico?`<button onclick="removerFlagEspecifica('${h(l.token_loja)}','${f.chave}')" title="Remover config específica — voltará a usar global"
-                        style="background:rgba(255,255,255,.05);border:1px solid var(--border);color:#8096b8;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:11px">
-                        ↺ global
-                    </button>`:''}
+                    ${excecao ? `<button onclick="restaurarPadrao('${h(l.token_loja)}','${f.chave}')" title="Restaurar padrão (ativo)"
+                        style="background:rgba(255,255,255,.05);border:1px solid var(--border);color:#8096b8;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:11px">
+                        ↺ padrão
+                    </button>` : ''}
                 </div>
             </div>`;
         }).join('')}
@@ -1229,11 +1229,10 @@ async function toggleFlag(token, chave, novoValor, btnEl) {
     }
 }
 
-async function removerFlagEspecifica(token, chave) {
-    const st = document.getElementById('config-status');
-    if (!confirm(`Remover configuração específica desta loja para "${chave}"?
-A configuração global será usada.`)) return;
-    if (st) st.textContent = 'Removendo...';
+async function restaurarPadrao(token, chave) {
+    const st  = document.getElementById('config-status');
+    const btn = document.querySelector(`[data-flag="${chave}"]`);
+    if (st) st.innerHTML = '<span style="color:#8096b8">Restaurando...</span>';
 
     const r = await fetch(
         `${SB_URL}/rest/v1/agente_config?chave=eq.${encodeURIComponent(chave)}&token_loja=eq.${encodeURIComponent(token)}`,
@@ -1241,10 +1240,23 @@ A configuração global será usada.`)) return;
     );
 
     if (r.ok) {
-        if (st) st.innerHTML = '<span style="color:var(--green)">✓ Removido — usando configuração global</span>';
-        setTimeout(() => showTab('config'), 800);
+        if (btn) {
+            btn.textContent      = 'ON';
+            btn.style.background = 'var(--green)';
+            btn.style.color      = '#0a0a1a';
+            btn.setAttribute('onclick', `toggleFlag('${token}','${chave}',false,this)`);
+            const card = btn.closest('[data-flag-card]');
+            if (card) {
+                card.style.border = '1px solid var(--border)';
+                const nome = card.querySelector('[data-flag-nome]');
+                if (nome) { nome.style.color = '#e8eef8'; const badge = nome.querySelector('span'); if(badge) badge.remove(); }
+                const btnPadrao = card.querySelector('button[onclick*="restaurarPadrao"]');
+                if (btnPadrao) btnPadrao.remove();
+            }
+        }
+        if (st) { st.innerHTML = '<span style="color:var(--green)">✓ Restaurado — recurso ativo novamente</span>'; setTimeout(()=>{if(st)st.innerHTML='';},4000); }
     } else {
-        if (st) st.innerHTML = '<span style="color:var(--red)">✗ Erro ao remover</span>';
+        if (st) st.innerHTML = '<span style="color:var(--red)">✗ Erro ao restaurar</span>';
     }
 }
 
