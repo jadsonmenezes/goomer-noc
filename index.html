@@ -238,16 +238,7 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
               style="background:rgba(14,92,254,.1);border:1px solid rgba(14,92,254,.3);color:#7ab3ff;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
               ↓ exportar
           </button>
-          ${_lojasBloqueadas.some(b=>b.token_loja===_tokenAtual)
-            ? `<button onclick="desbloquearLoja()" title="Reativar loja"
-                style="background:rgba(0,214,143,.1);border:1px solid rgba(0,214,143,.3);color:var(--green);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
-                ✓ reativar loja
-               </button>`
-            : `<button onclick="bloquearLoja()" title="Inativar loja no NOC"
-                style="background:rgba(255,68,85,.1);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
-                ⊘ inativar
-               </button>`
-          }
+          <div id="btn-inativar-wrap"></div>
           <button class="modal-close" onclick="document.getElementById('overlay').classList.remove('on')">✕</button>
       </div>
     </div>
@@ -585,6 +576,21 @@ async function abrirLoja(token) {
 
     document.getElementById('m-titulo').textContent = l.nome_loja||'Loja';
     document.getElementById('m-sub').textContent    = `IP: ${ip}  ·  ${new Date(l.criado_em).toLocaleString('pt-BR')}`;
+
+    // Botão inativar/reativar — atualizar dinamicamente
+    const btnWrap = document.getElementById('btn-inativar-wrap');
+    if (btnWrap) {
+        const estaInativa = _lojasBloqueadas.some(b => b.token_loja === l.token_loja);
+        if (estaInativa) {
+            btnWrap.innerHTML = `<button onclick="desbloquearLoja()" title="Reativar loja"
+                style="background:rgba(0,214,143,.1);border:1px solid rgba(0,214,143,.3);color:var(--green);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
+                ✓ reativar loja</button>`;
+        } else {
+            btnWrap.innerHTML = `<button onclick="bloquearLoja()" title="Inativar loja no NOC"
+                style="background:rgba(255,68,85,.1);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">
+                ⊘ inativar</button>`;
+        }
+    }
 
     // ── Tab Resumo ──────────────────────────────────────────────────────────
     // Verificar mudança de IP nos últimos 20 snapshots com data/hora
@@ -1613,13 +1619,17 @@ async function bloquearLoja() {
     });
 
     if (r.ok || r.status === 409) { // 409 = já existe
+        // Atualizar lista local imediatamente sem recarregar tudo
+        _lojasBloqueadas.push({ token_loja: token, nome_loja: nome, motivo: motivo||'', bloqueado_em: new Date().toISOString(), bloqueado_por: 'NOC' });
         document.getElementById('overlay').classList.remove('on');
         await carregar();
-        alert(`✓ "${nome}" inativada. O agente parará de enviar snapshots no próximo ciclo.\n\nPara reativar, abra a loja no filtro "Inativas" e clique em "reativar loja".`);
+        alert(`✓ "${nome}" inativada.\nO agente parará de enviar snapshots no próximo ciclo (até 5 minutos).\n\nPara reativar: use o filtro "⊘ Inativas" e clique em "✓ reativar loja".`);
     } else {
         const err = await r.text().catch(()=>'');
-        // Se der erro de permissão, orientar a bloquear via SQL
-        alert(`Não foi possível bloquear via interface.\n\nBloqueie pelo Supabase SQL Editor:\n\nINSERT INTO lojas_bloqueadas (token_loja, nome_loja, motivo, bloqueado_por)\nVALUES ('${token}', '${nome.replace(/'/g,"\'")}', '${(motivo||'').replace(/'/g,"\'")}', 'NOC');`);
+        // Mostrar erro simples
+        const errTxt = await r.text().catch(()=>'');
+        console.error('Erro ao inativar:', r.status, errTxt);
+        alert(`Erro ao inativar a loja (status ${r.status}).\nVerifique a conexão com o Supabase e tente novamente.`);
     }
 }
 
