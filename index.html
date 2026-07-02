@@ -4,6 +4,45 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Goomer NOC</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+// Extensão de estilos para XLSX — aplicada após carregamento da lib base
+// Cores Goomer NOC para células do Excel
+window.XLSXStyle = {
+    // Cria um objeto de estilo de célula
+    cellStyle: function(opts) {
+        const s = {};
+        if (opts.bg)   s.fill = { patternType: 'solid', fgColor: { rgb: opts.bg.replace('#','') } };
+        if (opts.bold || opts.color || opts.sz) s.font = {
+            bold: opts.bold||false,
+            color: opts.color ? { rgb: opts.color.replace('#','') } : { rgb: '333333' },
+            sz: opts.sz||9, name: 'Arial'
+        };
+        if (opts.center) s.alignment = { horizontal: 'center', vertical: 'center', wrapText: opts.wrap||false };
+        else s.alignment = { horizontal: 'left', vertical: 'center', wrapText: opts.wrap||false, indent: 1 };
+        s.border = {
+            top:    { style: 'thin', color: { rgb: 'D0D8E8' } },
+            bottom: { style: 'thin', color: { rgb: 'D0D8E8' } },
+            left:   { style: 'thin', color: { rgb: 'D0D8E8' } },
+            right:  { style: 'thin', color: { rgb: 'D0D8E8' } }
+        };
+        return s;
+    },
+    // Aplica estilo a uma célula na worksheet
+    apply: function(ws, cellRef, style) {
+        if (!ws[cellRef]) return;
+        ws[cellRef].s = style;
+    },
+    // Estilos padrão Goomer
+    H:  function(cor_txt) { return this.cellStyle({ bg:'0E5CFE', bold:true, color: cor_txt||'FFFFFF', sz:9, center:true }); },
+    OK: function() { return this.cellStyle({ bg:'F0FFF8', bold:true, color:'00A86B', center:true }); },
+    WN: function() { return this.cellStyle({ bg:'FFFBF0', bold:true, color:'FFB830', center:true }); },
+    ER: function() { return this.cellStyle({ bg:'FFF0F2', bold:true, color:'FF4455', center:true }); },
+    LB: function(alt) { return this.cellStyle({ bg: alt?'F5F8FF':'FFFFFF', bold:true, color:'333333' }); },
+    DT: function(alt) { return this.cellStyle({ bg: alt?'F5F8FF':'FFFFFF', color:'666666', center:true }); },
+    BL: function(alt) { return this.cellStyle({ bg: alt?'F5F8FF':'FFFFFF', color:'0055AA', center:true }); },
+};
+</script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
 *{margin:0;padding:0;box-sizing:border-box}
@@ -996,7 +1035,7 @@ async function abrirLoja(token) {
     // Renderizar e centralizar automaticamente
     setTimeout(() => {
         nocTopoScale = 1; nocVX = 0; nocVY = 0; nocNodes = {};
-        renderTopoNoc(tablets_t, imps_t, ip);
+        renderTopoNoc(tablets_t, imps_t, ip, pay.latencia||null);
     }, 50);
 
     // ── Tab Diagnóstico de Correlação ────────────────────────────────────────
@@ -1339,6 +1378,624 @@ async function abrirLoja(token) {
     setTimeout(() => buscarHistorico('${h(l.token_loja)}'), 50);
 }
 
+// ── Funções de exportação ─────────────────────────────────────────────────────
+async function exportarLoja() {
+    if (!_tokenAtual) return;
+    const nome    = document.getElementById('m-titulo')?.textContent || 'loja';
+    const nomeArq = nome.replace(/[^a-zA-Z0-9]/g,'_').toLowerCase();
+    const agora   = new Date();
+
+    const rows = await sb('snapshots',
+        `?token_loja=eq.${encodeURIComponent(_tokenAtual)}&order=criado_em.desc&limit=100`
+    );
+    if (!Array.isArray(rows)||!rows.length) { alert('Sem dados para exportar.'); return; }
+
+    const ultimo = rows[0];
+    const pay    = ultimo.payload || {};
+
+    const exportJSON = { loja: nome, token: _tokenAtual, exportado_em: agora.toISOString(),
+        ultimo_snapshot: { criado_em: ultimo.criado_em, score: ultimo.score, status: ultimo.status||ultimo.nota,
+            servidor_online: ultimo.servidor_online, ip: ultimo.ip_servidor, payload: pay },
+        historico: rows };
+
+    if (typeof XLSX === 'undefined') {
+        const blob = new Blob([JSON.stringify(exportJSON, null, 2)], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = `goomer_noc_${nomeArq}_${agora.toISOString().slice(0,10)}.json`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        return;
+    }
+
+    const xlsWb  = XLSX.utils.book_new();
+    const nowStr = agora.toLocaleString('pt-BR');
+
+    const abaResumo = [
+        ['GOOMER NOC — Relatório da Loja'],
+        [`Exportado em: ${nowStr}`],
+        [],
+        ['INFORMAÇÕES GERAIS','','',''],
+        ['Loja', nome, 'Score', `${ultimo.score||0}%`],
+        ['Status', ultimo.status||ultimo.nota||'?', 'Servidor', ultimo.servidor_online?'Online':'Offline'],
+        ['IP Servidor', ultimo.ip_servidor||pay.ip_servidor||'—', 'IP Configurado', pay.ip_configurado||'—'],
+        ['Versão Goomer', pay.goomer_version||'—', 'Versão MySQL', pay.db_versao||'—'],
+        ['AnyDesk ID', pay.anydesk_id||'—', 'TeamViewer ID', pay.teamviewer_id||'—'],
+        ['Token', ultimo.token_loja||'—', 'Porta MySQL', pay.db_port||'—'],
+        [],
+        ['OPERAÇÃO','','',''],
+        ['Erros recentes (2h)', ultimo.erros_log||0, 'Pedidos hoje', pay.pedidos_hoje||0],
+        ['Pedidos sem ERP', ultimo.retry_expirados||0, 'Erros impressão', pay.erros_impressora||0],
+        ['Tablets ativos', `${ultimo.tablets_ativos||0}/${ultimo.tablets_total||0}`, 'IP divergente', pay.ip_divergente?'SIM':'Não'],
+    ];
+    if (pay.maquina) {
+        abaResumo.push([],['PERFORMANCE DA MÁQUINA','','','']);
+        abaResumo.push(['CPU', `${pay.maquina.cpu||'—'}%`, 'RAM', `${pay.maquina.ram_pct||'—'}%`]);
+        abaResumo.push(['SO', pay.maquina.so||'—', 'Hostname', pay.maquina.host||'—']);
+        const disco = (pay.maquina.discos||[])[0];
+        abaResumo.push(['Uptime', pay.maquina.uptime||'—', 'Disco C:', disco?`${disco.pct}% (livre: ${disco.livre||'—'})`:'—']);
+    }
+    if (pay.latencia) {
+        abaResumo.push([],['LATÊNCIA DE REDE','','','']);
+        const lt = pay.latencia;
+        if (lt.gateway)  abaResumo.push(['Gateway',         `${lt.gateway.med||'—'}ms`,  `min:${lt.gateway.min||'—'} máx:${lt.gateway.max||'—'}ms`,  `perda: ${lt.gateway.perda_pct||0}%`]);
+        if (lt.internet) abaResumo.push(['Internet (WAN)', `${lt.internet.med||'—'}ms`, `min:${lt.internet.min||'—'} máx:${lt.internet.max||'—'}ms`, `perda: ${lt.internet.perda_pct||0}%`]);
+        if (lt.api)      abaResumo.push(['API Abrahão',    `${lt.api.med||'—'}ms`,      `min:${lt.api.min||'—'} máx:${lt.api.max||'—'}ms`,           `perda: ${lt.api.perda_pct||0}%`]);
+        if (lt.servidor) abaResumo.push(['Servidor Goomer',`${lt.servidor.med||'—'}ms`, `min:${lt.servidor.min||'—'} máx:${lt.servidor.max||'—'}ms`, `perda: ${lt.servidor.perda_pct||0}%`]);
+    }
+    const ws1 = XLSX.utils.aoa_to_sheet(abaResumo);
+    ws1['!cols'] = [{wch:24},{wch:28},{wch:22},{wch:22}];
+    // Estilo cabeçalho Resumo
+    ['A1','A2'].forEach(r => { if(ws1[r]) ws1[r].s = {font:{bold:true,color:{rgb:r==='A1'?'FFFFFF':'555555'},sz:r==='A1'?13:8,name:'Arial'},fill:{patternType:'solid',fgColor:{rgb:r==='A1'?'0E5CFE':'EFF4FF'}},alignment:{horizontal:'center',vertical:'center'}}; });
+    ['A4','A12'].forEach(r => { if(ws1[r]) ws1[r].s = {font:{bold:true,color:{rgb:'444444'},sz:10,name:'Arial'},fill:{patternType:'solid',fgColor:{rgb:'EFF4FF'}}}; });
+    XLSX.utils.book_append_sheet(xlsWb, ws1, 'Resumo da Loja');
+
+    const histHdr = ['Data/Hora','Score','Status','Servidor','Erros (2h)','Sem ERP',
+                     'IP Máquina','IP Configurado','CPU %','RAM %','Lat.GW(ms)','Lat.WAN(ms)','Lat.API(ms)'];
+    const histRows = rows.map(r => {
+        const p = r.payload||{};
+        return [new Date(r.criado_em).toLocaleString('pt-BR'), r.score||0, r.status||r.nota||'?',
+                r.servidor_online?'Online':'Offline', r.erros_log||0, r.retry_expirados||0,
+                r.ip_servidor||p.ip_servidor||'—', p.ip_configurado||'—',
+                p.maquina?.cpu||'—', p.maquina?.ram_pct||'—',
+                p.latencia?.gateway?.med||'—', p.latencia?.internet?.med||'—', p.latencia?.api?.med||'—'];
+    });
+    const ws2 = XLSX.utils.aoa_to_sheet([histHdr, ...histRows]);
+    ws2['!cols'] = [{wch:18},{wch:8},{wch:12},{wch:10},{wch:10},{wch:10},{wch:15},{wch:15},{wch:8},{wch:8},{wch:11},{wch:11},{wch:11}];
+    // Estilo cabeçalho Histórico
+    'ABCDEFGHIJKLM'.split('').forEach(c => { const ref=c+'1'; if(ws2[ref]) ws2[ref].s={font:{bold:true,color:{rgb:'FFFFFF'},sz:9,name:'Arial'},fill:{patternType:'solid',fgColor:{rgb:'0E5CFE'}},alignment:{horizontal:'center',vertical:'center'}}; });
+    XLSX.utils.book_append_sheet(xlsWb, ws2, 'Histórico');
+
+    const erroHdr = ['Tipo','Mensagem','Frequência','Última Ocorrência'];
+    const erroRows = (pay.top_erros||[]).map(e => [e.type||'?', e.msg_resumo||e.message||'—', e.total||1,
+        e.ultima_vez ? new Date(e.ultima_vez).toLocaleString('pt-BR') : '—']);
+    const ws3 = XLSX.utils.aoa_to_sheet([[`TOP ERROS — ${nome}`],[`Snapshot: ${new Date(ultimo.criado_em).toLocaleString('pt-BR')}`],[],
+        erroHdr,...(erroRows.length ? erroRows : [['—','Sem erros registrados','—','—']])]);
+    ws3['!cols'] = [{wch:12},{wch:55},{wch:12},{wch:18}];
+    XLSX.utils.book_append_sheet(xlsWb, ws3, 'Erros de Log');
+
+    const tabHdr = ['Mesa','IP','Bateria %','Sinal Wi-Fi %','Ping','Versão App','Status','Observação'];
+    const tabRows = (pay.tablets||[]).map(t => [
+        t.mesa?`Mesa ${t.mesa}`:t.modelo||'Tablet', t.ip||'sem IP', t.bateria||'—', t.sinal||'—',
+        t.ping?.ms?`${t.ping.ms}ms`:t.ping?.status||'—', t.versao||'—', t.ping?.status||'—',
+        _versoesPadrao.app_tablet&&t.versao&&compararVersao(t.versao,_versoesPadrao.app_tablet)==='desatualizado'?'App desatualizado':''
+    ]);
+    const ws4 = XLSX.utils.aoa_to_sheet([[`TABLETS — ${nome}`],[],tabHdr,...(tabRows.length?tabRows:[['Sem tablets','','','','','','','']])]);
+    ws4['!cols'] = [{wch:14},{wch:16},{wch:11},{wch:13},{wch:10},{wch:13},{wch:14},{wch:25}];
+    XLSX.utils.book_append_sheet(xlsWb, ws4, 'Tablets');
+
+    const diagHdr = ['Nível','Categoria','Título','Ação Recomendada'];
+    const diagRows = (pay.correlacoes||[]).filter(c=>c.nivel!=='info').map(c=>[
+        c.nivel==='critico'?'CRÍTICO':'AVISO', c.categoria||'—', c.titulo||'—', c.acao||'—']);
+    const ws5 = XLSX.utils.aoa_to_sheet([[`DIAGNÓSTICO — ${nome}`],[`Snapshot: ${new Date(ultimo.criado_em).toLocaleString('pt-BR')}`],[],
+        diagHdr,...(diagRows.length?diagRows:[['OK','—','Nenhum problema detectado','—']])]);
+    ws5['!cols'] = [{wch:10},{wch:14},{wch:50},{wch:50}];
+    XLSX.utils.book_append_sheet(xlsWb, ws5, 'Diagnóstico');
+
+    // ── Aba 6: Autocorreções ──────────────────────────────────────────────────
+    const tipoLbl = t => ({'ip_sincronizado':'Sincronização de IP','spooler_reiniciado':'Reinício do Spooler','mysql_reiniciado':'Reinício do MySQL'}[t]||t);
+    const acHdr   = ['Data/Hora','Tipo','Resultado','Detalhe','Método','Servidor Notificado','Obs'];
+    const acRows  = [];
+    rows.forEach(r => {
+        (r.payload?.autocorrecoes||[]).forEach(a => {
+            acRows.push([
+                new Date(a.horario||r.criado_em).toLocaleString('pt-BR'),
+                tipoLbl(a.tipo||'?'),
+                a.resultado||'?',
+                a.tipo==='ip_sincronizado' ? `${a.ip_antigo||'vazio'} → ${a.ip_novo||'?'}` :
+                a.tipo==='spooler_reiniciado' ? `${a.erros_antes||0} erros de impressão` : '—',
+                a.metodo||'—',
+                a.servidor_notificado===true?'Sim':a.servidor_notificado===false?'Não':'—',
+                a.obs||'—'
+            ]);
+        });
+    });
+    acRows.sort((a,b) => new Date(b[0]) - new Date(a[0]));
+    const ws6 = XLSX.utils.aoa_to_sheet([
+        [`AUTOCORREÇÕES — ${nome}`],[`${acRows.length} ocorrências nos últimos ${rows.length} snapshots  •  ${nowStr}`],[],
+        acHdr,...(acRows.length ? acRows : [['Nenhuma autocorreção registrada','—','—','—','—','—','—']])
+    ]);
+    ws6['!cols'] = [{wch:18},{wch:22},{wch:10},{wch:28},{wch:16},{wch:18},{wch:40}];
+    XLSX.utils.book_append_sheet(xlsWb, ws6, 'Autocorrecoes');
+
+    XLSX.writeFile(xlsWb, `goomer_noc_${nomeArq}_${agora.toISOString().slice(0,10)}.xlsx`);
+}
+
+// ── Inativar / reativar lojas ─────────────────────────────────────────────────
+async function bloquearLoja() {
+    const token = _tokenAtual;
+    if (!token) return;
+    const nome   = document.getElementById('m-titulo')?.textContent || 'Loja';
+    const motivo = prompt(`Motivo da inativação de "${nome}":\n\nExemplo: Cancelamento de contrato, Loja encerrada`, 'Cancelamento de contrato');
+    if (motivo === null) return;
+
+    const r = await fetch(`${SB_URL}/rest/v1/lojas_bloqueadas`, {
+        method: 'POST',
+        headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`,
+                   'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({ token_loja: token, nome_loja: nome, motivo: motivo||'Sem motivo informado', bloqueado_por: 'NOC' })
+    });
+    if (r.ok) {
+        _lojasBloqueadas.push({ token_loja: token, nome_loja: nome, motivo: motivo||'', bloqueado_em: new Date().toISOString(), bloqueado_por: 'NOC' });
+        document.getElementById('overlay').classList.remove('on');
+        await carregar();
+        alert(`✓ "${nome}" inativada.\nO agente parará de enviar snapshots no próximo ciclo (até 5 minutos).\n\nPara reativar: use o filtro "⊘ Inativas" e clique em "✓ reativar loja".`);
+    } else {
+        const errTxt = await r.text().catch(()=>'');
+        console.error('Erro ao inativar loja:', r.status, errTxt);
+        alert(`Erro ao inativar a loja (status ${r.status}).\nVerifique a conexão com o Supabase e tente novamente.`);
+    }
+}
+
+async function desbloquearLoja() {
+    const token = _tokenAtual;
+    if (!token) return;
+    const nome = document.getElementById('m-titulo')?.textContent || 'Loja';
+    if (!confirm(`Reativar "${nome}"?\n\nO agente voltará a enviar snapshots no próximo ciclo.`)) return;
+
+    const r = await fetch(`${SB_URL}/rest/v1/lojas_bloqueadas?token_loja=eq.${encodeURIComponent(token)}`,
+        { method: 'DELETE', headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Prefer': 'return=minimal' } }
+    );
+    if (r.ok) {
+        _lojasBloqueadas = _lojasBloqueadas.filter(b => b.token_loja !== token);
+        document.getElementById('overlay').classList.remove('on');
+        await carregar();
+        alert(`✓ "${nome}" reativada. O agente voltará a enviar snapshots no próximo ciclo (até 5 minutos).`);
+    } else {
+        alert('Erro ao reativar a loja. Tente novamente.');
+    }
+}
+
+// ── Funções de erros históricos ───────────────────────────────────────────────
+function atalhoErros(dias, token) {
+    const ate  = new Date();
+    const de   = new Date(); de.setDate(de.getDate() - dias);
+    const fmt  = d => d.toISOString().slice(0,16);
+    document.getElementById('erros-de').value  = fmt(de);
+    document.getElementById('erros-ate').value = fmt(ate);
+    buscarErrosHistorico(token);
+}
+
+async function buscarErrosHistorico(token) {
+    const de  = document.getElementById('erros-de')?.value;
+    const ate = document.getElementById('erros-ate')?.value;
+    const el  = document.getElementById('erros-resultado');
+    if (!el) return;
+    el.innerHTML = '<div class="loading">Buscando...</div>';
+
+    let q = `?token_loja=eq.${encodeURIComponent(token)}&order=criado_em.desc&limit=50`;
+    if (de)  q += `&criado_em=gte.${new Date(de).toISOString()}`;
+    if (ate) q += `&criado_em=lte.${new Date(ate).toISOString()}`;
+
+    const rows = await sb('snapshots', q);
+    if (!rows?.length) { el.innerHTML = '<div class="empty">Nenhum dado no período.</div>'; return; }
+
+    const todos = [];
+    rows.forEach(r => {
+        (r.payload?.top_erros||[]).forEach(e => todos.push({ ...e, snap_em: r.criado_em }));
+    });
+
+    const agrupado = {};
+    todos.forEach(e => {
+        const k = e.msg_resumo||e.message||'?';
+        if (!agrupado[k]) agrupado[k] = { tipo: e.type||'?', msg: k, total: 0, ultima: e.snap_em };
+        agrupado[k].total += (e.total||1);
+        if (e.snap_em > agrupado[k].ultima) agrupado[k].ultima = e.snap_em;
+    });
+
+    const lista = Object.values(agrupado).sort((a,b) => b.total - a.total).slice(0,30);
+    if (!lista.length) { el.innerHTML = '<div class="empty">Nenhum erro no período.</div>'; return; }
+
+    el.innerHTML = lista.map(e => `
+        <div class="erro-item">
+            <div class="erro-msg">${h(e.msg)}</div>
+            <div class="erro-meta">
+                <span style="color:var(--amber)">${h(e.tipo)}</span>
+                <span>${e.total}× ocorrências</span>
+                <span>${new Date(e.ultima).toLocaleString('pt-BR')}</span>
+            </div>
+        </div>`).join('');
+}
+
+// ── Funções de histórico ──────────────────────────────────────────────────────
+function atalhoHist(dias, token) {
+    const ate = new Date();
+    const de  = new Date(); de.setDate(de.getDate() - dias);
+    const fmt = d => d.toISOString().slice(0,16);
+    document.getElementById('hist-de').value  = fmt(de);
+    document.getElementById('hist-ate').value = fmt(ate);
+    buscarHistorico(token);
+}
+
+async function buscarHistorico(token) {
+    const de  = document.getElementById('hist-de')?.value;
+    const ate = document.getElementById('hist-ate')?.value;
+    const el  = document.getElementById('hist-resultado');
+    if (!el) return;
+    el.innerHTML = '<div class="loading">Buscando...</div>';
+
+    let q = `?token_loja=eq.${encodeURIComponent(token)}&order=criado_em.desc&limit=200`;
+    if (de)  q += `&criado_em=gte.${new Date(de).toISOString()}`;
+    if (ate) q += `&criado_em=lte.${new Date(ate).toISOString()}`;
+
+    const rows = await sb('snapshots', q);
+    if (!rows?.length) { el.innerHTML = '<div class="empty">Nenhum dado no período.</div>'; return; }
+
+    const scores = rows.map(r => r.score||0);
+    const min    = Math.min(...scores), max = Math.max(...scores);
+    const barH   = 48;
+
+    const histHTML = `<div class="hist">${rows.map(r => {
+        const pct  = max>min ? Math.round((r.score-min)/(max-min)*barH) : barH/2;
+        const cor  = r.score>=80?'var(--green)':r.score>=60?'var(--amber)':'var(--red)';
+        const dt   = new Date(r.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+        return `<div class="hist-bar" style="height:${Math.max(4,pct)}px;background:${cor}" title="${dt}: ${r.score||0}%"></div>`;
+    }).join('')}</div>`;
+
+    const tabelaHTML = `<table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="background:var(--bg3)">
+            ${['Data/Hora','Score','Status','Servidor','Erros','Sem ERP','IP Máquina','IP Configurado'].map(c=>`<th style="padding:6px 8px;text-align:left;color:#a0b8d0;font-weight:600;border-bottom:1px solid var(--border)">${c}</th>`).join('')}
+        </tr></thead>
+        <tbody>${rows.map((r,i) => {
+            const p   = r.payload||{};
+            const cor = r.score>=80?'var(--green)':r.score>=60?'var(--amber)':'var(--red)';
+            const bg  = i%2===0?'var(--bg3)':'transparent';
+            return `<tr style="background:${bg}">
+                <td style="padding:5px 8px;color:#8096b8;font-family:var(--mono);font-size:10px">${new Date(r.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</td>
+                <td style="padding:5px 8px;font-weight:700;color:${cor}">${r.score||0}%</td>
+                <td style="padding:5px 8px;color:#e8eef8">${r.status||r.nota||'?'}</td>
+                <td style="padding:5px 8px;color:${r.servidor_online?'var(--green)':'var(--red)'}">${r.servidor_online?'Online':'Offline'}</td>
+                <td style="padding:5px 8px;color:${(r.erros_log||0)>100?'var(--red)':(r.erros_log||0)>50?'var(--amber)':'var(--green)'}">${r.erros_log||0}</td>
+                <td style="padding:5px 8px;color:${(r.retry_expirados||0)>0?'var(--red)':'#8096b8'}">${r.retry_expirados||0}</td>
+                <td style="padding:5px 8px;color:#8096b8;font-family:var(--mono);font-size:10px">${r.ip_servidor||p.ip_servidor||'—'}</td>
+                <td style="padding:5px 8px;color:#8096b8;font-family:var(--mono);font-size:10px">${p.ip_configurado||'—'}</td>
+            </tr>`;
+        }).join('')}</tbody>
+    </table>`;
+
+    el.innerHTML = histHTML + tabelaHTML;
+}
+
+// ── Topologia de rede ─────────────────────────────────────────────────────────
+let nocTopoScale=1, nocVX=0, nocVY=0;
+let nocDragging=null, nocNodes={};
+let nocPanActive=false, nocPanSX=0, nocPanSY=0, nocPanVX=0, nocPanVY=0;
+let nocSpaceDown=false;
+let _nocTablets=[], _nocImps=[], _nocIP='', _nocLatencia=null;
+let _nocPanIntervals={};
+let _nocTopoContainer = null;
+
+document.addEventListener('keydown', e => { if(e.code==='Space'&&e.target.tagName!=='INPUT') { nocSpaceDown=true; e.preventDefault(); } });
+document.addEventListener('keyup',   e => { if(e.code==='Space') nocSpaceDown=false; });
+
+function applyNocTransform(){
+    const g=document.getElementById('topo-noc-g');
+    if(g) g.setAttribute('transform',`translate(${nocVX},${nocVY}) scale(${nocTopoScale})`);
+}
+
+function nocTopoZoom(d){
+    nocTopoScale=Math.max(0.25,Math.min(3,nocTopoScale+d));
+    applyNocTransform();
+}
+
+function nocTopoCentralizar(){
+    const wrap = _nocTopoContainer || document.getElementById('topo-noc-wrap');
+    if (!wrap) return;
+    const keys = Object.keys(nocNodes);
+    if (!keys.length) { nocVX=0; nocVY=0; nocTopoScale=1; applyNocTransform(); return; }
+    const xs = keys.map(k=>nocNodes[k].x), ys = keys.map(k=>nocNodes[k].y);
+    const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+    const W=wrap.clientWidth||800, H=wrap.clientHeight||480;
+    const pad=80, cW=maxX-minX+pad*2, cH=maxY-minY+pad*2;
+    nocTopoScale = Math.min(W/cW, H/cH, 1.5);
+    nocVX = W/2 - ((minX+maxX)/2)*nocTopoScale;
+    nocVY = H/2 - ((minY+maxY)/2)*nocTopoScale;
+    applyNocTransform();
+}
+
+function nocRegistrarEventos(container, svg) {
+    container.onmousedown  = null;
+    container.onmousemove  = null;
+    container.onmouseup    = null;
+    container.onmouseleave = null;
+    container.oncontextmenu= null;
+    container.onwheel      = null;
+
+    container.onmousedown = e => {
+        if(e.button===2||e.button===1||nocSpaceDown){
+            nocPanActive=true; nocPanSX=e.clientX; nocPanSY=e.clientY;
+            nocPanVX=nocVX; nocPanVY=nocVY; container.style.cursor='grabbing'; e.preventDefault();
+        }
+    };
+    container.onmousemove = e => {
+        if(nocPanActive){
+            nocVX=nocPanVX+(e.clientX-nocPanSX); nocVY=nocPanVY+(e.clientY-nocPanSY);
+            applyNocTransform();
+        }
+        if(nocDragging){
+            const rect=container.getBoundingClientRect();
+            nocNodes[nocDragging]={x:(e.clientX-rect.left-nocVX)/nocTopoScale, y:(e.clientY-rect.top-nocVY)/nocTopoScale};
+            renderTopoNoc(_nocTablets,_nocImps,_nocIP,_nocLatencia);
+        }
+    };
+    container.onmouseup    = () => { nocPanActive=false; nocDragging=null; container.style.cursor='default'; };
+    container.onmouseleave = () => { nocPanActive=false; nocDragging=null; };
+    container.oncontextmenu= e => e.preventDefault();
+    container.onwheel      = e => { e.preventDefault(); nocTopoZoom(e.deltaY<0?.1:-.1); };
+
+    svg.querySelectorAll('.noc-node').forEach(el=>{
+        el.onmousedown = e => {
+            if(e.button!==0||nocSpaceDown) return;
+            e.stopPropagation(); nocDragging=el.dataset.nid; container.style.cursor='grabbing';
+        };
+    });
+
+    const bp=document.getElementById('btn-topo-plus');
+    const bm=document.getElementById('btn-topo-minus');
+    const bf=document.getElementById('btn-topo-fit');
+    if(bp) { bp.onclick=()=>nocTopoZoom(.15); }
+    if(bm) { bm.onclick=()=>nocTopoZoom(-.15); }
+    if(bf) { bf.onclick=()=>nocTopoCentralizar(); }
+}
+
+function topoMaximizar() {
+    const wrap = document.getElementById('topo-noc-wrap');
+    const svg  = document.getElementById('topo-noc-svg');
+    if (!wrap || !svg) return;
+
+    const ov = document.createElement('div');
+    ov.id = 'topo-max-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column';
+
+    const hd = document.createElement('div');
+    hd.style.cssText = 'padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;gap:8px;flex-wrap:wrap';
+    hd.innerHTML = `
+        <span style="font-weight:700;color:#e8eef8;font-size:13px">Topologia de Rede</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:11px;color:#8096b8">arraste nó · scroll zoom · espaço+arraste pan</span>
+            <button onclick="nocTopoZoom(1.2)" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:30px;height:30px;border-radius:5px;cursor:pointer;font-size:15px">+</button>
+            <button onclick="nocTopoZoom(0.8)" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:30px;height:30px;border-radius:5px;cursor:pointer;font-size:15px">−</button>
+            <button onclick="nocTopoCentralizar()" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;padding:0 12px;height:30px;border-radius:5px;cursor:pointer;font-size:11px">⊙ centralizar</button>
+            <div style="display:flex;gap:4px">
+                <button onpointerdown="nocPanBtn('up',true)"    onpointerup="nocPanBtn('up',false)"    onpointerleave="nocPanBtn('up',false)"    style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">▲</button>
+                <button onpointerdown="nocPanBtn('left',true)"  onpointerup="nocPanBtn('left',false)"  onpointerleave="nocPanBtn('left',false)"  style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">◀</button>
+                <button onpointerdown="nocPanBtn('down',true)"  onpointerup="nocPanBtn('down',false)"  onpointerleave="nocPanBtn('down',false)"  style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">▼</button>
+                <button onpointerdown="nocPanBtn('right',true)" onpointerup="nocPanBtn('right',false)" onpointerleave="nocPanBtn('right',false)" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">▶</button>
+            </div>
+            <button onclick="fecharTopoMaximizar()" style="background:rgba(255,68,85,.15);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:0 12px;height:30px;border-radius:5px;cursor:pointer;font-size:11px">✕ fechar</button>
+        </div>`;
+
+    const cnt = document.createElement('div');
+    cnt.id  = 'topo-max-cnt';
+    cnt.style.cssText = 'flex:1;overflow:hidden;position:relative;background:var(--bg3)';
+
+    ov.appendChild(hd);
+    ov.appendChild(cnt);
+    document.body.appendChild(ov);
+
+    cnt.appendChild(svg);
+    svg.style.width  = '100%';
+    svg.style.height = '100%';
+
+    _nocTopoContainer = cnt;
+    nocRegistrarEventos(cnt, svg);
+    nocTopoCentralizar();
+
+    const onEsc = e => { if (e.key === 'Escape') fecharTopoMaximizar(); };
+    document.addEventListener('keydown', onEsc);
+    ov._onEsc = onEsc;
+}
+
+function fecharTopoMaximizar() {
+    const ov   = document.getElementById('topo-max-overlay');
+    const wrap = document.getElementById('topo-noc-wrap');
+    const svg  = document.getElementById('topo-noc-svg');
+    if (!ov || !wrap || !svg) return;
+    if (ov._onEsc) document.removeEventListener('keydown', ov._onEsc);
+    wrap.appendChild(svg);
+    svg.style.width  = '100%';
+    svg.style.height = '100%';
+    _nocTopoContainer = wrap;
+    nocRegistrarEventos(wrap, svg);
+    ov.remove();
+    setTimeout(nocTopoCentralizar, 100);
+}
+
+function nocPanBtn(dir, active) {
+    clearInterval(_nocPanIntervals[dir]);
+    if (!active) return;
+    const step = () => {
+        const d = 18;
+        if (dir==='up')    nocVY += d;
+        if (dir==='down')  nocVY -= d;
+        if (dir==='left')  nocVX += d;
+        if (dir==='right') nocVX -= d;
+        applyNocTransform();
+    };
+    step();
+    _nocPanIntervals[dir] = setInterval(step, 80);
+}
+
+function renderTopoNoc(tablets, imps, serverIp, latencia) {
+    _nocTablets=tablets; _nocImps=imps; _nocIP=serverIp; if(latencia!==undefined) _nocLatencia=latencia;
+    const wrap = _nocTopoContainer || document.getElementById('topo-noc-wrap');
+    const svg  = document.getElementById('topo-noc-svg');
+    if(!wrap||!svg) return;
+
+    const W=1000, H=700, cx=W/2;
+
+    if(Object.keys(nocNodes).length===0){
+        nocTopoScale=1; nocVX=0; nocVY=0;
+    }
+
+    const posGW  = nocNodes['gw']  || {x:cx, y:80};
+    const posSRV = nocNodes['srv'] || {x:cx, y:210};
+    nocNodes['gw']  = posGW;
+    nocNodes['srv'] = posSRV;
+
+    const ativos  = tablets.filter(t=>t.ip&&t.ip!=='null');
+    const impRede = imps.filter(i=>i.uri?.match(/\d+\.\d+\.\d+\.\d+/));
+    const impUsb  = imps.filter(i=>!i.uri?.match(/\d+\.\d+\.\d+\.\d+/));
+
+    ativos.forEach((t,i) => {
+        if(!nocNodes['t'+i]){
+            const tot=ativos.length, frac=tot===1?.5:i/(tot-1);
+            const r=Math.max(240,100+tot*55);
+            const ang=-Math.PI*.85+frac*Math.PI*.7;
+            nocNodes['t'+i]={x:cx-70+r*Math.cos(ang), y:340+r*.55*Math.sin(ang)};
+        }
+    });
+    impRede.forEach((p,i) => {
+        if(!nocNodes['ir'+i]){
+            const tot=impRede.length, frac=tot===1?.5:i/(tot-1);
+            const r=Math.max(230,100+tot*65);
+            const ang=-Math.PI*.15-frac*Math.PI*.7;
+            nocNodes['ir'+i]={x:cx+70+r*Math.cos(ang), y:340+r*.5*Math.sin(ang)};
+        }
+    });
+    impUsb.forEach((p,i) => {
+        if(!nocNodes['iu'+i]) nocNodes['iu'+i]={x:cx+160+i*130, y:220};
+    });
+
+    const all=['gw','srv',...ativos.map((_,i)=>'t'+i),...impRede.map((_,i)=>'ir'+i),...impUsb.map((_,i)=>'iu'+i)];
+    for(let it=0;it<25;it++){
+        for(let a=0;a<all.length;a++) for(let b=a+1;b<all.length;b++){
+            const na=nocNodes[all[a]],nb=nocNodes[all[b]];
+            if(!na||!nb) continue;
+            const dx=nb.x-na.x,dy=nb.y-na.y,dist=Math.sqrt(dx*dx+dy*dy);
+            if(dist<160&&dist>0){
+                const push=(160-dist)/2,nx=dx/dist*push,ny=dy/dist*push;
+                if(!['gw','srv'].includes(all[b])){nb.x+=nx;nb.y+=ny;}
+                if(!['gw','srv'].includes(all[a])){na.x-=nx;na.y-=ny;}
+            }
+        }
+    }
+
+    const sCor=p=>!p||p.status==='sem_ip'?'#505068':p.status==='sem resposta'||p.perda===100?'#ff4455':p.latencia>150?'#ffb830':'#00d68f';
+    const lLbl=p=>!p||p.status==='sem_ip'?'—':p.status==='sem resposta'?'offline':p.latencia?p.latencia+'ms':'…';
+
+    let g=``;
+
+    // Latência da internet e do gateway vindas do payload
+    const _lat = _nocLatencia || latencia || {};
+    const latGW  = _lat.gateway  ? { ms: _lat.gateway.med,  cor: _lat.gateway.med<50?'#00d68f':_lat.gateway.med<150?'#ffb830':'#ff4455',  txt: _lat.gateway.med+'ms'  } : null;
+    const latWAN = _lat.internet ? { ms: _lat.internet.med, cor: _lat.internet.med<80?'#00d68f':_lat.internet.med<200?'#ffb830':'#ff4455', txt: _lat.internet.med+'ms' } : null;
+
+    g+=`<circle cx="${cx}" cy="16" r="14" fill="#0d1626" stroke="rgba(255,255,255,.15)" stroke-width="1.5"/>`;
+    g+=`<text x="${cx}" y="21" text-anchor="middle" fill="#b0c4de" font-size="13">☁</text>`;
+
+    // Linha Internet→GW com latência WAN
+    const corWAN = latWAN ? latWAN.cor : 'rgba(255,255,255,.12)';
+    g+=`<line x1="${cx}" y1="30" x2="${cx}" y2="${posGW.y-32}" stroke="${corWAN}" stroke-width="${latWAN?2:1.5}" stroke-dasharray="5,3"/>`;
+    if (latWAN) {
+        const myWAN = (30 + posGW.y - 32) / 2;
+        const wWAN  = latWAN.txt.length * 6.5 + 8;
+        g+=`<rect x="${cx - wWAN/2}" y="${myWAN-9}" width="${wWAN}" height="18" rx="4" fill="#0a1020" opacity=".92"/>`;
+        g+=`<text x="${cx}" y="${myWAN+5}" text-anchor="middle" fill="${latWAN.cor}" font-size="11" font-family="monospace" font-weight="600">${latWAN.txt}</text>`;
+    }
+
+    // Linha GW→SRV com latência gateway
+    const corGW = latGW ? latGW.cor : '#4d8fff';
+    g+=`<line x1="${cx}" y1="${posGW.y+32}" x2="${cx}" y2="${posSRV.y-32}" stroke="${corGW}" stroke-width="2.5"/>`;
+    if (latGW) {
+        const myGW = (posGW.y + 32 + posSRV.y - 32) / 2;
+        const wGW  = latGW.txt.length * 6.5 + 8;
+        g+=`<rect x="${cx - wGW/2}" y="${myGW-9}" width="${wGW}" height="18" rx="4" fill="#0a1020" opacity=".92"/>`;
+        g+=`<text x="${cx}" y="${myGW+5}" text-anchor="middle" fill="${latGW.cor}" font-size="11" font-family="monospace" font-weight="600">${latGW.txt}</text>`;
+    }
+
+    ativos.forEach((t,i)=>{
+        const pt=nocNodes['t'+i],cor=sCor(t.ping);
+        g+=`<line x1="${cx}" y1="${posSRV.y+32}" x2="${pt.x}" y2="${pt.y-34}" stroke="${cor}" stroke-width="1.8" opacity=".8"/>`;
+        const mx=(cx+pt.x)/2,my=(posSRV.y+34+pt.y-34)/2;
+        const ll=lLbl(t.ping);
+        g+=`<rect x="${mx-14}" y="${my-9}" width="${ll.length*6.5+6}" height="18" rx="4" fill="#0a1020" opacity=".9"/>`;
+        g+=`<text x="${mx-11}" y="${my+5}" fill="${cor}" font-size="11" font-family="monospace" font-weight="600">${ll}</text>`;
+    });
+
+    impRede.forEach((p,i)=>{
+        const pp=nocNodes['ir'+i];
+        g+=`<line x1="${cx}" y1="${posSRV.y+32}" x2="${pp.x}" y2="${pp.y-32}" stroke="#00d68f" stroke-width="1.8" opacity=".7"/>`;
+    });
+
+    impUsb.forEach((p,i)=>{
+        const pp=nocNodes['iu'+i];
+        g+=`<line x1="${cx}" y1="${posSRV.y}" x2="${pp.x}" y2="${pp.y+32}" stroke="#7c5cfc" stroke-width="1.5" stroke-dasharray="6,3" opacity=".8"/>`;
+        const mx=(cx+pp.x)/2,my=(posSRV.y+pp.y)/2;
+        g+=`<rect x="${mx-16}" y="${my-9}" width="34" height="18" rx="4" fill="#0a1020" opacity=".9"/>`;
+        g+=`<text x="${mx}" y="${my+5}" text-anchor="middle" fill="#7c5cfc" font-size="11" font-family="monospace" font-weight="600">USB</text>`;
+    });
+
+    const nodo=(pos,cor,l1,l2,icon,nid)=>{
+        const NW=120,NH=72,x=pos.x-NW/2,y=pos.y-NH/2;
+        const drag=nid?`class="noc-node" data-nid="${nid}" style="cursor:grab"`:'';
+        return `<g ${drag}>
+            <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="10" fill="#0d1626" stroke="${cor}" stroke-width="2"/>
+            <text x="${pos.x}" y="${pos.y-10}" text-anchor="middle" fill="${cor}" font-size="16">${icon}</text>
+            <text x="${pos.x}" y="${pos.y+9}" text-anchor="middle" fill="#e8eef8" font-size="12" font-weight="700" font-family="monospace">${h(l1)}</text>
+            <text x="${pos.x}" y="${pos.y+24}" text-anchor="middle" fill="#c8d8e8" font-size="10" font-family="monospace">${h(l2||'')}</text>
+        </g>`;
+    };
+
+    g+=nodo(posGW,'#4d8fff','gateway','','⌘','');
+    g+=nodo(posSRV,'#0e5cfe',serverIp||'servidor','servidor','⬡','');
+
+    ativos.forEach((t,i)=>{
+        const pt=nocNodes['t'+i],cor=sCor(t.ping);
+        const bat=parseInt(t.bateria||0),bc=bat<20?'#ff4455':bat<40?'#ffb830':'#00d68f';
+        const NW=120,NH=76,x=pt.x-NW/2,y=pt.y-NH/2;
+        g+=`<g class="noc-node" data-nid="t${i}" style="cursor:grab">
+            <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="10" fill="#0d1626" stroke="${cor}" stroke-width="2"/>
+            <text x="${pt.x}" y="${pt.y-11}" text-anchor="middle" fill="${cor}" font-size="15">📱</text>
+            <text x="${pt.x}" y="${pt.y+7}" text-anchor="middle" fill="#e8eef8" font-size="12" font-weight="700" font-family="monospace">${t.mesa?`Mesa ${t.mesa}`:h((t.ip||'').split('.').slice(-1)[0]?'...'+t.ip.split('.').slice(-1)[0]:'?')}</text>
+            <text x="${pt.x}" y="${pt.y+22}" text-anchor="middle" fill="#c8d8e8" font-size="10" font-family="monospace">${h(t.ip||'sem IP')}</text>
+            ${bat>0?`<rect x="${x+NW-30}" y="${y+5}" width="24" height="12" rx="2" fill="#0d1626" stroke="${bc}" stroke-width="1.3"/>
+            <rect x="${x+NW-29}" y="${y+6}" width="${Math.round(bat/100*22)}" height="10" rx="1" fill="${bc}" opacity=".85"/>
+            <text x="${pt.x+NW/2-20}" y="${y+23}" text-anchor="middle" fill="${bc}" font-size="9" font-family="monospace">${bat}%</text>`:''}
+        </g>`;
+    });
+
+    impRede.forEach((p,i)=>{
+        const pp=nocNodes['ir'+i];
+        g+=nodo(pp,'#00d68f',h((p.nome||'').slice(0,12)),h((p.uri||'').match(/(\d+\.\d+\.\d+\.\d+)/)?.[1]||'rede'),'🖨','ir'+i);
+    });
+    impUsb.forEach((p,i)=>{
+        const pp=nocNodes['iu'+i];
+        g+=nodo(pp,'#7c5cfc',h((p.nome||'').slice(0,12)),'USB','🖨','iu'+i);
+    });
+
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    svg.innerHTML = `<defs><filter id="nf"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g id="topo-noc-g">${g}</g>`;
+
+    applyNocTransform();
+    nocRegistrarEventos(wrap, svg);
+
+    setTimeout(() => {
+        nocTopoCentralizar();
+        setTimeout(nocTopoCentralizar, 200);
+    }, 100);
+}
+
+
 function showTab(name) {
     document.querySelectorAll('.modal-tab').forEach((b,i)=>b.classList.remove('on'));
     document.querySelectorAll('.modal-panel').forEach(p=>p.classList.remove('on'));
@@ -1513,827 +2170,79 @@ async function exportarDesatualizados() {
         return srvDesat || tabDesat;
     });
 
-    if (!lojas.length) {
-        alert('Nenhuma loja desatualizada encontrada com os critérios atuais.');
-        return;
+    if (!lojas.length) { alert('Nenhuma loja desatualizada encontrada.'); return; }
+
+    if (typeof XLSX === 'undefined') {
+        alert('Biblioteca Excel não carregada. Recarregue a página.'); return;
     }
 
-    // CSV detalhado
-    const linhas = [
-        'Loja,IP Servidor,Versão Servidor,Status Servidor,App Desatualizado (tablets),Tablets Desatualizados,Score,Status,Último Snapshot'
-    ];
+    const xlsWb = XLSX.utils.book_new();
+    const nowStr = agora.toLocaleString('pt-BR');
 
-    lojas.forEach(l => {
+    // ── Aba 1: Resumo de Desatualizadas ───────────────────────────────────────
+    const resumoHdr = ['Loja','IP Servidor','Versão Servidor','Versão Mínima Srv','Status Servidor',
+                       'Versão App (desatualizado)','Versão Mínima App','Tablets Desatualizados',
+                       'Score','Status','AnyDesk ID','TeamViewer ID','Último Snapshot'];
+    const resumoRows = lojas.map(l => {
         const pay = l.payload||{};
         const srvVer  = pay.goomer_version || '—';
-        const srvDesat= compararVersao(srvVer, _versoesPadrao.servidor_goomer) === 'desatualizado';
+        const srvMin  = _versoesPadrao.servidor_goomer || '—';
+        const srvDesat = compararVersao(srvVer, srvMin) === 'desatualizado';
         const tabsDesat = (pay.tablets||[]).filter(t =>
             compararVersao(t.versao, _versoesPadrao.app_tablet) === 'desatualizado'
         );
-        const tabDesatStr = tabsDesat.length > 0
-            ? tabsDesat.map(t=>`${t.mesa?'Mesa '+t.mesa:t.ip||'?'} (v${t.versao})`).join(' | ')
-            : '—';
-        const hora = new Date(l.criado_em).toLocaleString('pt-BR');
-
-        linhas.push([
-            `"${(l.nome_loja||'?').replace(/"/g,'')}"`,
-            `"${l.ip_servidor||pay.ip_servidor||'—'}"`,
-            `"${srvVer}${srvDesat?' ⚠':''}"`,
-            l.servidor_online?'online':'offline',
-            tabsDesat.length > 0 ? 'SIM' : 'não',
-            `"${tabDesatStr}"`,
-            l.score||0,
-            `"${l.status||l.nota||'?'}"`,
-            `"${hora}"`
-        ].join(','));
-    });
-
-    const csv = linhas.join('\n');
-    const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `goomer_versoes_desatualizadas_${agora.toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    alert(`✓ ${lojas.length} loja(s) exportada(s).\nArquivo: ${a.download}`);
-}
-
-// ── Gerenciar lojas bloqueadas ────────────────────────────────────────────────
-async function exportarLoja() {
-    if (!_tokenAtual) return;
-    const nome = document.getElementById('m-titulo')?.textContent || 'loja';
-    const nomeArq = nome.replace(/[^a-zA-Z0-9]/g,'_').toLowerCase();
-
-    // Buscar últimos 100 snapshots
-    const rows = await sb('snapshots',
-        `?token_loja=eq.${encodeURIComponent(_tokenAtual)}&order=criado_em.desc&limit=100`
-    );
-    if (!Array.isArray(rows)||!rows.length) { alert('Sem dados para exportar.'); return; }
-
-    const ultimo = rows[0];
-    const pay    = ultimo.payload || {};
-
-    // ── Formato JSON completo ─────────────────────────────────────────────────
-    const exportJSON = {
-        exportado_em:  new Date().toISOString(),
-        loja:          nome,
-        token:         _tokenAtual,
-        ultimo_snapshot: ultimo.criado_em,
-        resumo: {
-            score:           ultimo.score,
-            status:          ultimo.status||ultimo.nota,
-            servidor_online: ultimo.servidor_online,
-            tablets_ativos:  ultimo.tablets_ativos,
-            tablets_total:   ultimo.tablets_total,
-            erros_log:       ultimo.erros_log,
-            retry_expirados: ultimo.retry_expirados,
-            erros_impressora:pay.erros_impressora,
-            ip_servidor:     ultimo.ip_servidor||pay.ip_servidor,
-            ip_configurado:  ultimo.ip_configurado||pay.ip_configurado,
-            ip_divergente:   ultimo.ip_divergente||pay.ip_divergente,
-            conflito_ip_rede:pay.conflito_ip_rede,
-            goomer_version:  pay.goomer_version,
-            db_versao:       pay.db_versao,
-            db_port:         pay.db_port,
-            db_instalado:    pay.db_instalado,
-        },
-        performance: pay.maquina ? {
-            cpu_pct:     pay.maquina.cpu,
-            ram_pct:     pay.maquina.ram_pct,
-            ram_usado_gb:pay.maquina.ram_usado,
-            ram_total_gb:pay.maquina.ram,
-            discos:      pay.maquina.discos,
-            so:          pay.maquina.so,
-            build:       pay.maquina.build,
-            hostname:    pay.maquina.host,
-            uptime:      pay.maquina.uptime,
-        } : null,
-        qualidade_rede: pay.latencia ? {
-            gateway:  pay.latencia.gateway  ? { ...pay.latencia.gateway,  alvo:pay.latencia.gateway.alvo  } : null,
-            internet: pay.latencia.internet ? { ...pay.latencia.internet, alvo:pay.latencia.internet.alvo } : null,
-            api:      pay.latencia.api      ? { ...pay.latencia.api,      alvo:pay.latencia.api.alvo      } : null,
-            servidor: pay.latencia.servidor ? { ...pay.latencia.servidor, alvo:pay.latencia.servidor.alvo } : null,
-        } : null,
-        diagnostico: {
-            criticos: (pay.correlacoes||[]).filter(c=>c.nivel==='critico').map(c=>({categoria:c.categoria,titulo:c.titulo,acao:c.acao})),
-            avisos:   (pay.correlacoes||[]).filter(c=>c.nivel==='aviso').map(c=>({categoria:c.categoria,titulo:c.titulo,acao:c.acao})),
-        },
-        erros_recentes: (pay.top_erros||[]).map(e=>({
-            tipo:      e.type,
-            mensagem:  e.msg_resumo,
-            frequencia:e.total,
-            ultima_vez:e.ultima_vez
-        })),
-        volume_erros_por_hora: pay.erros_por_hora||[],
-        tablets: (pay.tablets||[]).map(t=>({
-            mesa:    t.mesa,
-            modelo:  t.modelo,
-            ip:      t.ip,
-            bateria: t.bateria,
-            sinal_wifi:t.sinal,
-            versao:  t.versao,
-            ping_ms: t.ping?.ms||t.ping?.latencia,
-            ping_status: t.ping?.status,
-        })),
-        impressoras: (pay.impressoras||[]).map(i=>({
-            nome:   i.nome,
-            uri:    i.uri,
-            padrao: i.padrao
-        })),
-        historico_snapshots: rows.map(r => {
-            const rp = r.payload||{};
-            return {
-                criado_em:       r.criado_em,
-                score:           r.score,
-                status:          r.status||r.nota,
-                servidor_online: r.servidor_online,
-                erros_log:       r.erros_log,
-                retry_expirados: r.retry_expirados,
-                ip_servidor:     r.ip_servidor||rp.ip_servidor,
-                ip_configurado:  r.ip_configurado||rp.ip_configurado,
-                ip_divergente:   r.ip_divergente||rp.ip_divergente,
-                // Performance da máquina no momento
-                maquina: rp.maquina ? {
-                    cpu:      rp.maquina.cpu,
-                    ram_pct:  rp.maquina.ram_pct,
-                    ram_usado:rp.maquina.ram_usado,
-                    ram:      rp.maquina.ram,
-                    uptime:   rp.maquina.uptime,
-                    discos:   rp.maquina.discos
-                } : null,
-                // Latências no momento
-                latencia: rp.latencia ? {
-                    gateway:  rp.latencia.gateway  ? { med:rp.latencia.gateway.med,  max:rp.latencia.gateway.max,  perda_pct:rp.latencia.gateway.perda_pct  } : null,
-                    internet: rp.latencia.internet ? { med:rp.latencia.internet.med, max:rp.latencia.internet.max, perda_pct:rp.latencia.internet.perda_pct } : null,
-                    api:      rp.latencia.api      ? { med:rp.latencia.api.med,      max:rp.latencia.api.max,      perda_pct:rp.latencia.api.perda_pct      } : null,
-                    servidor: rp.latencia.servidor ? { med:rp.latencia.servidor.med, max:rp.latencia.servidor.max, perda_pct:rp.latencia.servidor.perda_pct } : null,
-                } : null,
-                // Top erros no momento
-                top_erros: rp.top_erros ? rp.top_erros.map(e=>({
-                    tipo: e.type, mensagem: e.msg_resumo, frequencia: e.total, ultima_vez: e.ultima_vez
-                })) : [],
-                // Diagnósticos do momento
-                diagnosticos: (rp.correlacoes||[]).filter(c=>c.nivel!=='info').map(c=>({
-                    nivel:     c.nivel,
-                    categoria: c.categoria,
-                    titulo:    c.titulo,
-                    acao:      c.acao
-                }))
-            };
-        })
-    };
-
-    // ── Gerar CSV do histórico ────────────────────────────────────────────────
-    const csvHeader = 'Data/Hora,Score,Status,Servidor,Erros,Sem ERP,IP Maquina,IP Configurado\n';
-    const csvRows = rows.map(r => {
-        const hora = new Date(r.criado_em).toLocaleString('pt-BR');
+        const vAppDesat = tabsDesat.length > 0 ? tabsDesat[0].versao : '—';
+        const tabsStr   = tabsDesat.map(t=>`${t.mesa?'Mesa '+t.mesa:t.ip||'?'} (v${t.versao})`).join(', ') || '—';
         return [
-            `"${hora}"`,
-            r.score||0,
-            `"${r.status||r.nota||'?'}"`,
-            r.servidor_online?'online':'offline',
-            r.erros_log||0,
-            r.retry_expirados||0,
-            `"${r.ip_servidor||r.payload?.ip_servidor||'—'}"`,
-            `"${r.ip_configurado||r.payload?.ip_configurado||'—'}"`,
-        ].join(',');
-    }).join('\n');
-    const csvContent = csvHeader + csvRows;
-
-    // ── Perguntar formato ─────────────────────────────────────────────────────
-    const formato = confirm(
-        `Exportar dados de "${nome}"
-
-` +
-        `OK = JSON completo (todos os dados, ideal para análise)
-` +
-        `Cancelar = CSV (histórico de snapshots, ideal para planilha)`
-    );
-
-    const conteudo = formato
-        ? JSON.stringify(exportJSON, null, 2)
-        : csvContent;
-    const extensao = formato ? 'json' : 'csv';
-    const tipo     = formato ? 'application/json' : 'text/csv';
-
-    const blob = new Blob([conteudo], { type: tipo });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `goomer_noc_${nomeArq}_${new Date().toISOString().slice(0,10)}.${extensao}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}
-
-async function desbloquearLoja() {
-    const token = _tokenAtual;
-    if (!token) return;
-    const nome = document.getElementById('m-titulo')?.textContent || 'Loja';
-    if (!confirm(`Reativar "${nome}"?
-
-O agente voltará a enviar snapshots no próximo ciclo.`)) return;
-
-    const r = await fetch(
-        `${SB_URL}/rest/v1/lojas_bloqueadas?token_loja=eq.${encodeURIComponent(token)}`,
-        { method: 'DELETE', headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Prefer': 'return=minimal' } }
-    );
-
-    if (r.ok) {
-        _lojasBloqueadas = _lojasBloqueadas.filter(b => b.token_loja !== token);
-        document.getElementById('overlay').classList.remove('on');
-        await carregar();
-        alert(`✓ "${nome}" reativada. O agente voltará a enviar snapshots no próximo ciclo (até 5 minutos).`);
-    } else {
-        alert('Erro ao reativar a loja. Tente novamente.');
-    }
-}
-
-async function bloquearLoja() {
-    const token = _tokenAtual;
-    if (!token) return;
-    const nome = document.getElementById('m-titulo')?.textContent || 'Loja';
-    const motivo = prompt(`Motivo do bloqueio de "${nome}":
-(Ex: Cancelamento de contrato, Loja encerrada)`, 'Cancelamento de contrato');
-    if (motivo === null) return; // cancelou
-
-    const r = await fetch(`${SB_URL}/rest/v1/lojas_bloqueadas`, {
-        method: 'POST',
-        headers: {
-            'apikey': SB_KEY,
-            'Authorization': `Bearer ${SB_KEY}`,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify({
-            token_loja:   token,
-            nome_loja:    nome,
-            motivo:       motivo || 'Sem motivo informado',
-            bloqueado_por: 'NOC'
-        })
+            l.nome_loja||'?',
+            l.ip_servidor||pay.ip_servidor||'—',
+            srvVer, srvMin, srvDesat?'Desatualizado':'OK',
+            vAppDesat, _versoesPadrao.app_tablet||'—',
+            tabsStr,
+            l.score||0, l.status||l.nota||'?',
+            pay.anydesk_id||'—', pay.teamviewer_id||'—',
+            new Date(l.criado_em).toLocaleString('pt-BR')
+        ];
     });
 
-    if (r.ok || r.status === 409) { // 409 = já existe
-        // Atualizar lista local imediatamente sem recarregar tudo
-        _lojasBloqueadas.push({ token_loja: token, nome_loja: nome, motivo: motivo||'', bloqueado_em: new Date().toISOString(), bloqueado_por: 'NOC' });
-        document.getElementById('overlay').classList.remove('on');
-        await carregar();
-        alert(`✓ "${nome}" inativada.\nO agente parará de enviar snapshots no próximo ciclo (até 5 minutos).\n\nPara reativar: use o filtro "⊘ Inativas" e clique em "✓ reativar loja".`);
-    } else {
-        const err = await r.text().catch(()=>'');
-        // Mostrar erro simples
-        const errTxt = await r.text().catch(()=>'');
-        console.error('Erro ao inativar:', r.status, errTxt);
-        alert(`Erro ao inativar a loja (status ${r.status}).\nVerifique a conexão com o Supabase e tente novamente.`);
-    }
-}
+    const ws1 = XLSX.utils.aoa_to_sheet([
+        [`GOOMER NOC — Lojas com Versões Desatualizadas`],
+        [`Exportado em: ${nowStr}  •  Versão mínima servidor: ${_versoesPadrao.servidor_goomer||'—'}  •  App: ${_versoesPadrao.app_tablet||'—'}`],
+        [`Total: ${lojas.length} loja(s) desatualizada(s)`],
+        [],
+        resumoHdr,
+        ...resumoRows
+    ]);
+    ws1['!cols'] = [{wch:30},{wch:16},{wch:15},{wch:15},{wch:15},{wch:15},{wch:13},{wch:40},{wch:8},{wch:12},{wch:14},{wch:14},{wch:18}];
+    XLSX.utils.book_append_sheet(xlsWb, ws1, 'Resumo Desatualizadas');
 
-// ── Funções de erros históricos ───────────────────────────────────────────────
-function atalhoErros(dias, token) {
-    const ate = new Date(), de = new Date();
-    if (dias === 1) { de.setHours(0,0,0,0); } else { de.setDate(de.getDate()-dias); }
-    const fmt = d => d.toISOString().slice(0,16);
-    const elDe = document.getElementById('erros-de');
-    const elAte = document.getElementById('erros-ate');
-    if (elDe) elDe.value = fmt(de);
-    if (elAte) elAte.value = fmt(ate);
-    buscarErrosHistorico(token);
-}
-
-async function buscarErrosHistorico(token) {
-    const elRes  = document.getElementById('erros-resultado');
-    const elDe   = document.getElementById('erros-de');
-    const elAte  = document.getElementById('erros-ate');
-    const elTipo = document.getElementById('erros-tipo');
-    if (!elRes||!elDe||!elAte) return;
-    elRes.innerHTML = '<div class="loading" style="padding:20px">Buscando...</div>';
-
-    const de   = elDe.value;
-    const ate  = elAte.value;
-    const tipo = elTipo?.value || '';
-    if (!de||!ate) { elRes.innerHTML = '<div style="font-size:12px;color:#8096b8;padding:12px">Selecione o período.</div>'; return; }
-
-    // Buscar snapshots do período com top_erros preenchido
-    let query = `?token_loja=eq.${encodeURIComponent(token)}&criado_em=gte.${encodeURIComponent(new Date(de).toISOString())}&criado_em=lte.${encodeURIComponent(new Date(ate).toISOString())}&order=criado_em.desc&limit=500`;
-    const rows = await sb('snapshots', query);
-    if (!Array.isArray(rows)||!rows.length) {
-        elRes.innerHTML = '<div class="empty" style="padding:20px">Nenhum snapshot encontrado neste período.</div>';
-        return;
-    }
-
-    // Agregar top_erros de todos os snapshots
-    const mapaErros = {};
-    rows.forEach(r => {
-        const erros = r.payload?.top_erros || [];
-        erros.forEach(e => {
-            const chave = (e.type||'?') + '|' + (e.msg_resumo||e.message||'');
-            if (!mapaErros[chave]) {
-                mapaErros[chave] = { type: e.type, msg: e.msg_resumo||e.message||'—', total: 0, ultima_vez: e.ultima_vez };
-            }
-            mapaErros[chave].total += parseInt(e.total||1);
-            if (e.ultima_vez > mapaErros[chave].ultima_vez) mapaErros[chave].ultima_vez = e.ultima_vez;
+    // ── Aba 2: Detalhe por Tablet desatualizado ───────────────────────────────
+    const tabHdr = ['Loja','IP Servidor','Mesa / Tablet','IP Tablet','Versão App Atual','Versão Mínima','Status Tablet','Bateria %','Sinal %'];
+    const tabRows = [];
+    lojas.forEach(l => {
+        const pay = l.payload||{};
+        (pay.tablets||[]).filter(t => compararVersao(t.versao, _versoesPadrao.app_tablet)==='desatualizado').forEach(t => {
+            tabRows.push([
+                l.nome_loja||'?',
+                l.ip_servidor||pay.ip_servidor||'—',
+                t.mesa?`Mesa ${t.mesa}`:t.modelo||'Tablet',
+                t.ip||'—',
+                t.versao||'—',
+                _versoesPadrao.app_tablet||'—',
+                t.ping?.status||'—',
+                t.bateria||'—',
+                t.sinal||'—'
+            ]);
         });
     });
+    const ws2 = XLSX.utils.aoa_to_sheet([tabHdr,...(tabRows.length?tabRows:[['Sem tablets desatualizados','','','','','','','','']])]);
+    ws2['!cols'] = [{wch:28},{wch:16},{wch:14},{wch:16},{wch:15},{wch:13},{wch:14},{wch:11},{wch:10}];
+    XLSX.utils.book_append_sheet(xlsWb, ws2, 'Tablets Desatualizados');
 
-    let lista = Object.values(mapaErros).sort((a,b)=>b.total-a.total);
-    if (tipo) lista = lista.filter(e => e.type === tipo);
-
-    if (!lista.length) {
-        elRes.innerHTML = `<div class="empty" style="padding:16px">✓ Nenhum erro encontrado${tipo?' do tipo '+tipo:''} no período.</div>`;
-        return;
-    }
-
-    const totalSnapshots = rows.length;
-    const totalErros = lista.reduce((s,e)=>s+e.total,0);
-
-    elRes.innerHTML = `
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-            <div style="background:var(--bg3);border-radius:7px;padding:8px 14px;font-size:12px">
-                <span style="font-weight:700;font-family:var(--mono);color:#e8eef8">${totalErros}</span>
-                <span style="color:#a0b8d0"> erros totais</span>
-            </div>
-            <div style="background:var(--bg3);border-radius:7px;padding:8px 14px;font-size:12px">
-                <span style="font-weight:700;font-family:var(--mono);color:#e8eef8">${lista.length}</span>
-                <span style="color:#a0b8d0"> tipos distintos</span>
-            </div>
-            <div style="background:var(--bg3);border-radius:7px;padding:8px 14px;font-size:12px">
-                <span style="font-weight:700;font-family:var(--mono);color:#8096b8">${totalSnapshots}</span>
-                <span style="color:#a0b8d0"> snapshots analisados</span>
-            </div>
-        </div>
-        ${lista.map(e=>`<div class="erro-item">
-            <div class="erro-msg" style="font-size:12px;line-height:1.5;word-break:break-word;white-space:normal">${h(e.msg)}</div>
-            <div class="erro-meta" style="margin-top:5px">
-                <span class="badge ${e.type==='print'?'ba':e.type==='order'?'br':'bb'}">${h(e.type||'?')}</span>
-                <span style="font-weight:700;color:#e8eef8">${e.total}x</span>
-                <span>último: ${e.ultima_vez?new Date(e.ultima_vez).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'}</span>
-            </div>
-        </div>`).join('')}`;
+    XLSX.writeFile(xlsWb, `goomer_versoes_desatualizadas_${agora.toISOString().slice(0,10)}.xlsx`);
+    alert(`✓ ${lojas.length} loja(s) exportada(s) para Excel.`);
 }
 
-// ── Histórico com filtro de período ──────────────────────────────────────────
-function atalhoHist(dias, token) {
-    const ate  = new Date();
-    const de   = new Date();
-    if (dias === 1) {
-        // Hoje: meia-noite até agora
-        de.setHours(0,0,0,0);
-    } else {
-        de.setDate(de.getDate() - dias);
-    }
-    const fmt = d => d.toISOString().slice(0,16);
-    const elDe  = document.getElementById('hist-de');
-    const elAte = document.getElementById('hist-ate');
-    if (elDe)  elDe.value  = fmt(de);
-    if (elAte) elAte.value = fmt(ate);
-    buscarHistorico(token);
-}
-
-async function buscarHistorico(token) {
-    const elRes = document.getElementById('hist-resultado');
-    const elDe  = document.getElementById('hist-de');
-    const elAte = document.getElementById('hist-ate');
-    if (!elRes || !elDe || !elAte) return;
-
-    const de  = elDe.value;
-    const ate = elAte.value;
-    if (!de || !ate) { elRes.innerHTML = '<div class="empty">Selecione o período.</div>'; return; }
-
-    elRes.innerHTML = '<div class="loading">Buscando...</div>';
-
-    const rows = await sb('snapshots',
-        `?token_loja=eq.${encodeURIComponent(token)}&criado_em=gte.${encodeURIComponent(new Date(de).toISOString())}&criado_em=lte.${encodeURIComponent(new Date(ate).toISOString())}&order=criado_em.asc&limit=500`
-    );
-
-    if (!Array.isArray(rows) || rows.length === 0) {
-        elRes.innerHTML = '<div class="empty">Nenhum snapshot encontrado neste período.</div>';
-        return;
-    }
-
-    // Gráfico de score
-    const maxBars = 60;
-    const step = Math.max(1, Math.floor(rows.length / maxBars));
-    const amostra = rows.filter((_,i) => i % step === 0);
-
-    // Resumo do período
-    const scoreMin  = Math.min(...rows.map(r=>r.score||0));
-    const scoreMax  = Math.max(...rows.map(r=>r.score||0));
-    const scoreMed  = Math.round(rows.reduce((s,r)=>s+(r.score||0),0)/rows.length);
-    const offlines  = rows.filter(r=>!r.servidor_online).length;
-    const comErro   = rows.filter(r=>(r.retry_expirados||0)>0).length;
-    const trocouIP  = [...new Set(rows.map(r=>r.ip_servidor||r.payload?.ip_servidor).filter(Boolean))];
-
-    elRes.innerHTML = `
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
-            <div style="background:var(--bg3);border-radius:7px;padding:10px;text-align:center">
-                <div style="font-size:18px;font-weight:800;font-family:var(--mono)">${rows.length}</div>
-                <div style="font-size:10px;color:#a0b8d0;margin-top:2px">snapshots</div>
-            </div>
-            <div style="background:var(--bg3);border-radius:7px;padding:10px;text-align:center">
-                <div style="font-size:18px;font-weight:800;font-family:var(--mono);color:${scoreMed>=75?'var(--green)':scoreMed>=45?'var(--amber)':'var(--red)'}">${scoreMed}%</div>
-                <div style="font-size:10px;color:#a0b8d0;margin-top:2px">saúde média</div>
-            </div>
-            <div style="background:var(--bg3);border-radius:7px;padding:10px;text-align:center">
-                <div style="font-size:18px;font-weight:800;font-family:var(--mono);color:${offlines>0?'var(--red)':'var(--green)'}">${offlines}</div>
-                <div style="font-size:10px;color:#a0b8d0;margin-top:2px">servidor offline</div>
-            </div>
-            <div style="background:var(--bg3);border-radius:7px;padding:10px;text-align:center">
-                <div style="font-size:18px;font-weight:800;font-family:var(--mono);color:${comErro>0?'var(--red)':'var(--green)'}">${comErro}</div>
-                <div style="font-size:10px;color:#a0b8d0;margin-top:2px">com pedido sem ERP</div>
-            </div>
-        </div>
-
-        ${trocouIP.length>1?`<div style="background:rgba(255,184,48,.08);border:1px solid rgba(255,184,48,.3);border-radius:7px;padding:8px 12px;font-size:12px;color:var(--amber);margin-bottom:12px">
-            ⚠ Mudança de IP detectada no período: ${trocouIP.map(h).join(' → ')}
-        </div>`:''}
-
-        <div class="sec"><div class="sec-t">saúde ao longo do período (${rows.length} snapshots)</div>
-            <div class="hist" style="height:60px;gap:1px">${amostra.map(s=>{
-                const c=COR_STATUS(s.status||s.nota);
-                const hh=Math.max(Math.round(((s.score||0)/100)*56),2);
-                const hora=new Date(s.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-                return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">
-                    <div class="hist-bar" style="height:${hh}px;background:${c};width:100%" title="${hora}: ${s.score}% — ${statusLabel(s)}"></div>
-                </div>`;
-            }).join('')}</div>
-            <div style="display:flex;justify-content:space-between;font-size:10px;color:#8096b8;margin-top:4px;font-family:var(--mono)">
-                <span>${new Date(rows[0].criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
-                <span>mín: ${scoreMin}% · méd: ${scoreMed}% · máx: ${scoreMax}%</span>
-                <span>${new Date(rows[rows.length-1].criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
-            </div>
-        </div>
-
-        <div class="sec"><div class="sec-t">registros do período</div>
-            <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-            <table style="width:100%;min-width:520px;border-collapse:collapse;font-size:12px">
-                <tr style="color:#a0b8d0;font-size:10px;text-transform:uppercase;letter-spacing:.05em">
-                    <td style="padding:5px 0">Horário</td>
-                    <td style="padding:5px 0;text-align:center">Saúde</td>
-                    <td style="padding:5px 0;text-align:center">Status</td>
-                    <td style="padding:5px 0;text-align:center">Servidor</td>
-                    <td style="padding:5px 0;text-align:center">Sem ERP</td>
-                    <td style="padding:5px 0;text-align:center">Erros</td>
-                    <td style="padding:5px 0;text-align:center">IP máquina</td>
-                    <td style="padding:5px 0;text-align:right">IP configurado</td>
-                </tr>
-                ${rows.map(s=>{
-                    const c    = COR_STATUS(s.status||s.nota);
-                    const sipR = s.ip_servidor||s.payload?.ip_servidor||'—';
-                    const sipC = s.ip_configurado||s.payload?.ip_configurado||'—';
-                    const divg = s.ip_divergente||s.payload?.ip_divergente;
-                    const hora = new Date(s.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-                    return `<tr style="border-top:1px solid rgba(255,255,255,.04);background:${divg?'rgba(255,68,85,.04)':'transparent'}">
-                        <td style="padding:5px 0;font-family:var(--mono);color:#b0c4de;font-size:11px">${hora}</td>
-                        <td style="padding:5px 0;text-align:center;font-weight:700;color:${c};font-family:var(--mono)">${s.score||0}%</td>
-                        <td style="padding:5px 0;text-align:center;color:${c};font-size:11px">${statusLabel(s)}</td>
-                        <td style="padding:5px 0;text-align:center;font-size:11px;color:${s.servidor_online?'var(--green)':'var(--red)'}">${s.servidor_online?'ON':'OFF'}</td>
-                        <td style="padding:5px 0;text-align:center;font-family:var(--mono);color:${(s.retry_expirados||0)>0?'var(--red)':'#8096b8'}">${s.retry_expirados||0}</td>
-                        <td style="padding:5px 0;text-align:center;font-family:var(--mono);color:${(s.erros_log||0)>200?'var(--red)':(s.erros_log||0)>50?'var(--amber)':'#8096b8'}">${s.erros_log||0}</td>
-                        <td style="padding:5px 0;text-align:center;font-family:var(--mono);color:${divg?'var(--red)':'#7ab3ff'};font-size:11px">${h(sipR)}${divg?' ⚠':''}</td>
-                        <td style="padding:5px 0;text-align:right;font-family:var(--mono);color:${divg?'var(--red)':'#8096b8'};font-size:11px">${h(sipC)}</td>
-                    </tr>`;
-                }).join('')}
-            </table>
-            </div>
-        </div>`;
-}
-
-// ── Topologia NOC interativa ───────────────────────────────────────────────
-let nocTopoScale=1, nocVX=0, nocVY=0;
-let nocDragging=null, nocNodes={};
-let nocPanActive=false, nocPanSX=0, nocPanSY=0, nocPanVX=0, nocPanVY=0;
-let nocSpaceDown=false;
-let _nocTablets=[], _nocImps=[], _nocIP='';
-let _nocPanIntervals={};
-let _nocTopoContainer = null; // container ativo da topologia (normal ou maximizado)
-
-// ── Maximizar topologia ──────────────────────────────────────────────────────
-function topoMaximizar() {
-    const wrap = document.getElementById('topo-noc-wrap');
-    const svg  = document.getElementById('topo-noc-svg');
-    if (!wrap || !svg) return;
-
-    // Criar overlay fullscreen
-    const ov = document.createElement('div');
-    ov.id = 'topo-max-overlay';
-    ov.style.cssText = 'position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column';
-
-    // Header com controles
-    const hd = document.createElement('div');
-    hd.style.cssText = 'padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;gap:8px;flex-wrap:wrap';
-    hd.innerHTML = `
-        <span style="font-weight:700;color:#e8eef8;font-size:13px">Topologia de Rede</span>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-            <span style="font-size:11px;color:#8096b8">arraste nó · scroll zoom · espaço+arraste pan</span>
-            <button onclick="nocTopoZoom(1.2)" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:30px;height:30px;border-radius:5px;cursor:pointer;font-size:15px">+</button>
-            <button onclick="nocTopoZoom(0.8)" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:30px;height:30px;border-radius:5px;cursor:pointer;font-size:15px">−</button>
-            <button onclick="nocTopoCentralizar()" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;padding:0 12px;height:30px;border-radius:5px;cursor:pointer;font-size:11px">⊙ centralizar</button>
-            <div style="display:flex;gap:4px">
-                <button onpointerdown="nocPanBtn('up',true)"    onpointerup="nocPanBtn('up',false)"    onpointerleave="nocPanBtn('up',false)"    style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">▲</button>
-                <button onpointerdown="nocPanBtn('left',true)"  onpointerup="nocPanBtn('left',false)"  onpointerleave="nocPanBtn('left',false)"  style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">◀</button>
-                <button onpointerdown="nocPanBtn('down',true)"  onpointerup="nocPanBtn('down',false)"  onpointerleave="nocPanBtn('down',false)"  style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">▼</button>
-                <button onpointerdown="nocPanBtn('right',true)" onpointerup="nocPanBtn('right',false)" onpointerleave="nocPanBtn('right',false)" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">▶</button>
-            </div>
-            <button onclick="fecharTopoMaximizar()" style="background:rgba(255,68,85,.15);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:0 12px;height:30px;border-radius:5px;cursor:pointer;font-size:11px">✕ fechar</button>
-        </div>`;
-
-    // Container do SVG — precisa ser o mesmo elemento para herdar todos os event listeners
-    const cnt = document.createElement('div');
-    cnt.id  = 'topo-max-cnt';
-    cnt.style.cssText = 'flex:1;overflow:hidden;position:relative;background:var(--bg3)';
-
-    ov.appendChild(hd);
-    ov.appendChild(cnt);
-    document.body.appendChild(ov);
-
-    // Mover SVG para o container maximizado
-    cnt.appendChild(svg);
-    svg.style.width  = '100%';
-    svg.style.height = '100%';
-
-    // Registrar todos os eventos no novo container
-    _nocTopoContainer = cnt;
-    nocRegistrarEventos(cnt, svg);
-    nocTopoCentralizar();
-
-    // ESC para fechar
-    const onEsc = e => { if (e.key === 'Escape') fecharTopoMaximizar(); };
-    document.addEventListener('keydown', onEsc);
-    ov._onEsc = onEsc;
-}
-
-function fecharTopoMaximizar() {
-    const ov   = document.getElementById('topo-max-overlay');
-    const wrap = document.getElementById('topo-noc-wrap');
-    const svg  = document.getElementById('topo-noc-svg');
-    if (!ov || !wrap || !svg) return;
-
-    if (ov._onEsc) document.removeEventListener('keydown', ov._onEsc);
-
-    // Devolver SVG ao container original e restaurar eventos
-    wrap.appendChild(svg);
-    svg.style.width  = '100%';
-    svg.style.height = '100%';
-    _nocTopoContainer = wrap;
-    nocRegistrarEventos(wrap, svg);
-
-    ov.remove();
-    setTimeout(nocTopoCentralizar, 100);
-}
-
-
-
-function nocPanBtn(dir, active) {
-    clearInterval(_nocPanIntervals[dir]);
-    if (!active) return;
-    const step = 12;
-    const mover = () => {
-        if (dir==='up')    nocVY += step;
-        if (dir==='down')  nocVY -= step;
-        if (dir==='left')  nocVX += step;
-        if (dir==='right') nocVX -= step;
-        applyNocTransform();
-    };
-    mover();
-    _nocPanIntervals[dir] = setInterval(mover, 80);
-}
-
-document.addEventListener('keydown',e=>{
-    if(e.code==='Space'&&document.getElementById('tab-topologia')?.classList.contains('on')){
-        e.preventDefault(); nocSpaceDown=true;
-        const el=document.getElementById('topo-noc-wrap');
-        if(el) el.style.cursor='grab';
-    }
-});
-document.addEventListener('keyup',e=>{ if(e.code==='Space') nocSpaceDown=false; });
-
-function applyNocTransform(){
-    const g=document.getElementById('topo-noc-g');
-    if(g) g.setAttribute('transform',`translate(${nocVX},${nocVY}) scale(${nocTopoScale})`);
-}
-function nocTopoZoom(d){
-    nocTopoScale=Math.max(0.25,Math.min(3,nocTopoScale+d));
-    applyNocTransform();
-}
-function nocTopoCentralizar(){
-    const keys=Object.keys(nocNodes).filter(k=>!['gw','srv'].includes(k)||nocNodes[k]);
-    if(!keys.length) return;
-    const wrap=document.getElementById('topo-noc-wrap');
-    if(!wrap) return;
-    const W=wrap.clientWidth, H=wrap.clientHeight;
-    const xs=keys.map(k=>nocNodes[k].x), ys=keys.map(k=>nocNodes[k].y);
-    const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
-    const mapW=maxX-minX+220, mapH=maxY-minY+220;
-    nocTopoScale=Math.min(Math.max(Math.min(W/mapW,H/mapH)*0.88,0.3),2);
-    nocVX=W/2-((minX+maxX)/2)*nocTopoScale;
-    nocVY=H/2-((minY+maxY)/2)*nocTopoScale;
-    applyNocTransform();
-}
-
-function renderTopoNoc(tablets, imps, serverIp) {
-    _nocTablets=tablets; _nocImps=imps; _nocIP=serverIp;
-    const wrap = document.getElementById('topo-noc-wrap');
-    const svg  = document.getElementById('topo-noc-svg');
-    if(!wrap||!svg) return;
-
-    const W=1000, H=700, cx=W/2;
-
-    // Só resetar posição/scale se for primeira renderização
-    if(Object.keys(nocNodes).length===0){
-        nocTopoScale=1; nocVX=0; nocVY=0;
-    }
-
-    // Calcular posições se não existirem
-    const posGW  = nocNodes['gw']  || {x:cx, y:80};
-    const posSRV = nocNodes['srv'] || {x:cx, y:210};
-    nocNodes['gw']  = posGW;
-    nocNodes['srv'] = posSRV;
-
-    const ativos  = tablets.filter(t=>t.ip&&t.ip!=='null');
-    const impRede = imps.filter(i=>i.uri?.match(/\d+\.\d+\.\d+\.\d+/));
-    const impUsb  = imps.filter(i=>!i.uri?.match(/\d+\.\d+\.\d+\.\d+/));
-
-    ativos.forEach((t,i) => {
-        if(!nocNodes['t'+i]){
-            const tot=ativos.length, frac=tot===1?.5:i/(tot-1);
-            const r=Math.max(240,100+tot*55);
-            const ang=-Math.PI*.85+frac*Math.PI*.7;
-            nocNodes['t'+i]={x:cx-70+r*Math.cos(ang), y:340+r*.55*Math.sin(ang)};
-        }
-    });
-    impRede.forEach((p,i) => {
-        if(!nocNodes['ir'+i]){
-            const tot=impRede.length, frac=tot===1?.5:i/(tot-1);
-            const r=Math.max(230,100+tot*65);
-            const ang=-Math.PI*.15-frac*Math.PI*.7;
-            nocNodes['ir'+i]={x:cx+70+r*Math.cos(ang), y:340+r*.5*Math.sin(ang)};
-        }
-    });
-    impUsb.forEach((p,i) => {
-        if(!nocNodes['iu'+i]) nocNodes['iu'+i]={x:cx+160+i*130, y:220};
-    });
-
-    // Resolver colisões
-    const all=['gw','srv',...ativos.map((_,i)=>'t'+i),...impRede.map((_,i)=>'ir'+i),...impUsb.map((_,i)=>'iu'+i)];
-    for(let it=0;it<25;it++){
-        for(let a=0;a<all.length;a++) for(let b=a+1;b<all.length;b++){
-            const na=nocNodes[all[a]],nb=nocNodes[all[b]];
-            if(!na||!nb) continue;
-            const dx=nb.x-na.x,dy=nb.y-na.y,dist=Math.sqrt(dx*dx+dy*dy);
-            if(dist<160&&dist>0){
-                const push=(160-dist)/2,nx=dx/dist*push,ny=dy/dist*push;
-                if(!['gw','srv'].includes(all[b])){nb.x+=nx;nb.y+=ny;}
-                if(!['gw','srv'].includes(all[a])){na.x-=nx;na.y-=ny;}
-            }
-        }
-    }
-
-    const sCor=p=>!p||p.status==='sem_ip'?'#505068':p.status==='sem resposta'||p.perda===100?'#ff4455':p.latencia>150?'#ffb830':'#00d68f';
-    const lLbl=p=>!p||p.status==='sem_ip'?'—':p.status==='sem resposta'?'offline':p.latencia?p.latencia+'ms':'…';
-
-    let g=``;
-
-    // Internet
-    g+=`<circle cx="${cx}" cy="16" r="14" fill="#0d1626" stroke="rgba(255,255,255,.15)" stroke-width="1.5"/>`;
-    g+=`<text x="${cx}" y="21" text-anchor="middle" fill="#b0c4de" font-size="13">☁</text>`;
-    g+=`<line x1="${cx}" y1="30" x2="${cx}" y2="${posGW.y-32}" stroke="rgba(255,255,255,.12)" stroke-width="1.5" stroke-dasharray="5,3"/>`;
-
-    // GW → SRV
-    g+=`<line x1="${cx}" y1="${posGW.y+32}" x2="${cx}" y2="${posSRV.y-32}" stroke="#4d8fff" stroke-width="2.5"/>`;
-
-    // SRV → tablets
-    ativos.forEach((t,i)=>{
-        const pt=nocNodes['t'+i],cor=sCor(t.ping);
-        g+=`<line x1="${cx}" y1="${posSRV.y+32}" x2="${pt.x}" y2="${pt.y-34}" stroke="${cor}" stroke-width="1.8" opacity=".8"/>`;
-        const mx=(cx+pt.x)/2,my=(posSRV.y+34+pt.y-34)/2;
-        const ll=lLbl(t.ping);
-        g+=`<rect x="${mx-14}" y="${my-9}" width="${ll.length*6.5+6}" height="18" rx="4" fill="#0a1020" opacity=".9"/>`;
-        g+=`<text x="${mx-11}" y="${my+5}" fill="${cor}" font-size="11" font-family="monospace" font-weight="600">${ll}</text>`;
-    });
-
-    // SRV → imp rede
-    impRede.forEach((p,i)=>{
-        const pp=nocNodes['ir'+i];
-        g+=`<line x1="${cx}" y1="${posSRV.y+32}" x2="${pp.x}" y2="${pp.y-32}" stroke="#00d68f" stroke-width="1.8" opacity=".7"/>`;
-    });
-
-    // SRV → imp USB
-    impUsb.forEach((p,i)=>{
-        const pp=nocNodes['iu'+i];
-        g+=`<line x1="${cx}" y1="${posSRV.y}" x2="${pp.x}" y2="${pp.y+32}" stroke="#7c5cfc" stroke-width="1.5" stroke-dasharray="6,3" opacity=".8"/>`;
-        const mx=(cx+pp.x)/2,my=(posSRV.y+pp.y)/2;
-        g+=`<rect x="${mx-16}" y="${my-9}" width="34" height="18" rx="4" fill="#0a1020" opacity=".9"/>`;
-        g+=`<text x="${mx}" y="${my+5}" text-anchor="middle" fill="#7c5cfc" font-size="11" font-family="monospace" font-weight="600">USB</text>`;
-    });
-
-    // Helper nó
-    const nodo=(pos,cor,l1,l2,icon,nid)=>{
-        const NW=120,NH=72,x=pos.x-NW/2,y=pos.y-NH/2;
-        const drag=nid?`class="noc-node" data-nid="${nid}" style="cursor:grab"`:'';
-        return `<g ${drag}>
-            <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="10" fill="#0d1626" stroke="${cor}" stroke-width="2"/>
-            <text x="${pos.x}" y="${pos.y-10}" text-anchor="middle" fill="${cor}" font-size="16">${icon}</text>
-            <text x="${pos.x}" y="${pos.y+9}" text-anchor="middle" fill="#e8eef8" font-size="12" font-weight="700" font-family="monospace">${h(l1)}</text>
-            <text x="${pos.x}" y="${pos.y+24}" text-anchor="middle" fill="#c8d8e8" font-size="10" font-family="monospace">${h(l2||'')}</text>
-        </g>`;
-    };
-
-    g+=nodo(posGW,'#4d8fff','gateway','','⌘','');
-    g+=nodo(posSRV,'#0e5cfe',serverIp||'servidor','servidor','⬡','');
-
-    ativos.forEach((t,i)=>{
-        const pt=nocNodes['t'+i],cor=sCor(t.ping);
-        const bat=parseInt(t.bateria||0),bc=bat<20?'#ff4455':bat<40?'#ffb830':'#00d68f';
-        const NW=120,NH=76,x=pt.x-NW/2,y=pt.y-NH/2;
-        g+=`<g class="noc-node" data-nid="t${i}" style="cursor:grab">
-            <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="10" fill="#0d1626" stroke="${cor}" stroke-width="2"/>
-            <text x="${pt.x}" y="${pt.y-11}" text-anchor="middle" fill="${cor}" font-size="15">📱</text>
-            <text x="${pt.x}" y="${pt.y+7}" text-anchor="middle" fill="#e8eef8" font-size="12" font-weight="700" font-family="monospace">${t.mesa?`Mesa ${t.mesa}`:h((t.ip||'').split('.').slice(-1)[0]?'...'+t.ip.split('.').slice(-1)[0]:'?')}</text>
-            <text x="${pt.x}" y="${pt.y+22}" text-anchor="middle" fill="#c8d8e8" font-size="10" font-family="monospace">${h(t.ip||'sem IP')}</text>
-            ${bat>0?`<rect x="${x+NW-30}" y="${y+5}" width="24" height="12" rx="2" fill="#0d1626" stroke="${bc}" stroke-width="1.3"/>
-            <rect x="${x+NW-29}" y="${y+6}" width="${Math.round(bat/100*22)}" height="10" rx="1" fill="${bc}" opacity=".85"/>
-            <text x="${pt.x+NW/2-20}" y="${y+23}" text-anchor="middle" fill="${bc}" font-size="9" font-family="monospace">${bat}%</text>`:''}
-        </g>`;
-    });
-
-    impRede.forEach((p,i)=>{
-        const pp=nocNodes['ir'+i];
-        g+=nodo(pp,'#00d68f',h((p.nome||'').slice(0,12)),h((p.uri||'').match(/(\d+\.\d+\.\d+\.\d+)/)?.[1]||'rede'),'🖨','ir'+i);
-    });
-    impUsb.forEach((p,i)=>{
-        const pp=nocNodes['iu'+i];
-        g+=nodo(pp,'#7c5cfc',h((p.nome||'').slice(0,12)),'USB','🖨','iu'+i);
-    });
-
-    // Atualizar SVG preservando o elemento
-    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-    svg.innerHTML = `<defs><filter id="nf"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g id="topo-noc-g">${g}</g>`;
-
-    applyNocTransform();
-
-    // Registrar eventos no container ativo (normal ou maximizado)
-    nocRegistrarEventos(wrap, svg);
-
-    // Aguardar SVG estar pronto e centralizar com fit completo
-    setTimeout(() => {
-        nocTopoCentralizar();
-        setTimeout(nocTopoCentralizar, 200);
-    }, 100);
-}
-
-// ── Registrar todos os eventos de interação num container ────────────────────
-function nocRegistrarEventos(container, svg) {
-    // Limpar eventos anteriores
-    container.onmousedown  = null;
-    container.onmousemove  = null;
-    container.onmouseup    = null;
-    container.onmouseleave = null;
-    container.oncontextmenu= null;
-    container.onwheel      = null;
-
-    container.onmousedown = e => {
-        if(e.button===2||e.button===1||nocSpaceDown){
-            nocPanActive=true; nocPanSX=e.clientX; nocPanSY=e.clientY;
-            nocPanVX=nocVX; nocPanVY=nocVY; container.style.cursor='grabbing'; e.preventDefault();
-        }
-    };
-    container.onmousemove = e => {
-        if(nocPanActive){
-            nocVX=nocPanVX+(e.clientX-nocPanSX); nocVY=nocPanVY+(e.clientY-nocPanSY);
-            applyNocTransform();
-        }
-        if(nocDragging){
-            const rect=container.getBoundingClientRect();
-            nocNodes[nocDragging]={x:(e.clientX-rect.left-nocVX)/nocTopoScale, y:(e.clientY-rect.top-nocVY)/nocTopoScale};
-            renderTopoNoc(_nocTablets,_nocImps,_nocIP);
-        }
-    };
-    container.onmouseup    = () => { nocPanActive=false; nocDragging=null; container.style.cursor='default'; };
-    container.onmouseleave = () => { nocPanActive=false; nocDragging=null; };
-    container.oncontextmenu= e => e.preventDefault();
-    container.onwheel      = e => { e.preventDefault(); nocTopoZoom(e.deltaY<0?.1:-.1); };
-
-    // Drag nos nós — usar container para atualizar cursor
-    svg.querySelectorAll('.noc-node').forEach(el=>{
-        el.onmousedown = e => {
-            if(e.button!==0||nocSpaceDown) return;
-            e.stopPropagation(); nocDragging=el.dataset.nid; container.style.cursor='grabbing';
-        };
-    });
-
-    // Botões externos (só no modo normal)
-    const bp=document.getElementById('btn-topo-plus');
-    const bm=document.getElementById('btn-topo-minus');
-    const bf=document.getElementById('btn-topo-fit');
-    if(bp) { bp.onclick=()=>nocTopoZoom(.15); }
-    if(bm) { bm.onclick=()=>nocTopoZoom(-.15); }
-    if(bf) { bf.onclick=()=>nocTopoCentralizar(); }
-}
 </script>
 </body>
 </html>
