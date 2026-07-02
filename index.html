@@ -976,10 +976,11 @@ async function abrirLoja(token) {
                 <button id="btn-topo-plus"  style="background:var(--bg3);border:1px solid var(--border);color:var(--sub);width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1">＋</button>
                 <button id="btn-topo-minus" style="background:var(--bg3);border:1px solid var(--border);color:var(--sub);width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1">－</button>
                 <button id="btn-topo-fit"   style="background:var(--bg3);border:1px solid var(--border);color:var(--sub);padding:0 10px;height:28px;border-radius:5px;cursor:pointer;font-size:11px">⊙ centralizar</button>
+                <button onclick="topoMaximizar()" style="background:var(--blue);border:none;color:#fff;padding:0 10px;height:28px;border-radius:5px;cursor:pointer;font-size:11px">⛶ maximizar</button>
             </div>
         </div>
         <div style="font-size:11px;color:var(--sub);margin-bottom:8px">arraste nó para mover · scroll para zoom · espaço+arrastar para mover o mapa</div>
-        <div id="topo-noc-wrap" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;height:420px;position:relative;cursor:default">
+        <div id="topo-noc-wrap" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;height:480px;position:relative;cursor:default">
             <svg id="topo-noc-svg" width="100%" height="100%" style="display:block;overflow:visible"></svg>
             <!-- Botões de pan para mobile -->
             <div id="topo-pan-btns" style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;z-index:10;opacity:.75">
@@ -2009,6 +2010,81 @@ let nocPanActive=false, nocPanSX=0, nocPanSY=0, nocPanVX=0, nocPanVY=0;
 let nocSpaceDown=false;
 let _nocTablets=[], _nocImps=[], _nocIP='';
 let _nocPanIntervals={};
+let _nocTopoContainer = null; // container ativo da topologia (normal ou maximizado)
+
+// ── Maximizar topologia ──────────────────────────────────────────────────────
+function topoMaximizar() {
+    const wrap = document.getElementById('topo-noc-wrap');
+    const svg  = document.getElementById('topo-noc-svg');
+    if (!wrap || !svg) return;
+
+    // Criar overlay fullscreen
+    const ov = document.createElement('div');
+    ov.id = 'topo-max-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column';
+
+    // Header com controles
+    const hd = document.createElement('div');
+    hd.style.cssText = 'padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;gap:8px;flex-wrap:wrap';
+    hd.innerHTML = `
+        <span style="font-weight:700;color:#e8eef8;font-size:13px">Topologia de Rede</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:11px;color:#8096b8">arraste nó · scroll zoom · espaço+arraste pan</span>
+            <button onclick="nocTopoZoom(1.2)" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:30px;height:30px;border-radius:5px;cursor:pointer;font-size:15px">+</button>
+            <button onclick="nocTopoZoom(0.8)" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:30px;height:30px;border-radius:5px;cursor:pointer;font-size:15px">−</button>
+            <button onclick="nocTopoCentralizar()" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;padding:0 12px;height:30px;border-radius:5px;cursor:pointer;font-size:11px">⊙ centralizar</button>
+            <div style="display:flex;gap:4px">
+                <button onpointerdown="nocPanBtn('up',true)"    onpointerup="nocPanBtn('up',false)"    onpointerleave="nocPanBtn('up',false)"    style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">▲</button>
+                <button onpointerdown="nocPanBtn('left',true)"  onpointerup="nocPanBtn('left',false)"  onpointerleave="nocPanBtn('left',false)"  style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">◀</button>
+                <button onpointerdown="nocPanBtn('down',true)"  onpointerup="nocPanBtn('down',false)"  onpointerleave="nocPanBtn('down',false)"  style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">▼</button>
+                <button onpointerdown="nocPanBtn('right',true)" onpointerup="nocPanBtn('right',false)" onpointerleave="nocPanBtn('right',false)" style="background:var(--bg3);border:1px solid var(--border);color:#e8eef8;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:12px;touch-action:none">▶</button>
+            </div>
+            <button onclick="fecharTopoMaximizar()" style="background:rgba(255,68,85,.15);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:0 12px;height:30px;border-radius:5px;cursor:pointer;font-size:11px">✕ fechar</button>
+        </div>`;
+
+    // Container do SVG — precisa ser o mesmo elemento para herdar todos os event listeners
+    const cnt = document.createElement('div');
+    cnt.id  = 'topo-max-cnt';
+    cnt.style.cssText = 'flex:1;overflow:hidden;position:relative;background:var(--bg3)';
+
+    ov.appendChild(hd);
+    ov.appendChild(cnt);
+    document.body.appendChild(ov);
+
+    // Mover SVG para o container maximizado
+    cnt.appendChild(svg);
+    svg.style.width  = '100%';
+    svg.style.height = '100%';
+
+    // Reconfigurar eventos de mouse/touch no novo container
+    _nocTopoContainer = cnt;
+    nocTopoCentralizar();
+
+    // ESC para fechar
+    const onEsc = e => { if (e.key === 'Escape') fecharTopoMaximizar(); };
+    document.addEventListener('keydown', onEsc);
+    ov._onEsc = onEsc;
+}
+
+function fecharTopoMaximizar() {
+    const ov   = document.getElementById('topo-max-overlay');
+    const wrap = document.getElementById('topo-noc-wrap');
+    const svg  = document.getElementById('topo-noc-svg');
+    if (!ov || !wrap || !svg) return;
+
+    if (ov._onEsc) document.removeEventListener('keydown', ov._onEsc);
+
+    // Devolver SVG ao container original
+    wrap.appendChild(svg);
+    svg.style.width  = '100%';
+    svg.style.height = '100%';
+    _nocTopoContainer = wrap;
+
+    ov.remove();
+    nocTopoCentralizar();
+}
+
+
 
 function nocPanBtn(dir, active) {
     clearInterval(_nocPanIntervals[dir]);
