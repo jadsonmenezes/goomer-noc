@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.0'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.1'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -206,6 +206,14 @@ async function coletarSnapshot() {
         } catch(ePed) {}
 
         snapshot.tablets = tabletsComPing;
+
+        // ── Modo Teste de Rede — executar bateria de pings se dentro da janela ──
+        if (_testeRedeAtivo && tabletsComPing && tabletsComPing.length > 0) {
+            // Não await — roda em background para não bloquear o snapshot
+            executarTesteRede(tabletsComPing).catch(e =>
+                console.log(`[TESTE-REDE] Erro: ${e.message}`)
+            );
+        }
 
         // Só contar como crítico tablets que têm IP (ativos na rede)
         // Tablets sem IP = desligados ou sem mesa atribuída — não é problema sistêmico
@@ -1936,6 +1944,7 @@ async function enviarSupabase(snap) {
         latencia:        snap.latencia,
         correlacoes:     snap.correlacoes,
         goomer_version:  snap.goomer_version,
+        diagnostico_rede: _testeRedeAtivo || Object.keys(_testeRedeResultados).length > 0 ? consolidarTesteRede() : null,
         agente_version:  AGENTE_VERSION,
         anydesk_id:      snap.anydesk_id,
         teamviewer_id:   snap.teamviewer_id,
@@ -2040,7 +2049,10 @@ let _config = {
     coleta_maquina:        true,
     coleta_tablets:        true,
     intervalo_minutos:     5,
-    auto_atualizacao:      true   // controla se o agente verifica/aplica atualizações
+    auto_atualizacao:      true,  // controla se o agente verifica/aplica atualizações
+    teste_rede_ativo:      false, // Modo Teste de Rede — bateria de 40 pings por tablet
+    teste_rede_inicio:     '00:00', // horário de início (HH:MM)
+    teste_rede_fim:        '00:00', // horário de fim (HH:MM)
 };
 
 // ── Controle de auto-atualização ──────────────────────────────────────────────
@@ -2048,8 +2060,182 @@ let _ciclosDesdeUltimaVerificacao = 0;
 
 // ── Controle de limpeza de deadlock (1x/dia) ───────────────────────────────────
 let _ultimaLimpezaDeadlock = null; // data da última execução
+
+// ── Controle do Modo Teste de Rede ────────────────────────────────────────────
+let _testeRedeResultados = {}; // acumula por tablet: { [ip]: { ciclos, pings, wifi, bat } }
+let _testeRedeAtivo      = false; // flag de estado interno (dentro da janela de horário)
+let _testeRedeInicio     = null;  // timestamp de início da sessão atual
 const CICLOS_ENTRE_VERIFICACOES = 12; // ~1h com ciclo de 5min
 let _atualizacaoPendente = null; // { sha, conteudo }
+
+// ── Modo Teste de Rede ────────────────────────────────────────────────────────
+// Coleta bateria de 40 pings por tablet dentro da janela de horário configurada
+// Acumula resultados em memória e consolida ao final da sessão
+
+function dentroJanelaTeste() {
+    if (!_config.teste_rede_ativo) return false;
+    const agora   = new Date();
+    const hAtual  = agora.getHours() * 60 + agora.getMinutes();
+    const parseFn = h => {
+        const [hh, mm] = (h||'00:00').split(':').map(Number);
+        return hh * 60 + mm;
+    };
+    const hInicio = parseFn(_config.teste_rede_inicio);
+    const hFim    = parseFn(_config.teste_rede_fim);
+    if (hInicio === hFim) return false; // janela inválida
+    if (hInicio < hFim) return hAtual >= hInicio && hAtual < hFim;
+    // Janela que cruza meia-noite (ex: 22:00–02:00)
+    return hAtual >= hInicio || hAtual < hFim;
+}
+
+async function executarTesteRede(tablets) {
+    if (!tablets || tablets.length === 0) return;
+
+    const { execSync: esNet } = require('child_process');
+    const tabletsComIP = tablets.filter(t => t.ip && /\d+\.\d+\.\d+\.\d+/.test(t.ip));
+    if (tabletsComIP.length === 0) return;
+
+    const agora = new Date();
+    const horaStr = agora.toTimeString().slice(0, 5); // "HH:MM"
+
+    console.log(`[TESTE-REDE] Iniciando bateria de 40 pings em ${tabletsComIP.length} tablet(s) — ${horaStr}`);
+
+    // Rodar pings em paralelo (Promise.all) com timeout curto por ping
+    const resultados = await Promise.all(tabletsComIP.map(async t => {
+        let ping_min = null, ping_med = null, ping_max = null, ping_perda_pct = 0;
+
+        try {
+            const saida = esNet(
+                `ping -n 40 -w 500 ${t.ip}`,
+                { timeout: 30000, encoding: 'utf8', shell: true }
+            );
+
+            // Extrair estatísticas do output do ping Windows
+            // "Mínimo = Xms, Máximo = Xms, Média = Xms"
+            const mMatch = saida.match(/M[íi]nimo\s*=\s*(\d+)ms/i);
+            const xMatch = saida.match(/M[áa]ximo\s*=\s*(\d+)ms/i);
+            const aMatch = saida.match(/M[eé]dia\s*=\s*(\d+)ms/i);
+            if (mMatch) ping_min = parseInt(mMatch[1]);
+            if (xMatch) ping_max = parseInt(xMatch[1]);
+            if (aMatch) ping_med = parseInt(aMatch[1]);
+
+            // Perda de pacotes: "Perdidos = X (Y%)"
+            const pMatch = saida.match(/Perdidos\s*=\s*\d+\s*\((\d+)%/i);
+            if (pMatch) ping_perda_pct = parseInt(pMatch[1]);
+
+        } catch(ePing) {
+            // Timeout ou host inacessível = 100% de perda
+            ping_perda_pct = 100;
+        }
+
+        return {
+            mesa:            t.mesa_numero || t.mesa || '?',
+            ip:              t.ip,
+            identity:        t.identity || t.ip,
+            horario:         horaStr,
+            ping_min,
+            ping_med,
+            ping_max,
+            ping_perda_pct,
+            wifi_level:      parseInt(t.sinal || t.wifi_level || 0),
+            bateria:         parseInt(t.bateria || 0),
+        };
+    }));
+
+    // Inicializar entrada no acumulador se novo
+    resultados.forEach(r => {
+        const chave = r.ip;
+        if (!_testeRedeResultados[chave]) {
+            _testeRedeResultados[chave] = {
+                mesa:            r.mesa,
+                ip:              r.ip,
+                identity:        r.identity,
+                ciclos:          0,
+                soma_ping_med:   0,
+                soma_ping_max:   0,
+                soma_perda:      0,
+                soma_wifi:       0,
+                soma_bat:        0,
+                ping_max_abs:    0,   // pior ping absoluto
+                perda_max:       0,   // pior perda de ciclo
+                wifi_min:        100, // pior sinal
+                horario_inicio:  horaStr,
+                horario_pior_ping:  null,
+                horario_pior_perda: null,
+                historico_ciclos:   [],
+            };
+        }
+
+        const acc = _testeRedeResultados[chave];
+        acc.ciclos++;
+        if (r.ping_med !== null) acc.soma_ping_med += r.ping_med;
+        if (r.ping_max !== null) {
+            acc.soma_ping_max += r.ping_max;
+            if (r.ping_max > acc.ping_max_abs) {
+                acc.ping_max_abs = r.ping_max;
+                acc.horario_pior_ping = r.horario;
+            }
+        }
+        acc.soma_perda += r.ping_perda_pct;
+        acc.soma_wifi  += r.wifi_level;
+        acc.soma_bat   += r.bateria;
+        if (r.ping_perda_pct > acc.perda_max) {
+            acc.perda_max = r.ping_perda_pct;
+            acc.horario_pior_perda = r.horario;
+        }
+        if (r.wifi_level > 0 && r.wifi_level < acc.wifi_min) {
+            acc.wifi_min = r.wifi_level;
+        }
+        // Guardar snapshot do ciclo (máx 72 ciclos = 6h)
+        if (acc.historico_ciclos.length < 72) {
+            acc.historico_ciclos.push({
+                h: r.horario,
+                pm: r.ping_med,
+                pp: r.ping_perda_pct,
+                w: r.wifi_level
+            });
+        }
+    });
+
+    console.log(`[TESTE-REDE] Ciclo concluído: ${resultados.map(r=>`Mesa ${r.mesa}(${r.ping_med||'?'}ms/${r.ping_perda_pct}%)`).join(', ')}`);
+}
+
+function consolidarTesteRede() {
+    const consolidado = Object.values(_testeRedeResultados).map(acc => {
+        const c = acc.ciclos || 1;
+        const pingMed  = Math.round(acc.soma_ping_med / c);
+        const perdaMed = Math.round(acc.soma_perda / c);
+        const wifiMed  = Math.round(acc.soma_wifi / c);
+        const batMed   = Math.round(acc.soma_bat / c);
+
+        // Classificação por cor
+        let saude;
+        if (perdaMed < 2 && pingMed < 20)       saude = 'excelente';
+        else if (perdaMed < 10 && pingMed < 80) saude = 'instavel';
+        else                                     saude = 'critico';
+
+        return {
+            mesa:              acc.mesa,
+            ip:                acc.ip,
+            identity:          acc.identity,
+            ciclos:            c,
+            ping_med:          pingMed,
+            ping_max_abs:      acc.ping_max_abs,
+            perda_med_pct:     perdaMed,
+            perda_max_pct:     acc.perda_max,
+            wifi_med:          wifiMed,
+            wifi_min:          acc.wifi_min === 100 ? 0 : acc.wifi_min,
+            bat_med:           batMed,
+            horario_inicio:    acc.horario_inicio,
+            horario_pior_ping: acc.horario_pior_ping,
+            horario_pior_perda:acc.horario_pior_perda,
+            saude,
+            historico:         acc.historico_ciclos,
+        };
+    }).sort((a,b) => b.perda_med_pct - a.perda_med_pct); // piores primeiro
+
+    return consolidado;
+}
 
 // ── Prevenção de deadlock MySQL ────────────────────────────────────────────────
 // Faz soft delete em lotes dos pedidos já enviados ao ERP com mais de 3 dias
@@ -2438,6 +2624,24 @@ async function ciclo() {
 
         // ── Limpeza preventiva de deadlock MySQL ─────────────────────────────
         await limparDeadlockMySQL();
+
+        // ── Modo Teste de Rede ────────────────────────────────────────────
+        const _dentroJanela = dentroJanelaTeste();
+        if (_dentroJanela) {
+            if (!_testeRedeAtivo) {
+                // Início de nova sessão de teste
+                _testeRedeAtivo  = true;
+                _testeRedeInicio = new Date();
+                _testeRedeResultados = {};
+                console.log(`[TESTE-REDE] Sessão iniciada — janela ${_config.teste_rede_inicio}–${_config.teste_rede_fim}`);
+            }
+        } else if (_testeRedeAtivo) {
+            // Fim da janela — sessão encerrada
+            _testeRedeAtivo = false;
+            const consolidado = consolidarTesteRede();
+            console.log(`[TESTE-REDE] Sessão encerrada — ${consolidado.length} tablet(s) analisados`);
+            // Resultado fica em _testeRedeResultados consolidado para o snapshot pegar
+        }
 
         // ── Auto-atualização ─────────────────────────────────────────────────
         if (_config.auto_atualizacao) {
