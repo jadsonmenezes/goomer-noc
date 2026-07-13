@@ -354,7 +354,17 @@ async function carregar() {
 
     // Carregar tudo em paralelo
     const [rows, bloqueadas, versoesPadrao] = await Promise.all([
-        sb('snapshots','?select=*&order=criado_em.desc&limit=500'),
+        // Buscar em duas etapas para garantir que todas as lojas apareçam sempre:
+        // 1. Snapshots recentes para tendência e histórico
+        // 2. Último snapshot de cada loja (sem filtro de data — nenhuma loja some)
+        // Tentar usar a view que retorna 1 snapshot por loja (criada via SUPABASE_MANUTENCAO.sql)
+        // Se a view não existir, fallback para query com limit alto
+        await sb('ultimo_snapshot_por_loja','?select=*&order=criado_em.desc').catch(() => null)
+            .then(async v => {
+                if (v && v.length > 0) return v;
+                // Fallback: buscar snapshots sem filtro de data
+                return sb('snapshots','?select=*&order=criado_em.desc&limit=3000');
+            }),
         sb('lojas_bloqueadas','?select=token_loja,nome_loja,motivo,bloqueado_em,bloqueado_por').catch(()=>[]),
         sb('versoes_padrao','?select=*').catch(()=>[])
     ]);
@@ -581,15 +591,63 @@ function renderGrid(lista) {
         if (_ipDiv) als.push({c:'crit',m:`IP divergente — tablets sem comunicação (${h(_ipCfg||'?')} ≠ ${h(_ipReal||'?')})`});
         const _confRede = (pay.conflito_ip_rede||[]).length;
         if (_confRede>0) als.push({c:'crit',m:`Conflito de IP na rede — servidor com mesmo IP de outro dispositivo`});
-        const _autoCorr = (pay.autocorrecoes||[]).filter(a=>a.resultado==='sucesso');
-        const _autoCorrFalhou = (pay.autocorrecoes||[]).filter(a=>a.resultado!=='sucesso');
-        if (_autoCorr.length>0) als.push({c:'ok',m:`IP corrigido automaticamente: ${_autoCorr[0].ip_antigo} → ${_autoCorr[0].ip_novo}`});
-        if (_autoCorrFalhou.length>0) als.push({c:'warn',m:`Tentativa de correção automática de IP falhou — verificar manualmente`});
+        // Autocorreções — separar por tipo para exibir mensagem correta
+        // Conflitos de porta e IP — alertas no card
+        if ((pay.conflitos_porta||[]).length > 0) {
+            pay.conflitos_porta.forEach(c =>
+                als.push({c:'crit', m:`Conflito de porta ${c.porta}: processo "${c.processo}" interferindo — pode causar falha de impressão`})
+            );
+        }
+        if ((pay.conflitos_ip||[]).length > 0) {
+            pay.conflitos_ip.forEach(c =>
+                als.push({c:'crit', m:c.descricao})
+            );
+        }
+        if (pay.agente_duplicado?.detectado) {
+            als.push({c:'warn', m:`Agente duplicado: snapshots de ${(pay.agente_duplicado.hosts_outros||[]).join(', ')} — remover agente da máquina incorreta`});
+        }
+
+        const _autocorrecoes = pay.autocorrecoes || [];
+        const _acIP      = _autocorrecoes.filter(a => a.tipo === 'ip_sincronizado');
+        const _acSpooler = _autocorrecoes.filter(a => a.tipo === 'spooler_reiniciado');
+        const _acMySQL   = _autocorrecoes.filter(a => a.tipo === 'mysql_reiniciado');
+        const _acFalhou  = _autocorrecoes.filter(a => a.resultado !== 'sucesso');
+
+        // IP corrigido — mostra IPs apenas para tipo ip_sincronizado
+        const _acIPOk = _acIP.filter(a => a.resultado === 'sucesso');
+        if (_acIPOk.length > 0) {
+            const ac = _acIPOk[0];
+            const ipDe  = ac.ip_antigo && ac.ip_antigo !== 'vazio' ? ac.ip_antigo : '?';
+            const ipPara = ac.ip_novo || '?';
+            als.push({c:'ok', m:`IP corrigido automaticamente: ${ipDe} → ${ipPara}`});
+        }
+
+        // Spooler reiniciado
+        const _acSpoolerOk = _acSpooler.filter(a => a.resultado === 'sucesso');
+        if (_acSpoolerOk.length > 0) als.push({c:'ok', m:`Spooler reiniciado automaticamente (${_acSpoolerOk[0].erros_antes||0} erros)`});
+
+        // MySQL reiniciado
+        const _acMySQLOk = _acMySQL.filter(a => a.resultado === 'sucesso');
+        if (_acMySQLOk.length > 0) als.push({c:'ok', m:`MySQL reiniciado automaticamente`});
+
+        // Falhas nas autocorreções
+        if (_acFalhou.length > 0) als.push({c:'warn', m:`${_acFalhou.length} autocorreção(ões) falharam — verificar manualmente`});
         if (pay.inadimplente)              als.push({c:'crit',m:'Bloqueio financeiro'});
-        if (l.retry_expirados>0)           als.push({c:'crit',m:`${l.retry_expirados} pedido(s) sem ERP`});
+        if (l.retry_expirados>0) { const _th=Math.round((l.retry_expirados/5)*60); als.push({c:'crit',m:`${l.retry_expirados} pedido(s) sem ERP (~${_th}/hora)`}); }
         if (l.erros_log>500)               als.push({c:'warn',m:`Volume alto de erros recentes: ${l.erros_log}`});
         const _corrCrit = (pay.correlacoes||[]).filter(c=>c.nivel==='critico').length;
         if (_corrCrit>0)                    als.push({c:'crit',m:`${_corrCrit} correlação(ões) crítica(s) detectada(s)`});
+        if ((pay.acumulo_sale_order||0)>5000) als.push({c:'crit',m:`${pay.acumulo_sale_order} pedidos acumulados — risco de Deadlock`});
+        else if ((pay.acumulo_sale_order||0)>1000) als.push({c:'warn',m:`${pay.acumulo_sale_order} pedidos acumulados no banco`});
+        // Alerta de madrugada
+        const _tabsMadrugadaCard = (pay.tablets||[]).filter(t=>(t.pedidos_madrugada||0)>0);
+        if (_tabsMadrugadaCard.length > 0) {
+            als.push({c:'warn', m:`${_tabsMadrugadaCard.reduce((s,t)=>s+(t.pedidos_madrugada||0),0)} pedido(s) na madrugada`});
+        }
+        // Badge de versão do agente
+        if (!pay.agente_version || pay.agente_version === 'local') {
+            als.push({c:'warn', m:'agente sem versão — instalar versão publicada'});
+        }
         // sem alertas = card limpo
 
         return `<div class="loja" onclick="abrirLoja('${h(l.token_loja)}')">
@@ -600,7 +658,7 @@ function renderGrid(lista) {
                 </div>
                 <div class="loja-info">
                     <div class="loja-nome">${h(l.nome_loja||'Loja')}</div>
-                    <div class="loja-ip">${ip}${pay.goomer_version?' · v'+pay.goomer_version:''}</div>
+                    <div class="loja-ip">${ip}${pay.goomer_version?' · v'+pay.goomer_version:''}${pay.agente_version&&pay.agente_version!=='local'&&pay.agente_version!=='undefined'?' · agente v'+pay.agente_version:''}</div>
                 </div>
                 <div class="status-badge" style="color:${cor};border-color:${cor}50;background:${cor}15">${statusLabel(l)}</div>
             </div>
@@ -735,7 +793,7 @@ async function abrirLoja(token) {
                         const g=(ok,txt)=>`<span style="background:${ok?'rgba(0,214,143,.1)':'rgba(255,68,85,.1)'};color:${ok?'var(--green)':'var(--red)'};padding:2px 7px;border-radius:4px">${txt}</span>`;
                         return [
                             g(l.servidor_online, l.servidor_online?'servidor 40/40':'servidor 0/40'),
-                            g(!(l.retry_expirados>0), (l.retry_expirados>0)?'ERP 0/25':'ERP 25/25'),
+                            (()=>{ const _th2=Math.round(((l.retry_expirados||0)/5)*60); const _ep=(l.retry_expirados||0)===0?25:_th2<=3?22:_th2<=10?14:0; return g(_ep===25,`ERP ${_ep}/25`); })(),
                             g(logsOk, 'logs '+logsVal),
                             g(maqOk, 'máquina '+maqVal),
                             p.ip_divergente?g(false,'IP −20'):'',
@@ -772,6 +830,72 @@ async function abrirLoja(token) {
             </span><br>
             <span style="font-size:11px;color:#ff9aaa">Dois dispositivos com o mesmo IP causam falhas intermitentes de comunicação.</span>
         </div>`:''}
+        ${pay.agente_duplicado?.detectado?`
+        <div style="background:rgba(255,68,85,.08);border:1px solid rgba(255,68,85,.3);border-radius:8px;padding:10px 14px;margin-bottom:12px">
+            <div style="font-weight:700;color:var(--red);margin-bottom:4px">⚠ AGENTE DUPLICADO DETECTADO</div>
+            <div style="font-size:12px;color:#a0b8d0">Este token está recebendo snapshots de múltiplas máquinas.</div>
+            <div style="font-size:11px;color:#8096b8;margin-top:4px">
+                Máquina atual: <b style="color:#e8eef8">${h(pay.agente_duplicado.host_atual||'?')}</b><br>
+                Outras máquinas: <b style="color:var(--red)">${h((pay.agente_duplicado.hosts_outros||[]).join(', '))}</b>
+            </div>
+            <div style="font-size:11px;color:#8096b8;margin-top:6px">
+                ⚡ Ação: Desinstale o agente da máquina incorreta. Um servidor Goomer por token.
+            </div>
+        </div>`:''}
+
+        ${pay.agente_duplicado?.detectado?`
+        <div style="background:rgba(255,68,85,.07);border:1px solid rgba(255,68,85,.3);border-radius:8px;padding:10px 14px;margin-bottom:10px">
+            <div style="font-weight:700;color:#ff4455;font-size:12px;margin-bottom:4px">⚠ AGENTE DUPLICADO DETECTADO</div>
+            <div style="font-size:11px;color:#a0b8d0">Esta loja está enviando snapshots de duas máquinas diferentes.</div>
+            <div style="font-size:11px;color:#8096b8;margin-top:4px">
+                Esta máquina: <b style="color:#e8eef8">${h(pay.hostname||'?')}</b><br>
+                Outra máquina: <b style="color:#ff9aaa">${h(pay.agente_duplicado.hostname_anterior||'?')}</b>
+            </div>
+            <div style="font-size:11px;color:#8096b8;margin-top:4px">⚠ Dois servidores Goomer para o mesmo token podem causar inconsistências. Inative o agente da máquina incorreta.</div>
+        </div>`:''}
+
+        ${(pay.conflitos_porta||[]).length>0?`
+        <div style="background:rgba(255,68,85,.07);border:1px solid rgba(255,68,85,.3);border-radius:8px;padding:10px 14px;margin-bottom:10px">
+            <div style="font-weight:700;color:#ff4455;font-size:12px;margin-bottom:4px">⚠ CONFLITO DE PORTA</div>
+            ${(pay.conflitos_porta||[]).map(c=>`
+            <div style="font-size:11px;color:#a0b8d0;margin-top:3px">
+                Porta <b style="color:#e8eef8">${c.porta}</b> usada por <b style="color:#ff9aaa">${h(c.processo.split('\\').pop())}</b>
+                <span style="color:#8096b8"> (PID ${c.pid})</span>
+            </div>`).join('')}
+            <div style="font-size:11px;color:#8096b8;margin-top:6px">Outro processo usando a porta do servidor Goomer pode causar falha de impressão ou comunicação sem gerar erros nos logs.</div>
+        </div>`:''}
+
+        ${(pay.conflitos_ip||[]).some(c=>c.tipo==='ip_conflito_rede')?`
+        <div style="background:rgba(255,68,85,.06);border:1px solid rgba(255,68,85,.25);border-radius:8px;padding:10px 14px;margin-bottom:10px">
+            <div style="font-weight:700;color:#ff6b7a;font-size:12px;margin-bottom:4px">⚠ Conflito de IP na rede</div>
+            ${(pay.conflitos_ip||[]).filter(c=>c.tipo==='ip_conflito_rede').map(c=>`
+            <div style="font-size:11px;color:#a0b8d0;margin-top:3px">
+                Outro dispositivo (<span style="font-family:var(--mono);color:#e8eef8">${h(c.mac_intruso)}</span>)
+                está respondendo no IP do servidor <b>${h(c.ip)}</b>.
+            </div>`).join('')}
+            <div style="font-size:11px;color:#8096b8;margin-top:6px">Pode causar falha de comunicação com tablets. Verificar DHCP e reservar IP fixo para o servidor.</div>
+        </div>`:''}
+
+        ${(pay.conflitos_ip||[]).filter(c=>c.tipo!=='arp'&&c.tipo!=='ip_servidor_sequestrado').length>0?`
+        <div style="background:rgba(255,68,85,.07);border:1px solid rgba(255,68,85,.3);border-radius:8px;padding:10px 14px;margin-bottom:10px">
+            <div style="font-weight:700;color:#ff4455;font-size:12px;margin-bottom:4px">⚠ CONFLITO DE IP</div>
+            ${(pay.conflitos_ip||[]).filter(c=>c.tipo!=='arp'&&c.tipo!=='ip_servidor_sequestrado').map(c=>`
+            <div style="font-size:11px;color:#a0b8d0;margin-top:3px">
+                ${h(c.nome||'?')} (${h(c.tipo)}) tem o mesmo IP do servidor: <b style="color:#ff9aaa">${h(c.ip)}</b>
+            </div>`).join('')}
+            <div style="font-size:11px;color:#8096b8;margin-top:6px">Conflito de IP causa falha intermitente de comunicação com tablets e impressoras.</div>
+        </div>`:''}
+
+        ${(pay.conflitos_ip||[]).filter(c=>c.tipo==='arp').length>0?`
+        <div style="background:rgba(255,184,48,.07);border:1px solid rgba(255,184,48,.25);border-radius:8px;padding:10px 14px;margin-bottom:10px">
+            <div style="font-weight:700;color:var(--amber);font-size:12px;margin-bottom:4px">⚠ CONFLITO ARP</div>
+            ${(pay.conflitos_ip||[]).filter(c=>c.tipo==='arp').map(c=>`
+            <div style="font-size:11px;color:#a0b8d0;margin-top:3px">
+                IP <b style="color:#e8eef8">${h(c.ip)}</b> com ${c.macs?.length||0} MACs diferentes na tabela ARP
+            </div>`).join('')}
+            <div style="font-size:11px;color:#8096b8;margin-top:6px">Dois dispositivos com o mesmo IP na rede causam falhas intermitentes difíceis de diagnosticar.</div>
+        </div>`:''}
+
         ${_lojasBloqueadas.some(b=>b.token_loja===l.token_loja)?`
         <div style="background:rgba(255,68,85,.07);border:1px solid rgba(255,68,85,.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px">
             <div style="font-weight:700;color:#ff6b7a;margin-bottom:4px">⊘ Loja inativada no NOC</div>
@@ -791,6 +915,7 @@ async function abrirLoja(token) {
             <div class="sec-t">operação</div>
             <div class="row"><span class="rl">Token da loja</span>
                 <span class="rv" style="font-size:10px;word-break:break-all;color:#8096b8">${h(l.token_loja||'—')}</span></div>
+            ${(()=>{const av=pay.agente_version||'local';const semver=/^\d+\.\d+\.\d+$/.test(av);const cor=av==='local'?'#8096b8':semver?'var(--green)':'var(--amber)';const label=av==='local'?'local (instalar versão publicada)':av;return `<div class="row"><span class="rl">Versão do agente</span><span class="rv" style="font-family:var(--mono);font-size:11px;color:${cor}">${label}</span></div>`;})()}
             <div class="row"><span class="rl">IP real da máquina</span>
                 <span class="rv" style="color:${(pay.ip_divergente||l.ip_divergente)?'var(--red)':'#e8eef8'}">${h(pay.ip_servidor||l.ip_servidor||ip||'—')}</span></div>
             <div class="row"><span class="rl">IP configurado no Goomer</span>
@@ -815,6 +940,7 @@ async function abrirLoja(token) {
             `:''}
             <div class="row"><span class="rl">Pedidos hoje</span><span class="rv">${pay.pedidos_hoje||0}</span></div>
             <div class="row"><span class="rl">Retry expirados (ERP)</span><span class="rv" style="color:${l.retry_expirados>0?'var(--red)':'var(--green)'}">${l.retry_expirados||0}</span></div>
+            ${(()=>{const ac=pay.acumulo_sale_order||0;if(!ac) return '';const cor=ac>5000?'var(--red)':ac>1000?'var(--amber)':'#8096b8';return `<div class="row"><span class="rl">Acúmulo sale_order</span><span class="rv" style="color:${cor}">${ac} pedidos antigos</span></div>`;})()}
             <div class="row"><span class="rl">Erros recentes</span><span class="rv" style="color:${l.erros_log>200?'var(--red)':l.erros_log>50?'var(--amber)':'var(--green)'}">${l.erros_log||0}</span></div>
             <div class="row"><span class="rl">Erros de impressão (2h)</span><span class="rv" style="color:${(pay.erros_impressora||0)>0?'var(--amber)':'var(--green)'}">${pay.erros_impressora||0}</span></div>
             ${pay.inadimplente?'<div class="row"><span class="rl">Situação financeira</span><span class="rv" style="color:var(--red)">⚠ Bloqueio financeiro</span></div>':''}
@@ -894,11 +1020,58 @@ async function abrirLoja(token) {
 
         <div class="sec">
             <div class="sec-t">impressoras</div>
-            ${(pay.impressoras||[]).map(i=>`
-            <div class="row">
-                <span class="rl">${h(i.nome)}${i.padrao?' <span class="badge bm">padrão</span>':''}</span>
-                <span class="rv" style="font-size:11px;color:#8096b8">${h(i.uri||'—')}</span>
-            </div>`).join('')||'<div style="font-size:12px;color:#8096b8;padding:6px 0">Nenhuma impressora cadastrada</div>'}
+            ${(pay.impressoras||[]).map(i=>{
+                // Fallback para snapshots antigos sem campo diag
+                if (!i.diag) { i = {...i, diag: i.uri?.includes('localhost')?'ok': i.uri?.match(/\d+\.\d+\.\d+\.\d+/)?'online':'ok'}; }
+                const diagCor = {
+                    'online':'var(--green)', 'ok':'var(--green)',
+                    'offline_rede':'var(--red)', 'sem_servico_impressao':'var(--amber)',
+                    'erro_driver':'var(--red)', 'offline_windows':'var(--red)',
+                    'fila_travada':'var(--amber)', 'sem_porta_fisica':'var(--red)',
+                    'porta_nao_encontrada':'var(--red)', 'erro_verificacao':'var(--amber)'
+                }[i.diag]||'#8096b8';
+                const diagLabel = {
+                    'online':'online', 'ok':'ok', 'offline_rede':'offline (sem rede)',
+                    'sem_servico_impressao':'sem serviço (porta 9100)',
+                    'erro_driver':'erro no driver', 'offline_windows':'offline (Windows)',
+                    'fila_travada':'fila travada',
+                    'sem_porta_fisica':'sem porta física — impressora não existe',
+                    'porta_nao_encontrada':'porta configurada não encontrada',
+                    'erro_verificacao':'erro ao verificar'
+                }[i.diag]||i.diag||'—';
+                // Detectar tipo via campo i.tipo (agente novo) ou fallback via URI (snapshots antigos)
+                const _tipoImp = i.tipo || (i.uri?.match(/\d+\.\d+\.\d+\.\d+/)&&!i.uri?.includes('localhost') ? 'rede' : i.uri?.includes('localhost') ? 'compartilhada_local' : 'usb');
+                const tipoBadge = {
+                    'rede':               `<span style="background:rgba(14,92,254,.12);color:var(--blue-l);font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px">rede</span>`,
+                    'compartilhada_local':`<span style="background:rgba(255,184,48,.12);color:var(--amber);font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px">USB local</span>`,
+                    'usb':                `<span style="background:rgba(124,92,252,.12);color:#a07fff;font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px">usb</span>`,
+                }[_tipoImp]||`<span style="background:rgba(128,150,184,.12);color:#8096b8;font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px">${h(_tipoImp||'?')}</span>`;
+                return `<div style="background:var(--bg3);border-radius:7px;padding:8px 12px;margin-bottom:6px;border-left:3px solid ${diagCor}">
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+                        <span style="font-size:12px;font-weight:600;color:#e8eef8">${h(i.nome)}</span>
+                        ${tipoBadge}
+                        ${i.padrao?'<span class="badge bm" style="font-size:9px">padrão</span>':''}
+                        <span style="margin-left:auto;font-size:11px;font-weight:700;color:${diagCor}">${diagLabel}</span>
+                    </div>
+                    <div style="display:flex;gap:12px;font-size:11px;color:#8096b8;flex-wrap:wrap">
+                        <span>${h(i.uri||'—')}</span>
+                        ${i.tipo==='rede'&&i.ping_ms!==null?`<span style="color:var(--green)">ping ${i.ping_ms}ms</span>`:''}
+                        ${i.tipo==='rede'&&i.ping_ms===null?`<span style="color:var(--red)">sem resposta</span>`:''}
+                        ${i.porta_9100===false?`<span style="color:var(--amber)">porta 9100 fechada</span>`:''}
+                        ${i.porta_9100===true?`<span style="color:var(--green)">porta 9100 ok</span>`:''}
+                        ${i.status_win?`<span>Windows: ${h(i.status_win)}</span>`:''}
+                        ${i.porta_fisica?`<span>porta: ${h(i.porta_fisica)}</span>`:''}
+                        ${i.jobs_presos>0?`<span style="color:var(--amber)">${i.jobs_presos} job(s) preso(s)</span>`:''}
+                        ${i.diag==='sem_porta_fisica'?`<span style="color:var(--red)">Impressora cadastrada no Goomer mas não existe fisicamente</span>`:''}
+                        ${i.diag==='porta_nao_encontrada'?`<span style="color:var(--red)">Porta física não encontrada no Windows</span>`:''}
+                    </div>
+                </div>`;
+            }).join('')||'<div style="font-size:12px;color:#8096b8;padding:6px 0">Nenhuma impressora cadastrada</div>'}
+            ${pay.causa_erros_impressao&&pay.erros_impressora>0?`
+            <div style="background:rgba(255,184,48,.08);border:1px solid rgba(255,184,48,.2);border-radius:7px;padding:8px 12px;margin-top:8px;font-size:11px">
+                <span style="font-weight:700;color:var(--amber)">⚠ Correlação de erros: </span>
+                <span style="color:#a0b8d0">${h(pay.causa_erros_impressao)}</span>
+            </div>`:``}
         </div>`;
 
     // ── Tab Tablets ─────────────────────────────────────────────────────────
@@ -924,13 +1097,30 @@ async function abrirLoja(token) {
                 </div>
             </div>
             <div style="font-size:11px;color:var(--sub);font-family:var(--mono);margin-bottom:8px">${h(t.ip||'sem IP')}${t.fonte_bateria?' · bat: tempo real':''}</div>
-            <div class="bar-row"><span style="width:40px">Bat</span>
+            <div class="bar-row"><span style="width:48px;font-size:11px">Bateria</span>
                 <div class="bar-track"><div class="bar-fill" style="width:${bat}%;background:${bat<20?'var(--red)':bat<40?'var(--amber)':'var(--green)'}"></div></div>
                 <span style="color:${bat<20?'var(--red)':bat<40?'var(--amber)':'var(--green)'}">${bat}%</span>
             </div>
             <div class="bar-row"><span style="width:40px">Wi-Fi</span>
                 <div class="bar-track"><div class="bar-fill" style="width:${sinal}%;background:${sinal<30?'var(--red)':sinal<60?'var(--amber)':'var(--green)'}"></div></div>
                 <span style="color:${sinal<30?'var(--red)':sinal<60?'var(--amber)':'var(--green)'}">${sinal}%</span>
+            </div>
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                    <span style="font-size:11px;color:#8096b8">Pedidos hoje</span>
+                    <span style="font-size:12px;font-weight:700;color:${(t.pedidos_hoje||0)>0?'var(--green)':'#8096b8'}">${t.pedidos_hoje||0}</span>
+                </div>
+                ${t.ultimo_pedido?`
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                    <span style="font-size:11px;color:#8096b8">Último pedido</span>
+                    <span style="font-size:11px;font-family:var(--mono);color:#e8eef8">${new Date(t.ultimo_pedido).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+                </div>`:''}
+                ${(t.pedidos_madrugada||0)>0?`
+                <div style="background:rgba(255,184,48,.08);border:1px solid rgba(255,184,48,.2);border-radius:6px;padding:6px 8px;margin-top:6px">
+                    <div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:2px">⚠ ${t.pedidos_madrugada} pedido(s) na madrugada</div>
+                    ${t.primeira_madrugada?`<div style="font-size:10px;color:#8096b8">Primeiro: ${new Date(t.primeira_madrugada).toLocaleString('pt-BR',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'})}</div>`:''}
+                    ${t.ultima_madrugada&&t.ultima_madrugada!==t.primeira_madrugada?`<div style="font-size:10px;color:#8096b8">Último: ${new Date(t.ultima_madrugada).toLocaleString('pt-BR',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'})}</div>`:''}
+                </div>`:''}
             </div>
         </div>`;
     }).join('') : '<div class="empty">Sem dados de tablets neste snapshot.</div>';
@@ -1038,6 +1228,49 @@ async function abrirLoja(token) {
         renderTopoNoc(tablets_t, imps_t, ip, pay.latencia||null);
     }, 50);
 
+    // ── Mapa de Calor de Rede — exibido na aba Tablets quando há dados de teste ──
+    const _diagRede = pay.diagnostico_rede;
+    if (_diagRede && _diagRede.length > 0) {
+        const _corSaude = s => s==='excelente'?'#00d68f':s==='instavel'?'#ffb830':'#ff4455';
+        const _bgSaude  = s => s==='excelente'?'rgba(0,214,143,.08)':s==='instavel'?'rgba(255,184,48,.08)':'rgba(255,68,85,.08)';
+        const _labelSaude = s => ({'excelente':'🟢 Excelente','instavel':'🟡 Instável','critico':'🔴 Crítico'}[s]||s);
+
+        const mapaHtml = `
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">
+                📶 Mapa de Calor — Resultado do Teste de Rede
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:14px">
+                ${_diagRede.map(t=>`
+                <div style="background:${_bgSaude(t.saude)};border:1px solid ${_corSaude(t.saude)}40;border-radius:8px;padding:10px 12px;border-left:3px solid ${_corSaude(t.saude)}">
+                    <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:4px">Mesa ${h(String(t.mesa))}</div>
+                    <div style="font-size:10px;font-family:var(--mono);color:#8096b8;margin-bottom:6px">${h(t.ip)}</div>
+                    <div style="font-size:11px;font-weight:700;color:${_corSaude(t.saude)};margin-bottom:6px">${_labelSaude(t.saude)}</div>
+                    <div style="font-size:10px;color:#a0b8d0;line-height:1.6">
+                        <div>Latência: <b style="color:#e8eef8">${t.ping_med||'?'}ms</b> (máx ${t.ping_max_abs||'?'}ms)</div>
+                        <div>Perda: <b style="color:${t.perda_med_pct>10?'var(--red)':t.perda_med_pct>2?'var(--amber)':'var(--green)'}">${t.perda_med_pct}%</b> (máx ${t.perda_max_pct}%)</div>
+                        <div>WiFi: <b style="color:#e8eef8">${t.wifi_med}%</b> (mín ${t.wifi_min}%)</div>
+                        <div>Bateria: <b style="color:#e8eef8">${t.bat_med}%</b></div>
+                        <div>Ciclos: ${t.ciclos}× (${Math.round(t.ciclos*5/60*10)/10}h)</div>
+                        ${t.horario_pior_ping?`<div style="color:#8096b8">Pior ping: ${h(t.horario_pior_ping)}</div>`:''}
+                        ${t.horario_pior_perda?`<div style="color:#8096b8">Maior perda: ${h(t.horario_pior_perda)}</div>`:''}
+                    </div>
+                </div>`).join('')}
+            </div>
+            <div style="background:var(--bg3);border-radius:8px;padding:10px 14px;font-size:11px;color:#8096b8">
+                <b style="color:#a0b8d0">Legenda:</b>
+                🟢 Excelente: latência &lt;20ms e perda &lt;2% ·
+                🟡 Instável: latência &lt;80ms ou perda &lt;10% ·
+                🔴 Crítico: latência ≥80ms ou perda ≥10%
+                <span style="float:right;font-family:var(--mono)">
+                    ${_diagRede[0]?.horario_inicio ? 'Sessão a partir de '+h(_diagRede[0].horario_inicio) : ''}
+                </span>
+            </div>
+        </div>`;
+
+        document.getElementById('tab-tablets').innerHTML += mapaHtml;
+    }
+
     // ── Tab Diagnóstico de Correlação ────────────────────────────────────────
     const corrs = pay.correlacoes || [];
     const maqD  = pay.maquina;
@@ -1069,9 +1302,15 @@ async function abrirLoja(token) {
     // ── Breakdown do score ────────────────────────────────────────────────────
     const _score = l.score || 0;
     const _srvPts  = l.servidor_online ? 40 : 0;
-    const _erpPts  = (l.retry_expirados||0)===0 && !(pay.erros_erp>0) ? 25 : (l.retry_expirados||0)===0 ? 18 : 0;
+    const _retries = l.retry_expirados||0;
+    const _taxaHora = Math.round((_retries / 5) * 60); // aprox ciclo 5min → por hora
+    const _erpPts  = _retries===0 && !(pay.erros_erp>0) ? 25
+                   : _retries===0 ? 18
+                   : _taxaHora<=3 ? 22
+                   : _taxaHora<=10 ? 14
+                   : 0;
     const _logPts  = (l.erros_log||0)===0 ? 20 : (l.erros_log||0)<50 ? 16 : (l.erros_log||0)<200 ? 10 : (l.erros_log||0)<500 ? 5 : 0;
-    const _maqPts  = maqD ? (maqD.cpu<70&&maqD.ram_pct<75&&!(maqD.discos||[]).some(d=>d.pct>75)?15:maqD.cpu<85&&maqD.ram_pct<85?10:5) : 10;
+    const _maqPts  = maqD ? (maqD.cpu<70&&maqD.ram_pct<80&&!(maqD.discos||[]).some(d=>d.pct>75)?15:maqD.cpu<85&&maqD.ram_pct<90?10:5) : 10;
     const _ipPen   = (pay.ip_divergente||l.ip_divergente) ? -20 : 0;
     const _total   = 40+25+20+15 + ((_ipPen<0)?20:0);
     const _calc    = _srvPts+_erpPts+_logPts+_maqPts;
@@ -1203,6 +1442,15 @@ async function abrirLoja(token) {
         { chave: 'autocorrecao_ip',      label: 'Autocorreção de IP',          desc: 'Sincroniza o IP automaticamente quando divergente ou vazio' },
         { chave: 'autocorrecao_spooler', label: 'Autocorreção do Spooler',      desc: 'Reinicia o spooler ao detectar erros altos de impressão' },
         { chave: 'autocorrecao_mysql',   label: 'Reinício automático do MySQL', desc: 'Reinicia o MySQL quando cair, aguardando 5min após boot' },
+        { chave: 'manter_servidor_ativo', label: 'Manter servidor Goomer ativo',
+          desc: 'A cada ciclo (5min), verifica se o servidor Goomer está respondendo na porta configurada. Se estiver offline, tenta iniciá-lo automaticamente sem alterar nenhuma configuração. Útil para lojas onde o servidor fecha inesperadamente e precisa ser reaberto sem acesso remoto.' },
+        { chave: 'autocorrecao_deadlock', label: 'Limpeza preventiva de Deadlock MySQL',
+          desc: 'Faz soft delete automático (1x/dia, entre 1h e 6h) dos pedidos já enviados ao ERP com mais de 3 dias sem deletedAt. Esses registros acumulam silenciosamente e causam Deadlock nas transações do servidor, travando a sincronização com o ERP e derrubando a conexão com a API Abrahão. A limpeza ocorre em lotes de 500 registros para não sobrecarregar o banco durante a operação.' },
+        { chave: 'auto_atualizacao',     label: 'Auto-atualização do agente',  desc: 'Verifica e aplica novas versões do agente automaticamente (2h-5h)' },
+        { chave: 'atualizar_agora',      label: 'Forçar atualização imediata', desc: '⚡ Aplica atualização disponível no próximo ciclo, sem aguardar horário. Desative após aplicar.' },
+        { chave: 'teste_rede_ativo',     label: '📶 Modo Teste de Rede',       desc: 'Ativa bateria de 40 pings por tablet a cada ciclo (5min) dentro do horário configurado abaixo. Acumula latência, % de perda de pacotes e sinal WiFi por mesa. O resultado aparece na aba Tablets como mapa de calor. Use quando o cliente reportar falhas intermitentes de envio de pedidos.' },
+        { chave: 'teste_rede_inicio',    label: '🕐 Início do teste (HH:MM)', desc: 'Horário de início da janela de teste de rede. Exemplo: 19:00', tipo: 'texto' },
+        { chave: 'teste_rede_fim',       label: '🕐 Fim do teste (HH:MM)',    desc: 'Horário de fim da janela de teste de rede. Exemplo: 22:00', tipo: 'texto' },
         { chave: 'coleta_logs',          label: 'Coleta de logs de erro',       desc: 'Busca erros no device_log a cada snapshot' },
         { chave: 'coleta_latencia',      label: 'Medição de latência de rede',  desc: 'Mede latência a cada 30s (gateway, internet, API, servidor)' },
         { chave: 'coleta_maquina',       label: 'Performance da máquina',       desc: 'Coleta CPU, RAM e disco a cada snapshot' },
@@ -1230,6 +1478,19 @@ async function abrirLoja(token) {
         </div>
         <div style="display:grid;gap:8px">
         ${flags.map(f => {
+            if (f.tipo === 'texto') {
+                // Flag de texto (ex: horário HH:MM)
+                const valorAtual = getValor(f.chave) || '';
+                return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;display:flex;align-items:center;gap:12px">
+                    <div style="flex:1">
+                        <div style="font-size:13px;font-weight:600;color:#e8eef8">${h(f.label)}</div>
+                        <div style="font-size:11px;color:#8096b8;margin-top:3px">${h(f.desc)}</div>
+                    </div>
+                    <input type="time" value="${h(valorAtual)}"
+                        style="background:var(--bg2);border:1px solid var(--border);color:#e8eef8;padding:5px 10px;border-radius:6px;font-size:13px;font-family:var(--mono);width:110px"
+                        onchange="salvarFlagTexto('${h(l.token_loja)}','${f.chave}',this.value)">
+                </div>`;
+            }
             const ativo = getValor(f.chave) !== 'false';
             const excecao = temExcecao(f.chave);
             return `<div data-flag-card style="background:var(--bg3);border:1px solid ${ativo?'var(--border)':'rgba(255,68,85,.2)'};border-radius:8px;padding:12px 14px;display:flex;align-items:center;gap:12px">
@@ -1253,7 +1514,12 @@ async function abrirLoja(token) {
             </div>`;
         }).join('')}
         </div>
-        <div id="config-status" style="margin-top:12px;font-size:12px;text-align:center;color:#8096b8"></div>`;
+        <div id="config-status" style="margin-top:12px;font-size:12px;text-align:center;color:#8096b8"></div>
+
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">📶 Modo Teste de Rede</div>
+            ${renderWidgetTesteRede(getValor, h, l.token_loja)}
+        </div>`;
 
     document.getElementById('tab-config').innerHTML = configHtml;
 
@@ -1853,8 +2119,9 @@ function renderTopoNoc(tablets, imps, serverIp, latencia) {
     nocNodes['srv'] = posSRV;
 
     const ativos  = tablets.filter(t=>t.ip&&t.ip!=='null');
-    const impRede = imps.filter(i=>i.uri?.match(/\d+\.\d+\.\d+\.\d+/));
-    const impUsb  = imps.filter(i=>!i.uri?.match(/\d+\.\d+\.\d+\.\d+/));
+    // Usar i.tipo quando disponível (agente novo), fallback para regex URI (snapshots antigos)
+    const impRede = imps.filter(i=> i.tipo ? i.tipo==='rede' : i.uri?.match(/\d+\.\d+\.\d+\.\d+/) && !i.uri?.includes('localhost'));
+    const impUsb  = imps.filter(i=> i.tipo ? i.tipo!=='rede' : !i.uri?.match(/\d+\.\d+\.\d+\.\d+/) || i.uri?.includes('localhost'));
 
     ativos.forEach((t,i) => {
         if(!nocNodes['t'+i]){
@@ -2016,6 +2283,69 @@ carregar();
 setInterval(carregar, 5*60*1000);
 
 // ── Controle de flags do agente ──────────────────────────────────────────────
+function renderWidgetTesteRede(getValor, h, token) {
+    const ativo  = getValor('teste_rede_ativo') === 'true';
+    const inicio = getValor('teste_rede_inicio') || '';
+    const fim    = getValor('teste_rede_fim')    || '';
+    if (ativo) {
+        return '<div style="background:rgba(0,214,143,.06);border:1px solid rgba(0,214,143,.2);border-radius:8px;padding:14px">'
+            + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+            + '<div><span style="font-size:13px;font-weight:700;color:var(--green)">✅ Teste ativo</span>'
+            + '<span style="font-size:11px;color:#8096b8;margin-left:8px">' + h(inicio||'?') + ' → ' + h(fim||'?') + '</span></div>'
+            + '<button onclick="desativarTesteRede(this.dataset.tok)" style="background:rgba(255,68,85,.15);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Desativar</button>'
+            + '</div>'
+            + '<div style="font-size:11px;color:#8096b8">Bateria de 40 pings por tablet a cada ciclo (5min). Resultado aparece na aba Tablets ao final.</div>'
+            + '</div>';
+    }
+    return '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px">'
+        + '<div style="font-size:12px;color:#8096b8;margin-bottom:14px">'
+        + 'Executa bateria de 40 pings por tablet a cada ciclo (5min) dentro da janela configurada.<br>'
+        + 'Acumula latência, % de perda de pacotes e sinal WiFi por mesa.<br>'
+        + '<span style="color:#a0b8d0">Use quando o cliente reportar falhas intermitentes de envio de pedidos.</span>'
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+        + '<div><label style="font-size:11px;color:#8096b8;display:block;margin-bottom:4px">🕐 Início</label>'
+        + '<input id="tr-inicio-' + token + '" type="time" value="' + h(inicio) + '" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:#e8eef8;padding:7px 10px;border-radius:6px;font-size:14px;font-family:var(--mono);box-sizing:border-box"></div>'
+        + '<div><label style="font-size:11px;color:#8096b8;display:block;margin-bottom:4px">🕐 Fim</label>'
+        + '<input id="tr-fim-' + token + '" type="time" value="' + h(fim) + '" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:#e8eef8;padding:7px 10px;border-radius:6px;font-size:14px;font-family:var(--mono);box-sizing:border-box"></div>'
+        + '</div>'
+        + '<button onclick="ativarTesteRede(this.dataset.tok)" style="width:100%;background:var(--blue-l);border:none;color:#fff;padding:9px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">▶ Ativar Teste de Rede</button>'
+        + '</div>';
+}
+
+async function salvarFlagTexto(token, chave, valor) {
+    try {
+        await fetch(SB_URL + '/rest/v1/agente_config', {
+            method: 'POST',
+            headers: {
+                'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
+                'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates'
+            },
+            body: JSON.stringify({ token_loja: token, chave, valor, atualizado_por: 'NOC' })
+        });
+    } catch(e) { console.error('Erro ao salvar flag:', e); }
+}
+
+async function ativarTesteRede(token) {
+    const inicio = document.getElementById('tr-inicio-' + token)?.value;
+    const fim    = document.getElementById('tr-fim-'    + token)?.value;
+    if (!inicio || !fim) { alert('Informe o horário de início e fim.'); return; }
+    if (inicio === fim)  { alert('Início e fim não podem ser iguais.'); return; }
+    await Promise.all([
+        salvarFlagTexto(token, 'teste_rede_inicio', inicio),
+        salvarFlagTexto(token, 'teste_rede_fim',    fim),
+        salvarFlagTexto(token, 'teste_rede_ativo',  'true'),
+    ]);
+    document.getElementById('config-status').textContent = '✅ Teste ativado: ' + inicio + ' → ' + fim;
+    setTimeout(() => abrirLoja(token), 800);
+}
+
+async function desativarTesteRede(token) {
+    await salvarFlagTexto(token, 'teste_rede_ativo', 'false');
+    document.getElementById('config-status').textContent = '✅ Teste de rede desativado.';
+    setTimeout(() => abrirLoja(token), 800);
+}
+
 async function toggleFlag(token, chave, novoValor, btnEl) {
     const st  = document.getElementById('config-status');
     const btn = btnEl || document.querySelector(`[data-flag="${chave}"]`);
