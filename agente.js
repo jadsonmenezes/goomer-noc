@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.1'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.0'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -85,6 +85,7 @@ async function coletarSnapshot() {
         snapshot.inadimplente = cfgRows[0]?.is_overdue || false;
         snapshot.erp_id       = cfgRows[0]?.erp_id || null;
         snapshot.porta_local  = cfgRows[0]?.local_server_port || 5000;
+        _portaLocalCache = parseInt(snapshot.porta_local) || 4999;
     } catch(e) { snapshot.erro_loja = e.message; }
 
     try {
@@ -2050,6 +2051,9 @@ let _config = {
     coleta_tablets:        true,
     intervalo_minutos:     5,
     auto_atualizacao:      true,  // controla se o agente verifica/aplica atualizações
+    manter_servidor_ativo: true,  // Verifica a cada ciclo se o servidor Goomer está rodando.
+                                  // Se estiver offline, tenta iniciá-lo automaticamente.
+                                  // Não interfere em configurações — apenas abre o processo.
     teste_rede_ativo:      false, // Modo Teste de Rede — bateria de 40 pings por tablet
     teste_rede_inicio:     '00:00', // horário de início (HH:MM)
     teste_rede_fim:        '00:00', // horário de fim (HH:MM)
@@ -2057,6 +2061,7 @@ let _config = {
 
 // ── Controle de auto-atualização ──────────────────────────────────────────────
 let _ciclosDesdeUltimaVerificacao = 0;
+let _portaLocalCache = 4999; // porta do servidor, atualizada a cada ciclo
 
 // ── Controle de limpeza de deadlock (1x/dia) ───────────────────────────────────
 let _ultimaLimpezaDeadlock = null; // data da última execução
@@ -2067,6 +2072,106 @@ let _testeRedeAtivo      = false; // flag de estado interno (dentro da janela de
 let _testeRedeInicio     = null;  // timestamp de início da sessão atual
 const CICLOS_ENTRE_VERIFICACOES = 12; // ~1h com ciclo de 5min
 let _atualizacaoPendente = null; // { sha, conteudo }
+
+// ── Manter servidor Goomer ativo ──────────────────────────────────────────────
+// Verifica localmente se o servidor está respondendo e o inicia se estiver offline
+async function verificarEIniciarServidor(portaLocal) {
+    if (!_config.manter_servidor_ativo) return;
+    try {
+        // Teste rápido: tentar conectar na porta do servidor
+        const porta = portaLocal || 4999;
+        const respondeu = await new Promise(resolve => {
+            const net = require('net');
+            const sock = new net.Socket();
+            sock.setTimeout(2000);
+            sock.on('connect', () => { sock.destroy(); resolve(true); });
+            sock.on('error',   () => resolve(false));
+            sock.on('timeout', () => { sock.destroy(); resolve(false); });
+            try { sock.connect(porta, '127.0.0.1'); } catch(e) { resolve(false); }
+        });
+
+        if (respondeu) return; // servidor online — nada a fazer
+
+        console.log(`[SERVIDOR] Offline na porta ${porta} — tentando iniciar...`);
+
+        const { execSync: esServ, spawn: spServ } = require('child_process');
+        const fs9 = require('fs');
+
+        // Localizar o executável
+        let exePath = null;
+        let usuarios = ['Goomer'];
+        try {
+            const u = execSync('powershell -NoProfile -Command "Get-ChildItem C:\\Users | Select-Object -ExpandProperty Name"', { timeout: 3000, encoding: 'utf8' });
+            usuarios = u.trim().split('\n').map(x => x.trim()).filter(Boolean);
+        } catch(e) {}
+
+        const candidatos = [];
+        for (const u of usuarios) {
+            candidatos.push(
+                `C:\\Users\\${u}\\AppData\\Local\\Programs\\abrahao-servidor\\Goomer - Servidor.exe`,
+                `C:\\Users\\${u}\\AppData\\Local\\Programs\\abrahao-servidor\\abrahao-servidor.exe`
+            );
+        }
+        for (const p of candidatos) {
+            try { if (fs9.existsSync(p)) { exePath = p; break; } } catch(e) {}
+        }
+
+        if (!exePath) {
+            console.log('[SERVIDOR] Executável não encontrado — não foi possível iniciar');
+            return;
+        }
+
+        const dirExe  = exePath.substring(0, exePath.lastIndexOf('\\'));
+        const nomeExe = exePath.split('\\').pop().replace('.exe', '');
+
+        // Tentar iniciar: spawn → Scheduled Task → cmd start
+        let iniciou = false;
+        try {
+            spServ(exePath, [], { detached: true, stdio: 'ignore', cwd: dirExe, shell: false }).unref();
+            iniciou = true;
+        } catch(e) {}
+
+        if (!iniciou) {
+            try {
+                esServ(`schtasks /Create /TN "GoomerServidorInicio" /TR "${exePath}" /SC ONCE /ST 00:00 /RL HIGHEST /F`, { timeout: 5000, encoding: 'utf8', shell: true });
+                esServ('schtasks /Run /TN "GoomerServidorInicio"', { timeout: 5000, encoding: 'utf8' });
+                setTimeout(() => { try { esServ('schtasks /Delete /TN "GoomerServidorInicio" /F', { timeout: 3000, encoding: 'utf8' }); } catch(e) {} }, 10000);
+                iniciou = true;
+                console.log('[SERVIDOR] Iniciado via Scheduled Task');
+            } catch(eTask) {}
+        }
+
+        if (!iniciou) {
+            try { esServ(`cmd /c start "" "${exePath}"`, { timeout: 3000, encoding: 'utf8', shell: true }); iniciou = true; } catch(e) {}
+        }
+
+        if (iniciou) {
+            console.log(`✅ [SERVIDOR] Processo iniciado — aguardando subir...`);
+            // Aguardar até 30s para confirmar
+            for (let t = 0; t < 10; t++) {
+                await new Promise(r => setTimeout(r, 3000));
+                const ok = await new Promise(resolve => {
+                    const net = require('net');
+                    const s = new net.Socket();
+                    s.setTimeout(1500);
+                    s.on('connect', () => { s.destroy(); resolve(true); });
+                    s.on('error',   () => resolve(false));
+                    s.on('timeout', () => { s.destroy(); resolve(false); });
+                    try { s.connect(porta, '127.0.0.1'); } catch(e) { resolve(false); }
+                });
+                if (ok) {
+                    console.log(`✅ [SERVIDOR] Online após ${(t+1)*3}s`);
+                    break;
+                }
+            }
+        } else {
+            console.log('[SERVIDOR] ⚠ Não foi possível iniciar o processo');
+        }
+
+    } catch(eServ) {
+        console.log(`[SERVIDOR] Erro: ${eServ.message}`);
+    }
+}
 
 // ── Modo Teste de Rede ────────────────────────────────────────────────────────
 // Coleta bateria de 40 pings por tablet dentro da janela de horário configurada
@@ -2621,6 +2726,9 @@ async function ciclo() {
             tokenParaConfig = tkRows[0]?.token?.trim() || null;
         } catch(e) {}
         await carregarConfig(tokenParaConfig);
+
+        // ── Manter servidor Goomer ativo ────────────────────────────────────
+        await verificarEIniciarServidor(_portaLocalCache || 4999);
 
         // ── Limpeza preventiva de deadlock MySQL ─────────────────────────────
         await limparDeadlockMySQL();
