@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.0'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.1'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -662,9 +662,12 @@ async function coletarSnapshot() {
                 const ultimosSnaps = resUlt.data || [];
 
                 // Verificar se o último snapshot (não o atual) veio de hostname diferente
-                const snapAnterior = ultimosSnaps.find(s =>
-                    s.payload?.hostname && s.payload.hostname !== hostnameAtual
-                );
+                // Comparar case-insensitive — Windows pode variar capitalização
+                const hostnameAtualNorm = (hostnameAtual||'').toLowerCase().trim();
+                const snapAnterior = ultimosSnaps.find(s => {
+                    const h = (s.payload?.hostname||'').toLowerCase().trim();
+                    return h && h !== hostnameAtualNorm;
+                });
 
                 if (snapAnterior) {
                     const hostnameAnterior = snapAnterior.payload.hostname;
@@ -1016,7 +1019,7 @@ async function coletarSnapshot() {
             .filter(ipValido);
 
         // ── Função de autocorreção ─────────────────────────────────────────
-        const tentarCorrigirIP = async (ipAntigo) => {
+        const tentarCorrigirIP = async (ipAntigo, motivoChamada) => {
             // Sub-rede predominante dos tablets
             const subnetCount = {};
             tabletIPs.forEach(ip => {
@@ -1041,10 +1044,21 @@ async function coletarSnapshot() {
             if (!ipCorreto && maquinaIPs.length === 1 && tabletIPs.length === 0) {
                 ipCorreto = maquinaIPs[0];
                 metodo = 'único IP disponível (sem tablets para validar sub-rede)';
-            } else if (!ipCorreto && maquinaIPs.length === 1 && tabletIPs.length > 0) {
-                // Há tablets mas nenhum IP da máquina está na sub-rede deles
-                // Não corrigir para evitar usar IP errado — apenas alertar
-                console.log(`[IP-AUTO] ⚠ Único IP da máquina (${maquinaIPs[0]}) não está na sub-rede dos tablets (${subnetTablets}.x) — não corrigindo para evitar IP inoperante`);
+            } else if (!ipCorreto && tabletIPs.length > 0) {
+                // Nenhum IP da máquina está na sub-rede dos tablets
+                // Nenhum IP da máquina está na sub-rede dos tablets
+                // Pode ser rede com múltiplas sub-redes e roteamento entre elas
+                // Aplicar melhor IP disponível com aviso — prioridade: único > primeiro
+                if (maquinaIPs.length === 1) {
+                    ipCorreto = maquinaIPs[0];
+                    metodo = `único IP da máquina (sub-redes distintas: máquina ${subnet(ipCorreto)}.x, tablets ${subnetTablets}.x — pode funcionar se houver roteamento)`;
+                } else {
+                    // Múltiplos IPs — preferir o que não é link-local (169.254.x.x)
+                    const ipFiltrado = maquinaIPs.find(ip => !ip.startsWith('169.254'));
+                    ipCorreto = ipFiltrado || maquinaIPs[0];
+                    metodo = `primeiro IP da máquina (sub-redes distintas: máquina ${subnet(ipCorreto)}.x, tablets ${subnetTablets}.x — verificar se há roteamento)`;
+                }
+                console.log(`[IP-AUTO] Sub-redes diferentes mas aplicando IP: ${ipCorreto} (${metodo})`);
             }
 
             // Fallback 2: primeiro IP da máquina quando não há tablets cadastrados
@@ -1054,6 +1068,11 @@ async function coletarSnapshot() {
             }
 
             if (!snapshot.autocorrecoes) snapshot.autocorrecoes = [];
+            // Merge autocorreções pendentes (ex: servidor iniciado antes do snapshot)
+            if (_autocorrecoesPendentes.length > 0) {
+                snapshot.autocorrecoes.push(..._autocorrecoesPendentes);
+                _autocorrecoesPendentes = [];
+            }
 
             if (ipCorreto) {
                 try {
@@ -1332,7 +1351,7 @@ async function coletarSnapshot() {
                 }
 
                 if (_config.autocorrecao_ip) {
-                    await tentarCorrigirIP(ipConfigurado);
+                    await tentarCorrigirIP(ipConfigurado, 'divergente');
                 } else {
                     console.log(`[IP] Autocorreção DESATIVADA por flag — divergência registrada`);
                 }
@@ -1918,6 +1937,13 @@ async function coletarSnapshot() {
         if (cpu > 90 || ram > 90) snapshot.alertas_avisos++;
     }
 
+    // ── Merge final de autocorreções pendentes (ex: servidor iniciado) ──────────
+    if (!snapshot.autocorrecoes) snapshot.autocorrecoes = [];
+    if (_autocorrecoesPendentes.length > 0) {
+        snapshot.autocorrecoes.push(..._autocorrecoesPendentes);
+        _autocorrecoesPendentes = [];
+    }
+
     return snapshot;
 }
 
@@ -2062,6 +2088,7 @@ let _config = {
 // ── Controle de auto-atualização ──────────────────────────────────────────────
 let _ciclosDesdeUltimaVerificacao = 0;
 let _portaLocalCache = 4999; // porta do servidor, atualizada a cada ciclo
+let _autocorrecoesPendentes = []; // autocorreções registradas antes do snapshot
 
 // ── Controle de limpeza de deadlock (1x/dia) ───────────────────────────────────
 let _ultimaLimpezaDeadlock = null; // data da última execução
@@ -2161,11 +2188,23 @@ async function verificarEIniciarServidor(portaLocal) {
                 });
                 if (ok) {
                     console.log(`✅ [SERVIDOR] Online após ${(t+1)*3}s`);
+                    _autocorrecoesPendentes.push({
+                        tipo:     'servidor_iniciado',
+                        horario:  new Date().toISOString(),
+                        resultado:'sucesso',
+                        obs:      `Servidor offline detectado — iniciado automaticamente após ${(t+1)*3}s`
+                    });
                     break;
                 }
             }
         } else {
             console.log('[SERVIDOR] ⚠ Não foi possível iniciar o processo');
+        _autocorrecoesPendentes.push({
+            tipo:     'servidor_iniciado',
+            horario:  new Date().toISOString(),
+            resultado:'falhou',
+            obs:      'Servidor offline — não foi possível iniciar o processo'
+        });
         }
 
     } catch(eServ) {
