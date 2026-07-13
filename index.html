@@ -327,6 +327,7 @@ function corLoja(l) {
 
 const BAR_COR = (v,lo,hi) => v>=hi?'#ff4455':v>=lo?'#ffb830':'#00d68f';
 
+let _cfgLojaAtual = {}; // espelho local do cfgLoja do modal aberto
 let _dados = [], _filtro = 'todos', _order = 'asc'; // asc = piores primeiro
 let _versoesPadrao = {}; // versões mínimas carregadas do Supabase
 let _todosRows = []; // todos os snapshots para cálculo de tendência
@@ -630,6 +631,12 @@ function renderGrid(lista) {
         const _acMySQLOk = _acMySQL.filter(a => a.resultado === 'sucesso');
         if (_acMySQLOk.length > 0) als.push({c:'ok', m:`MySQL reiniciado automaticamente`});
 
+        // Servidor Goomer iniciado
+        const _acServOk = _autocorrecoes.filter(a => a.tipo === 'servidor_iniciado' && a.resultado === 'sucesso');
+        if (_acServOk.length > 0) als.push({c:'ok', m:`Servidor Goomer iniciado automaticamente`});
+        const _acServFail = _autocorrecoes.filter(a => a.tipo === 'servidor_iniciado' && a.resultado !== 'sucesso');
+        if (_acServFail.length > 0) als.push({c:'warn', m:`Servidor offline — não foi possível iniciar automaticamente`});
+
         // Falhas nas autocorreções
         if (_acFalhou.length > 0) als.push({c:'warn', m:`${_acFalhou.length} autocorreção(ões) falharam — verificar manualmente`});
         if (pay.inadimplente)              als.push({c:'crit',m:'Bloqueio financeiro'});
@@ -724,14 +731,14 @@ function renderGrid(lista) {
 // ── Modal de detalhe ──────────────────────────────────────────────────────────
 let _tokenAtual = null;
 
-async function abrirLoja(token) {
+async function abrirLoja(token, abaInicial) {
     _tokenAtual = token;
     document.getElementById('overlay').classList.add('on');
     document.getElementById('m-titulo').textContent = 'carregando...';
     document.getElementById('m-sub').textContent = '';
     ['resumo','diagnostico','tablets','erros','topologia','maquina','historico','autocorrecoes','config'].forEach(t=>
         document.getElementById('tab-'+t).innerHTML='<div class="loading">buscando dados...</div>');
-    showTab('resumo');
+    showTab(abaInicial || 'resumo');
 
     const rows = await sb('snapshots',
         `?token_loja=eq.${encodeURIComponent(token)}&order=criado_em.desc&limit=20`
@@ -1449,8 +1456,7 @@ async function abrirLoja(token) {
         { chave: 'auto_atualizacao',     label: 'Auto-atualização do agente',  desc: 'Verifica e aplica novas versões do agente automaticamente (2h-5h)' },
         { chave: 'atualizar_agora',      label: 'Forçar atualização imediata', desc: '⚡ Aplica atualização disponível no próximo ciclo, sem aguardar horário. Desative após aplicar.' },
         { chave: 'teste_rede_ativo',     label: '📶 Modo Teste de Rede',       desc: 'Ativa bateria de 40 pings por tablet a cada ciclo (5min) dentro do horário configurado abaixo. Acumula latência, % de perda de pacotes e sinal WiFi por mesa. O resultado aparece na aba Tablets como mapa de calor. Use quando o cliente reportar falhas intermitentes de envio de pedidos.' },
-        { chave: 'teste_rede_inicio',    label: '🕐 Início do teste (HH:MM)', desc: 'Horário de início da janela de teste de rede. Exemplo: 19:00', tipo: 'texto' },
-        { chave: 'teste_rede_fim',       label: '🕐 Fim do teste (HH:MM)',    desc: 'Horário de fim da janela de teste de rede. Exemplo: 22:00', tipo: 'texto' },
+
         { chave: 'coleta_logs',          label: 'Coleta de logs de erro',       desc: 'Busca erros no device_log a cada snapshot' },
         { chave: 'coleta_latencia',      label: 'Medição de latência de rede',  desc: 'Mede latência a cada 30s (gateway, internet, API, servidor)' },
         { chave: 'coleta_maquina',       label: 'Performance da máquina',       desc: 'Coleta CPU, RAM e disco a cada snapshot' },
@@ -1464,6 +1470,7 @@ async function abrirLoja(token) {
             `?token_loja=eq.${encodeURIComponent(l.token_loja)}&select=chave,valor`
         );
         (cfgRows||[]).forEach(r => { cfgLoja[r.chave] = r.valor; });
+        _cfgLojaAtual = {...cfgLoja}; // espelhar para uso nas funções de ativar/desativar
     } catch(e) {}
 
     // Regra simples: se há config específica usa ela, senão padrão é ATIVO
@@ -1518,7 +1525,7 @@ async function abrirLoja(token) {
 
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
             <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">📶 Modo Teste de Rede</div>
-            ${renderWidgetTesteRede(getValor, h, l.token_loja)}
+            <div id="widget-teste-rede">${renderWidgetTesteRede(getValor, h, l.token_loja)}</div>
         </div>`;
 
     document.getElementById('tab-config').innerHTML = configHtml;
@@ -1758,7 +1765,7 @@ async function exportarLoja() {
     XLSX.utils.book_append_sheet(xlsWb, ws5, 'Diagnóstico');
 
     // ── Aba 6: Autocorreções ──────────────────────────────────────────────────
-    const tipoLbl = t => ({'ip_sincronizado':'Sincronização de IP','spooler_reiniciado':'Reinício do Spooler','mysql_reiniciado':'Reinício do MySQL'}[t]||t);
+    const tipoLbl = t => ({'ip_sincronizado':'Sincronização de IP','spooler_reiniciado':'Reinício do Spooler','mysql_reiniciado':'Reinício do MySQL','servidor_iniciado':'Servidor Goomer iniciado'}[t]||t);
     const acHdr   = ['Data/Hora','Tipo','Resultado','Detalhe','Método','Servidor Notificado','Obs'];
     const acRows  = [];
     rows.forEach(r => {
@@ -2292,7 +2299,7 @@ function renderWidgetTesteRede(getValor, h, token) {
             + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
             + '<div><span style="font-size:13px;font-weight:700;color:var(--green)">✅ Teste ativo</span>'
             + '<span style="font-size:11px;color:#8096b8;margin-left:8px">' + h(inicio||'?') + ' → ' + h(fim||'?') + '</span></div>'
-            + '<button onclick="desativarTesteRede(this.dataset.tok)" style="background:rgba(255,68,85,.15);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Desativar</button>'
+            + '<button onclick="desativarTesteRede(this.dataset.tok)" data-tok="' + token + '" style="background:rgba(255,68,85,.15);border:1px solid rgba(255,68,85,.3);color:#ff6b7a;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Desativar</button>'
             + '</div>'
             + '<div style="font-size:11px;color:#8096b8">Bateria de 40 pings por tablet a cada ciclo (5min). Resultado aparece na aba Tablets ao final.</div>'
             + '</div>';
@@ -2305,11 +2312,11 @@ function renderWidgetTesteRede(getValor, h, token) {
         + '</div>'
         + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
         + '<div><label style="font-size:11px;color:#8096b8;display:block;margin-bottom:4px">🕐 Início</label>'
-        + '<input id="tr-inicio-' + token + '" type="time" value="' + h(inicio) + '" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:#e8eef8;padding:7px 10px;border-radius:6px;font-size:14px;font-family:var(--mono);box-sizing:border-box"></div>'
+        + '<input id="tr-inicio-fixo" type="time" value="' + h(inicio) + '" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:#e8eef8;padding:7px 10px;border-radius:6px;font-size:14px;font-family:var(--mono);box-sizing:border-box"></div>'
         + '<div><label style="font-size:11px;color:#8096b8;display:block;margin-bottom:4px">🕐 Fim</label>'
-        + '<input id="tr-fim-' + token + '" type="time" value="' + h(fim) + '" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:#e8eef8;padding:7px 10px;border-radius:6px;font-size:14px;font-family:var(--mono);box-sizing:border-box"></div>'
+        + '<input id="tr-fim-fixo" type="time" value="' + h(fim) + '" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:#e8eef8;padding:7px 10px;border-radius:6px;font-size:14px;font-family:var(--mono);box-sizing:border-box"></div>'
         + '</div>'
-        + '<button onclick="ativarTesteRede(this.dataset.tok)" style="width:100%;background:var(--blue-l);border:none;color:#fff;padding:9px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">▶ Ativar Teste de Rede</button>'
+        + '<button onclick="ativarTesteRede(this.dataset.tok)" data-tok="' + token + '" style="width:100%;background:var(--blue-l);border:none;color:#fff;padding:9px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">▶ Ativar Teste de Rede</button>'
         + '</div>';
 }
 
@@ -2327,23 +2334,43 @@ async function salvarFlagTexto(token, chave, valor) {
 }
 
 async function ativarTesteRede(token) {
-    const inicio = document.getElementById('tr-inicio-' + token)?.value;
-    const fim    = document.getElementById('tr-fim-'    + token)?.value;
+    const inicio = document.getElementById('tr-inicio-fixo')?.value;
+    const fim    = document.getElementById('tr-fim-fixo')?.value;
     if (!inicio || !fim) { alert('Informe o horário de início e fim.'); return; }
     if (inicio === fim)  { alert('Início e fim não podem ser iguais.'); return; }
+
+    // Salvar no Supabase
     await Promise.all([
         salvarFlagTexto(token, 'teste_rede_inicio', inicio),
         salvarFlagTexto(token, 'teste_rede_fim',    fim),
         salvarFlagTexto(token, 'teste_rede_ativo',  'true'),
     ]);
+
+    // Atualizar cfgLoja local em memória e re-renderizar o widget sem reload
+    _cfgLojaAtual['teste_rede_inicio'] = inicio;
+    _cfgLojaAtual['teste_rede_fim']    = fim;
+    _cfgLojaAtual['teste_rede_ativo']  = 'true';
+
+    const getValorLocal = chave => _cfgLojaAtual[chave] ?? 'true';
+    const h2 = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    document.getElementById('widget-teste-rede').innerHTML =
+        renderWidgetTesteRede(getValorLocal, h2, token);
+
     document.getElementById('config-status').textContent = '✅ Teste ativado: ' + inicio + ' → ' + fim;
-    setTimeout(() => abrirLoja(token), 800);
 }
 
 async function desativarTesteRede(token) {
     await salvarFlagTexto(token, 'teste_rede_ativo', 'false');
+
+    // Atualizar cfgLoja local e re-renderizar sem reload
+    _cfgLojaAtual['teste_rede_ativo'] = 'false';
+
+    const getValorLocal = chave => _cfgLojaAtual[chave] ?? 'true';
+    const h2 = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    document.getElementById('widget-teste-rede').innerHTML =
+        renderWidgetTesteRede(getValorLocal, h2, token);
+
     document.getElementById('config-status').textContent = '✅ Teste de rede desativado.';
-    setTimeout(() => abrirLoja(token), 800);
 }
 
 async function toggleFlag(token, chave, novoValor, btnEl) {
