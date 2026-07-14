@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.2'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.0'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -2457,22 +2457,28 @@ async function limparDeadlockMySQL() {
 async function verificarAtualizacao() {
     if (!_config.auto_atualizacao) return;
     try {
-        // Buscar só os primeiros 600 bytes via Range header — confiável para qualquer tamanho
         const rawUrl = `https://raw.githubusercontent.com/${GITHUB_RAW_USER}/${GITHUB_RAW_REPO}/${GITHUB_RAW_BRANCH}/${GITHUB_RAW_FILE}`;
+        console.log(`[UPDATE] Verificando versão remota em: ${rawUrl}`);
+
+        // Buscar só os primeiros 600 bytes — lê AGENTE_VERSION sem baixar o arquivo todo
         const respMeta = await axios.get(rawUrl, {
             headers: { 'User-Agent': 'GoomerAgente', 'Range': 'bytes=0-600' },
             timeout: 8000,
             responseType: 'text'
         });
 
-        const cabecalho = respMeta.data || '';
-        const matchVer  = cabecalho.match(/AGENTE_VERSION\s*=\s*['"]([\d.]+)['"]/);
+        const cabecalho   = respMeta.data || '';
+        const matchVer    = cabecalho.match(/AGENTE_VERSION\s*=\s*['"]([\d.]+)['"]/);
         const versaoRemota = matchVer ? matchVer[1] : null;
 
         if (!versaoRemota) {
-            console.log('[UPDATE] Não foi possível ler versão remota — AGENTE_VERSION não encontrado nos primeiros bytes');
+            console.log('[UPDATE] ⚠ AGENTE_VERSION não encontrado nos primeiros bytes do arquivo remoto');
+            console.log(`[UPDATE]   Certifique-se que o agente.js no GitHub começa com: const AGENTE_VERSION = 'X.Y.Z';`);
+            console.log(`[UPDATE]   Primeiros bytes recebidos: ${cabecalho.slice(0, 100)}`);
             return;
         }
+
+        console.log(`[UPDATE] Versão remota: ${versaoRemota} | Versão local: ${AGENTE_VERSION}`);
 
         // Comparar versões semânticas (MAJOR.MINOR.PATCH)
         const partes   = v => v.split('.').map(Number);
@@ -2486,11 +2492,11 @@ async function verificarAtualizacao() {
         };
 
         if (!maiorQue(versaoRemota, AGENTE_VERSION)) {
-            console.log(`[UPDATE] Agente já está na versão mais recente (${AGENTE_VERSION})`);
+            console.log(`[UPDATE] ✅ Agente já está na versão mais recente (${AGENTE_VERSION})`);
             return;
         }
 
-        console.log(`[UPDATE] Nova versão disponível: ${versaoRemota} (atual: ${AGENTE_VERSION})`);
+        console.log(`[UPDATE] 🔄 Nova versão disponível: ${versaoRemota} → baixando arquivo completo...`);
 
         // Baixar arquivo completo
         const rawRespFull = await axios.get(rawUrl, { timeout: 20000, responseType: 'text' });
@@ -2498,19 +2504,25 @@ async function verificarAtualizacao() {
 
         // Validação mínima
         if (!novoConteudo || novoConteudo.length < 50000) {
-            console.log(`[UPDATE] Arquivo baixado muito pequeno (${novoConteudo?.length||0} bytes) — abortando`);
+            console.log(`[UPDATE] ⚠ Arquivo baixado muito pequeno (${novoConteudo?.length||0} bytes) — abortando`);
             return;
         }
         if (!novoConteudo.includes('SUPABASE_URL') || !novoConteudo.includes('coletarSnapshot')) {
-            console.log('[UPDATE] Arquivo não parece ser o agente Goomer — abortando');
+            console.log('[UPDATE] ⚠ Arquivo não parece ser o agente Goomer — abortando');
             return;
         }
 
         _atualizacaoPendente = { sha: versaoRemota, conteudo: novoConteudo };
-        console.log('[UPDATE] Atualização validada e pronta para aplicar');
+        console.log(`[UPDATE] ✅ Atualização ${versaoRemota} validada (${Math.round(novoConteudo.length/1024)}KB) — aguardando janela segura (2h-5h) ou flag 'atualizar_agora'`);
 
     } catch(eUpd) {
-        console.log(`[UPDATE] Falha ao verificar: ${eUpd.message}`);
+        console.log(`[UPDATE] ❌ Falha ao verificar: ${eUpd.message}`);
+        if (eUpd.response) {
+            console.log(`[UPDATE]   HTTP ${eUpd.response.status} — URL: ${eUpd.config?.url}`);
+            if (eUpd.response.status === 404) {
+                console.log(`[UPDATE]   Repositório ou arquivo não encontrado. Verifique: GITHUB_RAW_USER='${GITHUB_RAW_USER}' GITHUB_RAW_REPO='${GITHUB_RAW_REPO}' GITHUB_RAW_FILE='${GITHUB_RAW_FILE}' GITHUB_RAW_BRANCH='${GITHUB_RAW_BRANCH}'`);
+            }
+        }
     }
 }
 
