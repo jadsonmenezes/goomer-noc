@@ -2247,114 +2247,96 @@ function dentroJanelaTeste() {
 async function executarTesteRede(tablets) {
     if (!tablets || tablets.length === 0) return;
 
-    const { execSync: esNet } = require('child_process');
+    const { exec } = require('child_process');
     const tabletsComIP = tablets.filter(t => t.ip && /\d+\.\d+\.\d+\.\d+/.test(t.ip));
-    if (tabletsComIP.length === 0) return;
+    if (tabletsComIP.length === 0) {
+        console.log('[TESTE-REDE] Nenhum tablet com IP válido para testar');
+        return;
+    }
 
-    const agora = new Date();
-    const horaStr = agora.toTimeString().slice(0, 5); // "HH:MM"
+    const agora   = new Date();
+    const horaStr = agora.toTimeString().slice(0, 5);
+    console.log(`[TESTE-REDE] Iniciando 20 pings em ${tabletsComIP.length} tablet(s) em paralelo — ${horaStr}`);
 
-    console.log(`[TESTE-REDE] Iniciando bateria de 40 pings em ${tabletsComIP.length} tablet(s) — ${horaStr}`);
+    // Ping assíncrono real — executa em paralelo sem bloquear a thread
+    const pingTablet = (ip) => new Promise(resolve => {
+        exec(`ping -n 20 -w 500 ${ip}`, { timeout: 15000 }, (err, stdout) => {
+            const saida = stdout || '';
+            let ping_min = null, ping_med = null, ping_max = null, ping_perda_pct = 100;
 
-    // Rodar pings em paralelo (Promise.all) com timeout curto por ping
-    const resultados = await Promise.all(tabletsComIP.map(async t => {
-        let ping_min = null, ping_med = null, ping_max = null, ping_perda_pct = 0;
-
-        try {
-            const saida = esNet(
-                `ping -n 40 -w 500 ${t.ip}`,
-                { timeout: 30000, encoding: 'utf8', shell: true }
-            );
-
-            // Extrair estatísticas do output do ping Windows
-            // "Mínimo = Xms, Máximo = Xms, Média = Xms"
-            const mMatch = saida.match(/M[íi]nimo\s*=\s*(\d+)ms/i);
-            const xMatch = saida.match(/M[áa]ximo\s*=\s*(\d+)ms/i);
-            const aMatch = saida.match(/M[eé]dia\s*=\s*(\d+)ms/i);
-            if (mMatch) ping_min = parseInt(mMatch[1]);
-            if (xMatch) ping_max = parseInt(xMatch[1]);
-            if (aMatch) ping_med = parseInt(aMatch[1]);
-
-            // Perda de pacotes: "Perdidos = X (Y%)"
+            const mMatch = saida.match(/M[íi]nimo[\s\S]*?=(\s*)(\d+)ms/i);
+            const xMatch = saida.match(/M[áa]ximo[\s\S]*?=(\s*)(\d+)ms/i);
+            const aMatch = saida.match(/M[eé]dia[\s\S]*?=(\s*)(\d+)ms/i);
             const pMatch = saida.match(/Perdidos\s*=\s*\d+\s*\((\d+)%/i);
-            if (pMatch) ping_perda_pct = parseInt(pMatch[1]);
+            const p2Match = saida.match(/(\d+)%\s+(?:de\s+)?(?:perda|loss)/i);
 
-        } catch(ePing) {
-            // Timeout ou host inacessível = 100% de perda
-            ping_perda_pct = 100;
-        }
+            if (mMatch) ping_min = parseInt(mMatch[2]);
+            if (xMatch) ping_max = parseInt(xMatch[2]);
+            if (aMatch) ping_med = parseInt(aMatch[2]);
+            if (pMatch)  ping_perda_pct = parseInt(pMatch[1]);
+            else if (p2Match) ping_perda_pct = parseInt(p2Match[1]);
+            else if (ping_med !== null) ping_perda_pct = 0; // respondeu = sem perda
 
+            resolve({ ping_min, ping_med, ping_max, ping_perda_pct });
+        });
+    });
+
+    const resultados = await Promise.all(tabletsComIP.map(async t => {
+        const r = await pingTablet(t.ip);
         return {
-            mesa:            t.mesa_numero || t.mesa || '?',
-            ip:              t.ip,
-            identity:        t.identity || t.ip,
-            horario:         horaStr,
-            ping_min,
-            ping_med,
-            ping_max,
-            ping_perda_pct,
-            wifi_level:      parseInt(t.sinal || t.wifi_level || 0),
-            bateria:         parseInt(t.bateria || 0),
+            mesa:           t.mesa_numero || t.mesa || '?',
+            ip:             t.ip,
+            identity:       t.identity || t.ip,
+            horario:        horaStr,
+            ping_min:       r.ping_min,
+            ping_med:       r.ping_med,
+            ping_max:       r.ping_max,
+            ping_perda_pct: r.ping_perda_pct,
+            wifi_level:     parseInt(t.sinal || t.wifi_level || 0),
+            bateria:        parseInt(t.bateria || 0),
         };
     }));
 
-    // Inicializar entrada no acumulador se novo
     resultados.forEach(r => {
         const chave = r.ip;
         if (!_testeRedeResultados[chave]) {
             _testeRedeResultados[chave] = {
-                mesa:            r.mesa,
-                ip:              r.ip,
-                identity:        r.identity,
-                ciclos:          0,
-                soma_ping_med:   0,
-                soma_ping_max:   0,
-                soma_perda:      0,
-                soma_wifi:       0,
-                soma_bat:        0,
-                ping_max_abs:    0,   // pior ping absoluto
-                perda_max:       0,   // pior perda de ciclo
-                wifi_min:        100, // pior sinal
-                horario_inicio:  horaStr,
-                horario_pior_ping:  null,
-                horario_pior_perda: null,
-                historico_ciclos:   [],
+                mesa: r.mesa, ip: r.ip, identity: r.identity,
+                ciclos: 0,
+                soma_ping_med: 0, soma_ping_max: 0, soma_perda: 0,
+                soma_wifi: 0, soma_bat: 0,
+                ping_max_abs: 0, perda_max: 0, wifi_min: 100,
+                horario_inicio: horaStr,
+                horario_pior_ping: null, horario_pior_perda: null,
+                historico_ciclos: [],
             };
         }
-
         const acc = _testeRedeResultados[chave];
         acc.ciclos++;
         if (r.ping_med !== null) acc.soma_ping_med += r.ping_med;
         if (r.ping_max !== null) {
             acc.soma_ping_max += r.ping_max;
             if (r.ping_max > acc.ping_max_abs) {
-                acc.ping_max_abs = r.ping_max;
-                acc.horario_pior_ping = r.horario;
+                acc.ping_max_abs       = r.ping_max;
+                acc.horario_pior_ping  = r.horario;
             }
         }
         acc.soma_perda += r.ping_perda_pct;
         acc.soma_wifi  += r.wifi_level;
         acc.soma_bat   += r.bateria;
         if (r.ping_perda_pct > acc.perda_max) {
-            acc.perda_max = r.ping_perda_pct;
+            acc.perda_max          = r.ping_perda_pct;
             acc.horario_pior_perda = r.horario;
         }
-        if (r.wifi_level > 0 && r.wifi_level < acc.wifi_min) {
-            acc.wifi_min = r.wifi_level;
-        }
-        // Guardar snapshot do ciclo (máx 72 ciclos = 6h)
+        if (r.wifi_level > 0 && r.wifi_level < acc.wifi_min) acc.wifi_min = r.wifi_level;
         if (acc.historico_ciclos.length < 72) {
-            acc.historico_ciclos.push({
-                h: r.horario,
-                pm: r.ping_med,
-                pp: r.ping_perda_pct,
-                w: r.wifi_level
-            });
+            acc.historico_ciclos.push({ h: r.horario, pm: r.ping_med, pp: r.ping_perda_pct, w: r.wifi_level });
         }
     });
 
-    console.log(`[TESTE-REDE] Ciclo concluído: ${resultados.map(r=>`Mesa ${r.mesa}(${r.ping_med||'?'}ms/${r.ping_perda_pct}%)`).join(', ')}`);
+    console.log(`[TESTE-REDE] Ciclo: ${resultados.map(r=>`Mesa ${r.mesa} ${r.ip}(${r.ping_med??'?'}ms/${r.ping_perda_pct}% perda)`).join(' | ')}`);
 }
+
 
 function consolidarTesteRede() {
     const consolidado = Object.values(_testeRedeResultados).map(acc => {
