@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.6'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.7'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -1098,6 +1098,18 @@ async function coletarSnapshot() {
                     snapshot.ip_divergente   = false;
                     snapshot.ip_servidor     = ipCorreto;
                     snapshot.alertas_criticos = Math.max(0, (snapshot.alertas_criticos||0) - 1);
+
+                    // ── Registrar autocorreção de IP para exibição no NOC ─────
+                    if (!snapshot.autocorrecoes) snapshot.autocorrecoes = [];
+                    snapshot.autocorrecoes.push({
+                        tipo:      'ip_sincronizado',
+                        horario:   new Date().toISOString(),
+                        ip_antigo: ipAntigo || 'vazio',
+                        ip_novo:   ipCorreto,
+                        metodo,
+                        resultado: 'sucesso',
+                        obs:       `IP atualizado de ${ipAntigo||'vazio'} → ${ipCorreto}`
+                    });
 
                     // ── Notificar o servidor Goomer para recarregar o IP ──────
                     // Estratégia: editar config.json no disco diretamente
