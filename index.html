@@ -1474,7 +1474,14 @@ async function abrirLoja(token, abaInicial) {
     } catch(e) {}
 
     // Regra simples: se há config específica usa ela, senão padrão é ATIVO
-    const getValor = chave => cfgLoja[chave] ?? 'true';
+    // Defaults por flag — flags de ação pontual ou diagnóstico são false por padrão
+    const _defaults = {
+        atualizar_agora:   'false',
+        teste_rede_ativo:  'false',
+        teste_rede_inicio: '',
+        teste_rede_fim:    '',
+    };
+    const getValor = chave => cfgLoja[chave] ?? _defaults[chave] ?? 'true';
     const temExcecao = chave => chave in cfgLoja;
 
     let configHtml = `
