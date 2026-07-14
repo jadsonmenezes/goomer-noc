@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.3'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.4'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -2260,22 +2260,37 @@ async function executarTesteRede(tablets) {
 
     // Ping assíncrono real — executa em paralelo sem bloquear a thread
     const pingTablet = (ip) => new Promise(resolve => {
-        exec(`ping -n 20 -w 500 ${ip}`, { timeout: 15000 }, (err, stdout) => {
-            const saida = stdout || '';
+        // Usar stdout + stderr juntos — ping do Windows pode escrever no stderr com perda parcial
+        exec(`ping -n 20 -w 500 ${ip}`, { timeout: 15000 }, (err, stdout, stderr) => {
+            // Usar stdout quando disponível, senão stderr, senão mensagem do err
+            const saida = (stdout || '') + (stderr || '');
             let ping_min = null, ping_med = null, ping_max = null, ping_perda_pct = 100;
 
-            const mMatch = saida.match(/M[íi]nimo[\s\S]*?=(\s*)(\d+)ms/i);
-            const xMatch = saida.match(/M[áa]ximo[\s\S]*?=(\s*)(\d+)ms/i);
-            const aMatch = saida.match(/M[eé]dia[\s\S]*?=(\s*)(\d+)ms/i);
-            const pMatch = saida.match(/Perdidos\s*=\s*\d+\s*\((\d+)%/i);
-            const p2Match = saida.match(/(\d+)%\s+(?:de\s+)?(?:perda|loss)/i);
+            // 1. Extrair tempos individuais de cada resposta
+            // Formatos: "tempo=3ms", "time=3ms", "tempo<1ms", "time<1ms"
+            const tempos = [...saida.matchAll(/(?:tempo|time)[=<](\d+)ms/gi)]
+                .map(m => parseInt(m[1]))
+                .filter(n => !isNaN(n) && n >= 0);
 
-            if (mMatch) ping_min = parseInt(mMatch[2]);
-            if (xMatch) ping_max = parseInt(xMatch[2]);
-            if (aMatch) ping_med = parseInt(aMatch[2]);
-            if (pMatch)  ping_perda_pct = parseInt(pMatch[1]);
-            else if (p2Match) ping_perda_pct = parseInt(p2Match[1]);
-            else if (ping_med !== null) ping_perda_pct = 0; // respondeu = sem perda
+            if (tempos.length > 0) {
+                ping_min = Math.min(...tempos);
+                ping_max = Math.max(...tempos);
+                ping_med = Math.round(tempos.reduce((a,b) => a+b, 0) / tempos.length);
+            }
+
+            // 2. Calcular perda: total enviado vs respondido
+            // Tentar ler do resumo estatístico primeiro
+            const pMatch  = saida.match(/(?:Perdidos|Lost)\s*=\s*(\d+)\s*\((\d+)%/i);
+            const p2Match = saida.match(/(\d+)%\s*(?:de\s+)?(?:perda|loss)/i);
+
+            if (pMatch) {
+                ping_perda_pct = parseInt(pMatch[2]);
+            } else if (p2Match) {
+                ping_perda_pct = parseInt(p2Match[1]);
+            } else if (tempos.length > 0) {
+                // Calcular pela quantidade de respostas vs enviadas (20 pings)
+                ping_perda_pct = Math.round(((20 - tempos.length) / 20) * 100);
+            }
 
             resolve({ ping_min, ping_med, ping_max, ping_perda_pct });
         });
