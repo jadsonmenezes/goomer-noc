@@ -2089,6 +2089,7 @@ let _config = {
     coleta_tablets:        true,
     intervalo_minutos:     5,
     auto_atualizacao:      true,  // controla se o agente verifica/aplica atualizações
+    atualizar_agora:       false, // forçar atualização imediata — desativar após aplicar
     manter_servidor_ativo: true,  // Verifica a cada ciclo se o servidor Goomer está rodando.
                                   // Se estiver offline, tenta iniciá-lo automaticamente.
                                   // Não interfere em configurações — apenas abre o processo.
