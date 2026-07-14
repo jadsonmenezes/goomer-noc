@@ -2567,7 +2567,15 @@ async function carregarConfig(tokenLoja) {
             _config[r.chave] = val;
         });
 
-        console.log(`[CONFIG] flags carregadas: ip=${_config.autocorrecao_ip} spooler=${_config.autocorrecao_spooler} mysql=${_config.autocorrecao_mysql} logs=${_config.coleta_logs} latência=${_config.coleta_latencia}`);
+        console.log([
+            '[CONFIG] flags carregadas:',
+            `  autocorrecao  → ip=${_config.autocorrecao_ip} spooler=${_config.autocorrecao_spooler} mysql=${_config.autocorrecao_mysql} deadlock=${_config.autocorrecao_deadlock}`,
+            `  coleta        → logs=${_config.coleta_logs} latencia=${_config.coleta_latencia} maquina=${_config.coleta_maquina} tablets=${_config.coleta_tablets}`,
+            `  servidor      → manter_ativo=${_config.manter_servidor_ativo}`,
+            `  atualizacao   → auto=${_config.auto_atualizacao} forcar=${_config.atualizar_agora||false}`,
+            `  teste_rede    → ativo=${_config.teste_rede_ativo} janela=${_config.teste_rede_inicio||'--'}→${_config.teste_rede_fim||'--'}`,
+            `  intervalo     → ${_config.intervalo_minutos}min`,
+        ].join('\n'));
     } catch(e) {
         console.log(`[CONFIG] Falha ao carregar — usando padrões: ${e.message}`);
     }
