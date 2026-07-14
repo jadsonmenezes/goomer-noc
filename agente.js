@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.5'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.6'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -2380,9 +2380,11 @@ function consolidarTesteRede() {
         const batMed   = Math.round(acc.soma_bat / c);
 
         // Classificação por cor
+        // Critérios: latência instável > 300ms, crítico > 500ms
+        // Perda: excelente < 2%, instável < 10%, crítico >= 10%
         let saude;
-        if (perdaMed < 2 && pingMed < 20)       saude = 'excelente';
-        else if (perdaMed < 10 && pingMed < 80) saude = 'instavel';
+        if (perdaMed < 2  && pingMed < 300) saude = 'excelente';
+        else if (perdaMed < 10 && pingMed < 500) saude = 'instavel';
         else                                     saude = 'critico';
 
         return {
