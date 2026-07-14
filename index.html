@@ -2329,6 +2329,8 @@ function renderWidgetTesteRede(getValor, h, token) {
 
 async function salvarFlagTexto(token, chave, valor) {
     try {
+        if (!token) { console.error('[FLAG] token_loja vazio — não salvando', chave); return; }
+        console.log('[FLAG] salvando:', chave, '=', valor, '| token:', token?.slice(0,20) + '...');
         const body = { token_loja: token, chave, valor, atualizado_por: 'NOC' };
         const resp = await fetch(SB_URL + '/rest/v1/agente_config', {
             method: 'POST',
@@ -2347,6 +2349,10 @@ async function salvarFlagTexto(token, chave, valor) {
 }
 
 async function ativarTesteRede(token) {
+    if (!token || token === 'null' || token === 'undefined') {
+        alert('Token da loja inválido — reabra a loja e tente novamente.');
+        return;
+    }
     const inicio = document.getElementById('tr-inicio-fixo')?.value;
     const fim    = document.getElementById('tr-fim-fixo')?.value;
     if (!inicio || !fim) { alert('Informe o horário de início e fim.'); return; }
