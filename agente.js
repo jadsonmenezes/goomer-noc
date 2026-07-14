@@ -208,10 +208,9 @@ async function coletarSnapshot() {
 
         snapshot.tablets = tabletsComPing;
 
-        // ── Modo Teste de Rede — executar bateria de pings se dentro da janela ──
+        // ── Modo Teste de Rede — executar bateria de pings com await ──────────
         if (_testeRedeAtivo && tabletsComPing && tabletsComPing.length > 0) {
-            // Não await — roda em background para não bloquear o snapshot
-            executarTesteRede(tabletsComPing).catch(e =>
+            await executarTesteRede(tabletsComPing).catch(e =>
                 console.log(`[TESTE-REDE] Erro: ${e.message}`)
             );
         }
@@ -2575,6 +2574,11 @@ async function carregarConfig(tokenLoja) {
         const global = rows.filter(r => !r.token_loja);
         const local  = rows.filter(r =>  r.token_loja);
 
+        console.log(`[CONFIG] registros encontrados: ${rows.length} total (${global.length} global, ${local.length} desta loja)`);
+        if (global.length > 0) console.log(`[CONFIG] global: ${global.map(r=>r.chave+'='+r.valor).join(', ')}`);
+        if (local.length  > 0) console.log(`[CONFIG] loja:   ${local.map(r=>r.chave+'='+r.valor).join(', ')}`);
+        if (local.length  === 0) console.log(`[CONFIG] ⚠ Nenhuma config específica desta loja — verificar se token_loja bate com o salvo no Supabase`);
+
         [...global, ...local].forEach(r => {
             const val = r.valor === 'true' ? true : r.valor === 'false' ? false : r.valor;
             _config[r.chave] = val;
@@ -2817,7 +2821,16 @@ async function ciclo() {
             _testeRedeAtivo = false;
             const consolidado = consolidarTesteRede();
             console.log(`[TESTE-REDE] Sessão encerrada — ${consolidado.length} tablet(s) analisados`);
-            // Resultado fica em _testeRedeResultados consolidado para o snapshot pegar
+            if (consolidado.length > 0) {
+                consolidado.forEach(t => {
+                    console.log(`[TESTE-REDE] Mesa ${t.mesa} (${t.ip}): ping=${t.ping_med}ms perda=${t.perda_med_pct}% wifi=${t.wifi_med}% ciclos=${t.ciclos} → ${t.saude}`);
+                });
+            }
+        } else if (_config.teste_rede_ativo) {
+            // Fora da janela — mostrar quando vai iniciar
+            const agora2 = new Date();
+            const hAtual2 = `${String(agora2.getHours()).padStart(2,'0')}:${String(agora2.getMinutes()).padStart(2,'0')}`;
+            console.log(`[TESTE-REDE] Aguardando janela — atual: ${hAtual2} | janela: ${_config.teste_rede_inicio}–${_config.teste_rede_fim}`);
         }
 
         // ── Auto-atualização ─────────────────────────────────────────────────
