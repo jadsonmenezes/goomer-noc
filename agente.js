@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.4'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.5'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -2260,36 +2260,54 @@ async function executarTesteRede(tablets) {
 
     // Ping assíncrono real — executa em paralelo sem bloquear a thread
     const pingTablet = (ip) => new Promise(resolve => {
-        // Usar stdout + stderr juntos — ping do Windows pode escrever no stderr com perda parcial
-        exec(`ping -n 20 -w 500 ${ip}`, { timeout: 15000 }, (err, stdout, stderr) => {
-            // Usar stdout quando disponível, senão stderr, senão mensagem do err
+        // maxBuffer grande para garantir captura do resumo estatístico completo
+        exec(`ping -n 20 -w 1000 ${ip}`, { timeout: 30000, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
             const saida = (stdout || '') + (stderr || '');
             let ping_min = null, ping_med = null, ping_max = null, ping_perda_pct = 100;
 
-            // 1. Extrair tempos individuais de cada resposta
-            // Formatos: "tempo=3ms", "time=3ms", "tempo<1ms", "time<1ms"
-            const tempos = [...saida.matchAll(/(?:tempo|time)[=<](\d+)ms/gi)]
-                .map(m => parseInt(m[1]))
-                .filter(n => !isNaN(n) && n >= 0);
+            // 1. Resumo estatístico — fonte mais confiável (aparece no final do output)
+            // PT-BR: "Enviados = 20, Recebidos = 20, Perdidos = 0 (0% de perda)"
+            // EN:    "Sent = 20, Received = 20, Lost = 0 (0% loss)"
+            const enviados   = saida.match(/(?:Enviados|Sent)\s*=\s*(\d+)/i);
+            const recebidos  = saida.match(/(?:Recebidos|Received)\s*=\s*(\d+)/i);
+            const perdidosPct = saida.match(/(?:Perdidos|Lost)\s*=\s*\d+\s*\((\d+)%/i);
+            const perdidosPct2 = saida.match(/(\d+)%\s*(?:de\s+)?(?:perda|loss)/i);
 
-            if (tempos.length > 0) {
-                ping_min = Math.min(...tempos);
-                ping_max = Math.max(...tempos);
-                ping_med = Math.round(tempos.reduce((a,b) => a+b, 0) / tempos.length);
+            if (perdidosPct) {
+                ping_perda_pct = parseInt(perdidosPct[1]);
+            } else if (enviados && recebidos) {
+                const env = parseInt(enviados[1]);
+                const rec = parseInt(recebidos[1]);
+                ping_perda_pct = env > 0 ? Math.round(((env - rec) / env) * 100) : 100;
+            } else if (perdidosPct2) {
+                ping_perda_pct = parseInt(perdidosPct2[1]);
             }
 
-            // 2. Calcular perda: total enviado vs respondido
-            // Tentar ler do resumo estatístico primeiro
-            const pMatch  = saida.match(/(?:Perdidos|Lost)\s*=\s*(\d+)\s*\((\d+)%/i);
-            const p2Match = saida.match(/(\d+)%\s*(?:de\s+)?(?:perda|loss)/i);
+            // 2. Latência do resumo estatístico
+            // PT-BR: "Mínimo = 1ms, Máximo = 273ms, Média = 51ms"
+            // EN:    "Minimum = 1ms, Maximum = 273ms, Average = 51ms"
+            const rMin = saida.match(/(?:M[íi]nimo|Minimum)\s*=\s*(\d+)ms/i);
+            const rMax = saida.match(/(?:M[áa]ximo|Maximum)\s*=\s*(\d+)ms/i);
+            const rMed = saida.match(/(?:M[eé]dia|Average)\s*=\s*(\d+)ms/i);
 
-            if (pMatch) {
-                ping_perda_pct = parseInt(pMatch[2]);
-            } else if (p2Match) {
-                ping_perda_pct = parseInt(p2Match[1]);
-            } else if (tempos.length > 0) {
-                // Calcular pela quantidade de respostas vs enviadas (20 pings)
-                ping_perda_pct = Math.round(((20 - tempos.length) / 20) * 100);
+            if (rMin) ping_min = parseInt(rMin[1]);
+            if (rMax) ping_max = parseInt(rMax[1]);
+            if (rMed) ping_med = parseInt(rMed[1]);
+
+            // 3. Fallback: calcular da lista de respostas individuais
+            //    (quando resumo não aparece — ex: output truncado)
+            if (ping_med === null) {
+                const tempos = [...saida.matchAll(/(?:tempo|time)[=<](\d+)ms/gi)]
+                    .map(m => parseInt(m[1])).filter(n => !isNaN(n));
+                if (tempos.length > 0) {
+                    ping_min = Math.min(...tempos);
+                    ping_max = Math.max(...tempos);
+                    ping_med = Math.round(tempos.reduce((a,b) => a+b, 0) / tempos.length);
+                    // Só usa contagem como fallback de perda se não teve resumo
+                    if (perdidosPct === null && !enviados) {
+                        ping_perda_pct = Math.round(((20 - tempos.length) / 20) * 100);
+                    }
+                }
             }
 
             resolve({ ping_min, ping_med, ping_max, ping_perda_pct });
