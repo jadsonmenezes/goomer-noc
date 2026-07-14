@@ -2563,12 +2563,21 @@ async function aplicarAtualizacao() {
 async function carregarConfig(tokenLoja) {
     try {
         // Buscar config global + config específica da loja
-        const url = `${process.env.SUPABASE_URL || SUPABASE_URL}/rest/v1/agente_config?select=chave,valor,token_loja&or=(token_loja.is.null,token_loja.eq.${encodeURIComponent(tokenLoja||'')})`;
-        const resp = await axios.get(url, {
-            headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
-            timeout: 5000
-        });
-        const rows = resp.data || [];
+        // Duas queries separadas para garantir que o token não cause problema no filtro OR
+        const urlGlobal = `${process.env.SUPABASE_URL || SUPABASE_URL}/rest/v1/agente_config?select=chave,valor,token_loja&token_loja=is.null`;
+        const urlLocal  = tokenLoja
+            ? `${process.env.SUPABASE_URL || SUPABASE_URL}/rest/v1/agente_config?select=chave,valor,token_loja&token_loja=eq.${encodeURIComponent(tokenLoja)}`
+            : null;
+
+        const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
+        const [respGlobal, respLocal] = await Promise.all([
+            axios.get(urlGlobal, { headers, timeout: 5000 }),
+            urlLocal ? axios.get(urlLocal, { headers, timeout: 5000 }) : Promise.resolve({ data: [] })
+        ]);
+        const rows = [
+            ...(respGlobal.data || []),
+            ...(respLocal.data  || [])
+        ];
 
         // Aplicar: config global primeiro, depois config específica da loja sobrescreve
         const global = rows.filter(r => !r.token_loja);
