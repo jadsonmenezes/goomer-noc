@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.1'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.2'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -654,7 +654,7 @@ async function coletarSnapshot() {
         // para verificar se veio de máquina diferente
         if (snapshot.token_loja && hostnameAtual) {
             try {
-                const urlUlt = `${process.env.SUPABASE_URL||SUPABASE_URL}/rest/v1/snapshots?token_loja=eq.${encodeURIComponent(snapshot.token_loja)}&order=criado_em.desc&limit=2&select=payload`;
+                const urlUlt = `${process.env.SUPABASE_URL||SUPABASE_URL}/rest/v1/snapshots?token_loja=eq.${encodeURIComponent(snapshot.token_loja)}&order=criado_em.desc&limit=5&select=payload,criado_em`;
                 const resUlt = await axios.get(urlUlt, {
                     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
                     timeout: 4000
@@ -662,11 +662,13 @@ async function coletarSnapshot() {
                 const ultimosSnaps = resUlt.data || [];
 
                 // Verificar se o último snapshot (não o atual) veio de hostname diferente
-                // Comparar case-insensitive — Windows pode variar capitalização
+                // Comparar case-insensitive + janela de 15min
                 const hostnameAtualNorm = (hostnameAtual||'').toLowerCase().trim();
+                const quinzeMinAtras2   = new Date(Date.now() - 15 * 60 * 1000).toISOString();
                 const snapAnterior = ultimosSnaps.find(s => {
                     const h = (s.payload?.hostname||'').toLowerCase().trim();
-                    return h && h !== hostnameAtualNorm;
+                    const recente = (s.criado_em||'') >= quinzeMinAtras2;
+                    return h && h !== hostnameAtualNorm && recente;
                 });
 
                 if (snapAnterior) {
@@ -901,17 +903,27 @@ async function coletarSnapshot() {
         const hostname_atual = os3.hostname();
 
         // Buscar no Supabase o hostname do último snapshot diferente do atual
-        const urlDup = `${SUPABASE_URL}/rest/v1/snapshots?token_loja=eq.${encodeURIComponent(snapshot.token_loja || '')}&order=criado_em.desc&limit=5&select=payload`;
+        const urlDup = `${SUPABASE_URL}/rest/v1/snapshots?token_loja=eq.${encodeURIComponent(snapshot.token_loja || '')}&order=criado_em.desc&limit=10&select=payload,criado_em`;
         const resDup = await axios.get(urlDup, {
             headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
             timeout: 4000
         });
 
         const snapshots_recentes = resDup.data || [];
+        const hostname_atual_norm = (hostname_atual||'').toLowerCase().trim();
+
+        // Janela de 15min — só conta como duplicado se o outro agente enviou recentemente
+        const quinzeMinAtras = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+
         const hosts_vistos = [...new Set(
             snapshots_recentes
+                .filter(s => {
+                    const h = (s.payload?.hostname||'').toLowerCase().trim();
+                    const recente = s.criado_em >= quinzeMinAtras;
+                    // Ignorar: mesmo hostname (case-insensitive) ou snapshot antigo
+                    return h && h !== hostname_atual_norm && recente;
+                })
                 .map(s => s.payload?.hostname)
-                .filter(h => h && h !== hostname_atual)
         )];
 
         if (hosts_vistos.length > 0) {
@@ -2097,7 +2109,7 @@ let _ultimaLimpezaDeadlock = null; // data da última execução
 let _testeRedeResultados = {}; // acumula por tablet: { [ip]: { ciclos, pings, wifi, bat } }
 let _testeRedeAtivo      = false; // flag de estado interno (dentro da janela de horário)
 let _testeRedeInicio     = null;  // timestamp de início da sessão atual
-const CICLOS_ENTRE_VERIFICACOES = 12; // ~1h com ciclo de 5min
+const CICLOS_ENTRE_VERIFICACOES = 6;  // ~30min com ciclo de 5min
 let _atualizacaoPendente = null; // { sha, conteudo }
 
 // ── Manter servidor Goomer ativo ──────────────────────────────────────────────
@@ -2445,27 +2457,25 @@ async function limparDeadlockMySQL() {
 async function verificarAtualizacao() {
     if (!_config.auto_atualizacao) return;
     try {
-        // Verificar SHA mais recente no GitHub via API
-        const apiUrl = `https://api.github.com/repos/${GITHUB_RAW_USER}/${GITHUB_RAW_REPO}/contents/${GITHUB_RAW_FILE}?ref=${GITHUB_RAW_BRANCH}`;
-        const resp = await axios.get(apiUrl, {
-            headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'GoomerAgente' },
-            timeout: 8000
+        // Buscar só os primeiros 600 bytes via Range header — confiável para qualquer tamanho
+        const rawUrl = `https://raw.githubusercontent.com/${GITHUB_RAW_USER}/${GITHUB_RAW_REPO}/${GITHUB_RAW_BRANCH}/${GITHUB_RAW_FILE}`;
+        const respMeta = await axios.get(rawUrl, {
+            headers: { 'User-Agent': 'GoomerAgente', 'Range': 'bytes=0-600' },
+            timeout: 8000,
+            responseType: 'text'
         });
 
-        // Ler versão remota — o agente.js no GitHub deve ter AGENTE_VERSION = 'X.Y.Z'
-        const conteudoMeta = resp.data?.content
-            ? Buffer.from(resp.data.content, 'base64').toString('utf8').slice(0, 500)
-            : '';
-        const matchVer = conteudoMeta.match(/AGENTE_VERSION\s*=\s*['"]([\d.]+)['"]/);
+        const cabecalho = respMeta.data || '';
+        const matchVer  = cabecalho.match(/AGENTE_VERSION\s*=\s*['"]([\d.]+)['"]/);
         const versaoRemota = matchVer ? matchVer[1] : null;
 
         if (!versaoRemota) {
-            console.log('[UPDATE] Não foi possível ler versão remota');
+            console.log('[UPDATE] Não foi possível ler versão remota — AGENTE_VERSION não encontrado nos primeiros bytes');
             return;
         }
 
         // Comparar versões semânticas (MAJOR.MINOR.PATCH)
-        const partes = v => v.split('.').map(Number);
+        const partes   = v => v.split('.').map(Number);
         const maiorQue = (a, b) => {
             const [pa, pb] = [partes(a), partes(b)];
             for (let i = 0; i < 3; i++) {
@@ -2482,23 +2492,22 @@ async function verificarAtualizacao() {
 
         console.log(`[UPDATE] Nova versão disponível: ${versaoRemota} (atual: ${AGENTE_VERSION})`);
 
-        // Baixar novo conteúdo via raw
-        const rawUrl = `https://raw.githubusercontent.com/${GITHUB_RAW_USER}/${GITHUB_RAW_REPO}/${GITHUB_RAW_BRANCH}/${GITHUB_RAW_FILE}`;
-        const rawResp = await axios.get(rawUrl, { timeout: 15000, responseType: 'text' });
-        const novoConteudo = rawResp.data;
+        // Baixar arquivo completo
+        const rawRespFull = await axios.get(rawUrl, { timeout: 20000, responseType: 'text' });
+        const novoConteudo = rawRespFull.data;
 
-        // Validação mínima: arquivo deve ter > 50KB e conter marcadores do agente
+        // Validação mínima
         if (!novoConteudo || novoConteudo.length < 50000) {
-            console.log(`[UPDATE] ⚠ Arquivo baixado muito pequeno (${novoConteudo?.length||0} bytes) — abortando`);
+            console.log(`[UPDATE] Arquivo baixado muito pequeno (${novoConteudo?.length||0} bytes) — abortando`);
             return;
         }
         if (!novoConteudo.includes('SUPABASE_URL') || !novoConteudo.includes('coletarSnapshot')) {
-            console.log(`[UPDATE] ⚠ Arquivo não parece ser o agente Goomer — abortando`);
+            console.log('[UPDATE] Arquivo não parece ser o agente Goomer — abortando');
             return;
         }
 
         _atualizacaoPendente = { sha: versaoRemota, conteudo: novoConteudo };
-        console.log(`[UPDATE] Atualização validada e pronta para aplicar`);
+        console.log('[UPDATE] Atualização validada e pronta para aplicar');
 
     } catch(eUpd) {
         console.log(`[UPDATE] Falha ao verificar: ${eUpd.message}`);
@@ -2793,7 +2802,7 @@ async function ciclo() {
         // ── Auto-atualização ─────────────────────────────────────────────────
         if (_config.auto_atualizacao) {
             _ciclosDesdeUltimaVerificacao++;
-            const forcarAgora = _config.atualizar_agora === true;
+            const forcarAgora = String(_config.atualizar_agora) === 'true';
 
             // Verificar nova versão a cada CICLOS_ENTRE_VERIFICACOES ou quando forçado
             if (forcarAgora || _ciclosDesdeUltimaVerificacao >= CICLOS_ENTRE_VERIFICACOES) {
