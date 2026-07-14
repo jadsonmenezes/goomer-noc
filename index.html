@@ -1254,7 +1254,7 @@ async function abrirLoja(token, abaInicial) {
                     <div style="font-size:10px;font-family:var(--mono);color:#8096b8;margin-bottom:6px">${h(t.ip)}</div>
                     <div style="font-size:11px;font-weight:700;color:${_corSaude(t.saude)};margin-bottom:6px">${_labelSaude(t.saude)}</div>
                     <div style="font-size:10px;color:#a0b8d0;line-height:1.6">
-                        <div>Latência: <b style="color:#e8eef8">${t.ping_med||'?'}ms</b> (máx ${t.ping_max_abs||'?'}ms)</div>
+                        <div>Latência: <b style="color:${(t.ping_med||0)>=500?'var(--red)':(t.ping_med||0)>=300?'var(--amber)':'var(--green)'}">${t.ping_med||'?'}ms</b> (máx ${t.ping_max_abs||'?'}ms)</div>
                         <div>Perda: <b style="color:${t.perda_med_pct>10?'var(--red)':t.perda_med_pct>2?'var(--amber)':'var(--green)'}">${t.perda_med_pct}%</b> (máx ${t.perda_max_pct}%)</div>
                         <div>WiFi: <b style="color:#e8eef8">${t.wifi_med}%</b> (mín ${t.wifi_min}%)</div>
                         <div>Bateria: <b style="color:#e8eef8">${t.bat_med}%</b></div>
@@ -1266,9 +1266,9 @@ async function abrirLoja(token, abaInicial) {
             </div>
             <div style="background:var(--bg3);border-radius:8px;padding:10px 14px;font-size:11px;color:#8096b8">
                 <b style="color:#a0b8d0">Legenda:</b>
-                🟢 Excelente: latência &lt;20ms e perda &lt;2% ·
-                🟡 Instável: latência &lt;80ms ou perda &lt;10% ·
-                🔴 Crítico: latência ≥80ms ou perda ≥10%
+                🟢 Excelente: latência &lt;300ms e perda &lt;2% ·
+                🟡 Instável: latência &lt;500ms ou perda &lt;10% ·
+                🔴 Crítico: latência ≥500ms ou perda ≥10%
                 <span style="float:right;font-family:var(--mono)">
                     ${_diagRede[0]?.horario_inicio ? 'Sessão a partir de '+h(_diagRede[0].horario_inicio) : ''}
                 </span>
