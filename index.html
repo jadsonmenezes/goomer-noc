@@ -2328,24 +2328,43 @@ function renderWidgetTesteRede(getValor, h, token) {
 }
 
 async function salvarFlagTexto(token, chave, valor) {
+    if (!token) { console.error('[FLAG] token_loja vazio — não salvando', chave); return; }
+    console.log('[FLAG] salvando:', chave, '=', valor, '| token:', token.slice(0,20) + '...');
+    const hdrs = {
+        'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json'
+    };
     try {
-        if (!token) { console.error('[FLAG] token_loja vazio — não salvando', chave); return; }
-        console.log('[FLAG] salvando:', chave, '=', valor, '| token:', token?.slice(0,20) + '...');
-        const body = { token_loja: token, chave, valor, atualizado_por: 'NOC' };
-        const resp = await fetch(SB_URL + '/rest/v1/agente_config', {
-            method: 'POST',
-            headers: {
-                'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
-                'Content-Type': 'application/json',
-                'Prefer': 'resolution=merge-duplicates,return=representation'
-            },
-            body: JSON.stringify(body)
-        });
-        if (!resp.ok) {
-            const err = await resp.text().catch(()=>'');
-            console.error('[FLAG] Erro ao salvar ' + chave + ':', resp.status, err);
+        // Verificar se já existe registro para esta loja+chave
+        const existing = await fetch(
+            SB_URL + '/rest/v1/agente_config?chave=eq.' + encodeURIComponent(chave) + '&token_loja=eq.' + encodeURIComponent(token),
+            { headers: hdrs }
+        ).then(r => r.json()).catch(() => []);
+
+        let resp;
+        if (Array.isArray(existing) && existing.length > 0) {
+            // PATCH no registro existente
+            resp = await fetch(
+                SB_URL + '/rest/v1/agente_config?chave=eq.' + encodeURIComponent(chave) + '&token_loja=eq.' + encodeURIComponent(token),
+                { method: 'PATCH', headers: { ...hdrs, 'Prefer': 'return=minimal' },
+                  body: JSON.stringify({ valor, atualizado_por: 'NOC', atualizado_em: new Date().toISOString() }) }
+            );
+        } else {
+            // POST novo registro
+            resp = await fetch(
+                SB_URL + '/rest/v1/agente_config',
+                { method: 'POST', headers: { ...hdrs, 'Prefer': 'return=minimal' },
+                  body: JSON.stringify({ token_loja: token, chave, valor, atualizado_por: 'NOC', atualizado_em: new Date().toISOString() }) }
+            );
         }
-    } catch(e) { console.error('[FLAG] Erro ao salvar flag:', e); }
+
+        if (resp.ok) {
+            console.log('[FLAG] ✅ salvo:', chave, '=', valor);
+        } else {
+            const err = await resp.text().catch(()=>'');
+            console.error('[FLAG] ❌ Erro ao salvar', chave, ':', resp.status, err);
+        }
+    } catch(e) { console.error('[FLAG] ❌ Exceção ao salvar flag:', e); }
 }
 
 async function ativarTesteRede(token) {
