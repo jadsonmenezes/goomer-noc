@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.7'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.8'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
