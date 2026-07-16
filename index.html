@@ -1276,36 +1276,33 @@ async function abrirLoja(token, abaInicial) {
         // Mapa de calor
         html += '<div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Mapa de Calor por Mesa</div>';
         html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-bottom:24px">';
+        // Guardar dados para uso no modal
+        window._trDados = _diagRedeData;
+
         _diagRedeData.forEach((t, ti) => {
-            const cor = corSR(t.saude);
+            const cor     = corSR(t.saude);
             const temHist = t.historico?.length > 0;
-            const cardId  = 'tr-card-' + ti;
-            const grafId  = 'tr-graf-' + ti;
-            // Serializar dados do histórico para passar ao onclick
-            const histJson = temHist ? encodeURIComponent(JSON.stringify(t.historico)) : '';
-            html += '<div id="' + cardId + '" style="background:' + bgSR(t.saude) + ';border:1px solid ' + cor + '40;border-left:3px solid ' + cor + ';border-radius:8px;overflow:hidden">'
-                // Cabeçalho clicável
-                + '<div onclick="toggleGraficoMesa(' + ti + ',this)" style="padding:10px 12px;cursor:' + (temHist ? 'pointer' : 'default') + '" title="' + (temHist ? 'Clique para ver o gráfico de latência' : '') + '">'
-                + '<div style="display:flex;justify-content:space-between;align-items:flex-start">'
+            html += '<div onclick="' + (temHist ? 'abrirModalTesteRede(' + ti + ')' : '') + '" '
+                + 'style="background:' + bgSR(t.saude) + ';border:1px solid ' + cor + '40;border-left:3px solid ' + cor + ';'
+                + 'border-radius:8px;padding:10px 12px;cursor:' + (temHist ? 'pointer' : 'default') + ';'
+                + '>'  
+                + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
                 + '<div>'
-                + '<div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:2px">Mesa ' + h(String(t.mesa)) + '</div>'
-                + '<div style="font-size:10px;font-family:var(--mono);color:#8096b8;margin-bottom:6px">' + h(t.ip) + '</div>'
-                + '<div style="font-size:11px;font-weight:700;color:' + cor + ';margin-bottom:8px">' + lblSR(t.saude) + '</div>'
+                + '<div style="font-size:12px;font-weight:700;color:#e8eef8">Mesa ' + h(String(t.mesa)) + '</div>'
+                + '<div style="font-size:10px;font-family:var(--mono);color:#8096b8">' + h(t.ip) + '</div>'
                 + '</div>'
-                + (temHist ? '<div style="font-size:14px;color:#8096b8;margin-top:2px" id="tr-seta-' + ti + '">▾</div>' : '')
-                + '</div>'
-                + '<div style="font-size:10px;color:#a0b8d0;line-height:1.8">'
-                + '<div>Latência: <b style="color:' + latCor(t.ping_med||0) + '">' + (t.ping_med||'?') + 'ms</b> <span style="color:#606880">(máx ' + (t.ping_max_abs||'?') + 'ms)</span></div>'
-                + '<div>Perda: <b style="color:' + pctCor(t.perda_med_pct||0) + '">' + (t.perda_med_pct||0) + '%</b> <span style="color:#606880">(máx ' + (t.perda_max_pct||0) + '%)</span></div>'
-                + '<div>WiFi: <b style="color:#e8eef8">' + (t.wifi_med||0) + '%</b> <span style="color:#606880">(mín ' + (t.wifi_min||0) + '%)</span></div>'
-                + '<div style="color:#606880">Ciclos: ' + (t.ciclos||0) + '× · ' + minSR(t) + 'min</div>'
-                + (t.horario_pior_ping ? '<div style="color:#606880">Pior ping: ' + h(t.horario_pior_ping) + '</div>' : '')
-                + (t.horario_pior_perda ? '<div style="color:#606880">Maior perda: ' + h(t.horario_pior_perda) + '</div>' : '')
+                + '<div style="display:flex;align-items:center;gap:6px">'
+                + '<span style="font-size:11px;font-weight:700;color:' + cor + '">' + lblSR(t.saude) + '</span>'
+                + (temHist ? '<span style="font-size:11px;color:#8096b8" title="Ver gráfico detalhado">📈</span>' : '')
                 + '</div>'
                 + '</div>'
-                // Área do gráfico — oculta por padrão
-                + '<div id="' + grafId + '" style="display:none;padding:0 10px 10px" data-hist="' + histJson + '" data-mesa="' + h(String(t.mesa)) + '">'
-                + '<canvas id="tr-cv-' + ti + '" style="width:100%;height:160px;display:block;border-radius:6px"></canvas>'
+                + '<div style="font-size:10px;color:#a0b8d0;line-height:1.9">'
+                + '<div>Latência <b style="color:' + latCor(t.ping_med||0) + '">' + (t.ping_med||'?') + 'ms</b>  <span style="color:#606880">máx ' + (t.ping_max_abs||'?') + 'ms</span></div>'
+                + '<div>Perda <b style="color:' + pctCor(t.perda_med_pct||0) + '">' + (t.perda_med_pct||0) + '%</b>  <span style="color:#606880">máx ' + (t.perda_max_pct||0) + '%</span></div>'
+                + '<div>WiFi <b style="color:#e8eef8">' + (t.wifi_med||0) + '%</b>  <span style="color:#606880">mín ' + (t.wifi_min||0) + '%</span></div>'
+                + '<div style="color:#606880">' + (t.ciclos||0) + ' ciclos · ' + minSR(t) + 'min</div>'
+                + (t.horario_pior_ping   ? '<div style="color:#606880">Pior ping: '   + h(t.horario_pior_ping)   + '</div>' : '')
+                + (t.horario_pior_perda  ? '<div style="color:#606880">Maior perda: ' + h(t.horario_pior_perda)  + '</div>' : '')
                 + '</div>'
                 + '</div>';
         });
@@ -2459,95 +2456,144 @@ async function desativarTesteRede(token) {
     document.getElementById('config-status').textContent = '✅ Teste de rede desativado.';
 }
 
-function toggleGraficoMesa(ti, el) {
-    const grafDiv = document.getElementById('tr-graf-' + ti);
-    const seta    = document.getElementById('tr-seta-' + ti);
-    if (!grafDiv) return;
+function abrirModalTesteRede(ti) {
+    const dados = window._trDados;
+    if (!dados || !dados[ti]) return;
+    const t = dados[ti];
 
-    const aberto = grafDiv.style.display !== 'none';
-    grafDiv.style.display = aberto ? 'none' : 'block';
-    if (seta) seta.textContent = aberto ? '▾' : '▴';
-    if (aberto) return;
+    const corSR  = s => s==='excelente'?'#00d68f':s==='instavel'?'#ffb830':'#ff4455';
+    const latCor = v => v>=500?'#ff4455':v>=300?'#ffb830':'#00d68f';
+    const pctCor = v => v>=10?'#ff4455':v>=2?'#ffb830':'#00d68f';
 
-    // Renderizar gráfico da mesa ao expandir
-    const hist  = JSON.parse(decodeURIComponent(grafDiv.dataset.hist || '[]'));
-    const mesa  = grafDiv.dataset.mesa || '?';
-    const cv    = document.getElementById('tr-cv-' + ti);
-    if (!cv || hist.length < 2) return;
+    // Header
+    document.getElementById('mtr-titulo').textContent = 'Mesa ' + t.mesa + ' — ' + t.ip;
+    document.getElementById('mtr-sub').textContent =
+        'Sessão a partir de ' + (t.horario_inicio||'—')
+        + ' · ' + (t.ciclos||0) + ' ciclos · '
+        + Math.round((t.ciclos||0)*5) + ' min de coleta';
 
-    cv.width  = cv.offsetWidth || 500;
-    cv.height = 160;
-    const ctx = cv.getContext('2d');
+    // Stats
+    const stats = [
+        { label: 'Latência média',  val: (t.ping_med||'?')+'ms',   cor: latCor(t.ping_med||0) },
+        { label: 'Latência máx',    val: (t.ping_max_abs||'?')+'ms', cor: latCor(t.ping_max_abs||0) },
+        { label: 'Perda média',     val: (t.perda_med_pct||0)+'%',  cor: pctCor(t.perda_med_pct||0) },
+        { label: 'WiFi médio',      val: (t.wifi_med||0)+'%',       cor: '#e8eef8' },
+    ];
+    document.getElementById('mtr-stats').innerHTML = stats.map(s =>
+        '<div style="background:#111827;padding:14px 16px;text-align:center">'
+        + '<div style="font-size:18px;font-weight:800;color:' + s.cor + ';font-family:var(--mono)">' + s.val + '</div>'
+        + '<div style="font-size:10px;color:#8096b8;margin-top:3px">' + s.label + '</div>'
+        + '</div>'
+    ).join('');
 
-    const limIns = 300, limCrit = 500;
-    const W = cv.width, H = cv.height;
-    const pL = 46, pR = 12, pT = 18, pB = 28;
-    const aW = W - pL - pR, aH = H - pT - pB;
+    // Exibir modal
+    const modal = document.getElementById('modal-teste-rede');
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
 
-    let maxL = 600;
-    hist.forEach(c => { if ((c.pm||0) > maxL) maxL = c.pm; });
-    maxL = Math.ceil(maxL * 1.15 / 100) * 100;
+    // Renderizar gráfico
+    setTimeout(() => {
+        const hist = t.historico || [];
+        if (hist.length < 2) return;
+        const cv = document.getElementById('mtr-canvas');
+        if (!cv) return;
+        cv.width  = cv.offsetWidth || 700;
+        cv.height = 240;
+        const ctx = cv.getContext('2d');
 
-    const xP = i => pL + (i / (hist.length - 1)) * aW;
-    const yP = v => pT + aH - (Math.min(v||0, maxL) / maxL) * aH;
+        const limIns = 300, limCrit = 500;
+        const W = cv.width, H = cv.height;
+        const pL = 52, pR = 16, pT = 16, pB = 28;
+        const aW = W-pL-pR, aH = H-pT-pB;
 
-    // Fundo
-    ctx.fillStyle = '#0A0F1E';
-    ctx.fillRect(0, 0, W, H);
+        let maxL = 600;
+        hist.forEach(c => { if ((c.pm||0) > maxL) maxL = c.pm; });
+        maxL = Math.ceil(maxL * 1.15 / 100) * 100;
 
-    // Zonas crítico / instável
-    ctx.fillStyle = 'rgba(255,68,85,.07)';
-    ctx.fillRect(pL, pT, aW, yP(limCrit) - pT);
-    ctx.fillStyle = 'rgba(255,184,48,.05)';
-    ctx.fillRect(pL, yP(limCrit), aW, yP(limIns) - yP(limCrit));
+        const xP = i => pL + (i/(hist.length-1))*aW;
+        const yP = v => pT + aH - (Math.min(v||0,maxL)/maxL)*aH;
 
-    // Linhas de referência
-    [[limIns, 'rgba(255,184,48,.4)', '#ffb830'], [limCrit, 'rgba(255,68,85,.4)', '#ff4455']].forEach(([lim, sc, fc]) => {
-        ctx.strokeStyle = sc; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(pL, yP(lim)); ctx.lineTo(W - pR, yP(lim)); ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = fc; ctx.font = '9px Segoe UI';
-        ctx.fillText(lim + 'ms', 2, yP(lim) + 3);
-    });
+        ctx.fillStyle = '#0A0F1E'; ctx.fillRect(0,0,W,H);
 
-    // Grade Y
-    ctx.strokeStyle = 'rgba(255,255,255,.04)'; ctx.lineWidth = 1;
-    for (let v = 0; v <= maxL; v += maxL / 4) {
-        ctx.beginPath(); ctx.moveTo(pL, yP(v)); ctx.lineTo(W - pR, yP(v)); ctx.stroke();
-        ctx.fillStyle = '#8096b8'; ctx.font = '9px Segoe UI';
-        ctx.fillText(Math.round(v) + 'ms', 2, yP(v) + 3);
-    }
+        // Zonas fundo
+        ctx.fillStyle = 'rgba(255,68,85,.07)';
+        ctx.fillRect(pL,pT,aW,yP(limCrit)-pT);
+        ctx.fillStyle = 'rgba(255,184,48,.05)';
+        ctx.fillRect(pL,yP(limCrit),aW,yP(limIns)-yP(limCrit));
+        ctx.fillStyle = 'rgba(0,214,143,.04)';
+        ctx.fillRect(pL,yP(limIns),aW,(pT+aH)-yP(limIns));
 
-    // Linha de latência
-    ctx.strokeStyle = '#00d68f'; ctx.lineWidth = 2;
-    ctx.shadowColor = '#00d68f'; ctx.shadowBlur = 5;
-    ctx.beginPath();
-    let first = true;
-    hist.forEach((c, i) => {
-        if (c.pm === null || c.pm === undefined) { first = true; return; }
-        if (first) { ctx.moveTo(xP(i), yP(c.pm)); first = false; }
-        else ctx.lineTo(xP(i), yP(c.pm));
-    });
-    ctx.stroke(); ctx.shadowBlur = 0;
+        // Linhas de referência
+        [[limIns,'rgba(255,184,48,.4)','#ffb830'],[limCrit,'rgba(255,68,85,.4)','#ff4455']].forEach(([lim,sc,fc])=>{
+            ctx.strokeStyle=sc; ctx.setLineDash([5,5]); ctx.lineWidth=1;
+            ctx.beginPath(); ctx.moveTo(pL,yP(lim)); ctx.lineTo(W-pR,yP(lim)); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle=fc; ctx.font='bold 9px Segoe UI';
+            ctx.fillText(lim+'ms',2,yP(lim)+3);
+        });
 
-    // Pontos coloridos por limiar
-    hist.forEach((c, i) => {
-        if (c.pm === null || c.pm === undefined) return;
-        ctx.fillStyle = c.pm >= limCrit ? '#ff4455' : c.pm >= limIns ? '#ffb830' : '#00d68f';
-        ctx.beginPath(); ctx.arc(xP(i), yP(c.pm), 3.5, 0, Math.PI * 2); ctx.fill();
-    });
+        // Grade Y
+        ctx.strokeStyle='rgba(255,255,255,.04)'; ctx.lineWidth=1;
+        for(let v=0;v<=maxL;v+=maxL/5){
+            ctx.beginPath();ctx.moveTo(pL,yP(v));ctx.lineTo(W-pR,yP(v));ctx.stroke();
+            ctx.fillStyle='#8096b8'; ctx.font='9px Segoe UI';
+            ctx.fillText(Math.round(v)+'ms',2,yP(v)+3);
+        }
 
-    // Título
-    ctx.fillStyle = '#a0b8d0'; ctx.font = 'bold 10px Segoe UI';
-    ctx.fillText('Mesa ' + mesa + ' — Latência por ciclo (ms)', pL, pT - 5);
+        // Área preenchida abaixo da linha
+        ctx.beginPath();
+        hist.forEach((c,i)=>{
+            const v = c.pm ?? 0;
+            if(i===0) ctx.moveTo(xP(0),yP(v));
+            else ctx.lineTo(xP(i),yP(v));
+        });
+        ctx.lineTo(xP(hist.length-1), pT+aH);
+        ctx.lineTo(xP(0), pT+aH);
+        ctx.closePath();
+        const grad = ctx.createLinearGradient(0,pT,0,pT+aH);
+        grad.addColorStop(0,'rgba(0,214,143,.18)');
+        grad.addColorStop(1,'rgba(0,214,143,0)');
+        ctx.fillStyle = grad; ctx.fill();
 
-    // Eixo X — horários
-    const step = Math.max(1, Math.floor(hist.length / 7));
-    ctx.fillStyle = '#606880'; ctx.font = '9px Segoe UI';
-    hist.forEach((c, i) => {
-        if (i % step !== 0 && i !== hist.length - 1) return;
-        ctx.fillText(c.h || '', xP(i) - 12, H - 4);
-    });
+        // Linha principal
+        ctx.strokeStyle='#00d68f'; ctx.lineWidth=2.5;
+        ctx.shadowColor='#00d68f'; ctx.shadowBlur=6;
+        ctx.beginPath();
+        let first=true;
+        hist.forEach((c,i)=>{
+            if(c.pm===null||c.pm===undefined){first=true;return;}
+            if(first){ctx.moveTo(xP(i),yP(c.pm));first=false;}
+            else ctx.lineTo(xP(i),yP(c.pm));
+        });
+        ctx.stroke(); ctx.shadowBlur=0;
+
+        // Pontos
+        hist.forEach((c,i)=>{
+            if(c.pm===null||c.pm===undefined) return;
+            ctx.fillStyle = c.pm>=limCrit?'#ff4455':c.pm>=limIns?'#ffb830':'#00d68f';
+            ctx.beginPath(); ctx.arc(xP(i),yP(c.pm),4,0,Math.PI*2); ctx.fill();
+            ctx.strokeStyle='#0A0F1E'; ctx.lineWidth=1.5;
+            ctx.stroke();
+        });
+
+        // Eixo X
+        const step = Math.max(1,Math.floor(hist.length/8));
+        ctx.fillStyle='#606880'; ctx.font='9px Segoe UI';
+        hist.forEach((c,i)=>{
+            if(i%step!==0 && i!==hist.length-1) return;
+            const x = xP(i);
+            ctx.fillText(c.h||'',x-14,H-5);
+            ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
+            ctx.setLineDash([2,4]);
+            ctx.beginPath(); ctx.moveTo(x,pT); ctx.lineTo(x,pT+aH); ctx.stroke();
+            ctx.setLineDash([]);
+        });
+    }, 50);
+}
+
+function fecharModalTesteRede() {
+    document.getElementById('modal-teste-rede').style.display = 'none';
+    document.body.style.overflow = '';
 }
 
 async function toggleFlag(token, chave, novoValor, btnEl) {
@@ -2778,5 +2824,45 @@ async function exportarDesatualizados() {
 }
 
 </script>
+  <!-- Modal Teste de Rede -->
+  <div id="modal-teste-rede" onclick="if(event.target===this)fecharModalTesteRede()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;align-items:center;justify-content:center;padding:16px">
+    <div style="background:#111827;border:1px solid #1E3050;border-radius:12px;width:100%;max-width:760px;max-height:90vh;overflow-y:auto;padding:0">
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #1E3050">
+        <div>
+          <div id="mtr-titulo" style="font-size:15px;font-weight:700;color:#e8eef8"></div>
+          <div id="mtr-sub"    style="font-size:11px;color:#8096b8;margin-top:2px"></div>
+        </div>
+        <button onclick="fecharModalTesteRede()"
+          style="background:none;border:none;color:#8096b8;font-size:20px;cursor:pointer;padding:4px 8px;border-radius:6px">✕</button>
+      </div>
+      <!-- Resumo stats -->
+      <div id="mtr-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#1E3050"></div>
+      <!-- Gráfico -->
+      <div style="padding:20px">
+        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Latência por ciclo (ms)</div>
+        <canvas id="mtr-canvas" style="width:100%;height:240px;display:block;border-radius:8px"></canvas>
+        <!-- Legenda -->
+        <div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8096b8">
+            <div style="width:24px;height:3px;background:#00d68f;border-radius:2px"></div>Latência
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8096b8">
+            <div style="width:24px;height:1px;border-top:1px dashed #ffb830"></div>Instável ≥300ms
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8096b8">
+            <div style="width:24px;height:1px;border-top:1px dashed #ff4455"></div>Crítico ≥500ms
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8096b8">
+            <div style="width:10px;height:10px;border-radius:50%;background:#00d68f"></div>OK
+            <div style="width:10px;height:10px;border-radius:50%;background:#ffb830;margin-left:4px"></div>Instável
+            <div style="width:10px;height:10px;border-radius:50%;background:#ff4455;margin-left:4px"></div>Crítico
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
