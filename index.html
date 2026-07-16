@@ -1235,50 +1235,7 @@ async function abrirLoja(token, abaInicial) {
         renderTopoNoc(tablets_t, imps_t, ip, pay.latencia||null);
     }, 50);
 
-    // ── Mapa de Calor de Rede — exibido na aba Tablets quando há dados de teste ──
-    const _diagRede = pay.diagnostico_rede;
-    if (_diagRede && _diagRede.length > 0) {
-        const _corSaude = s => s==='excelente'?'#00d68f':s==='instavel'?'#ffb830':'#ff4455';
-        const _bgSaude  = s => s==='excelente'?'rgba(0,214,143,.08)':s==='instavel'?'rgba(255,184,48,.08)':'rgba(255,68,85,.08)';
-        const _labelSaude = s => ({'excelente':'🟢 Excelente','instavel':'🟡 Instável','critico':'🔴 Crítico'}[s]||s);
-
-        const mapaHtml = `
-        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
-            <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">
-                📶 Mapa de Calor — Resultado do Teste de Rede
-            </div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:14px">
-                ${_diagRede.map(t=>`
-                <div style="background:${_bgSaude(t.saude)};border:1px solid ${_corSaude(t.saude)}40;border-radius:8px;padding:10px 12px;border-left:3px solid ${_corSaude(t.saude)}">
-                    <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:4px">Mesa ${h(String(t.mesa))}</div>
-                    <div style="font-size:10px;font-family:var(--mono);color:#8096b8;margin-bottom:6px">${h(t.ip)}</div>
-                    <div style="font-size:11px;font-weight:700;color:${_corSaude(t.saude)};margin-bottom:6px">${_labelSaude(t.saude)}</div>
-                    <div style="font-size:10px;color:#a0b8d0;line-height:1.6">
-                        <div>Latência: <b style="color:${(t.ping_med||0)>=500?'var(--red)':(t.ping_med||0)>=300?'var(--amber)':'var(--green)'}">${t.ping_med||'?'}ms</b> (máx ${t.ping_max_abs||'?'}ms)</div>
-                        <div>Perda: <b style="color:${t.perda_med_pct>10?'var(--red)':t.perda_med_pct>2?'var(--amber)':'var(--green)'}">${t.perda_med_pct}%</b> (máx ${t.perda_max_pct}%)</div>
-                        <div>WiFi: <b style="color:#e8eef8">${t.wifi_med}%</b> (mín ${t.wifi_min}%)</div>
-                        <div>Bateria: <b style="color:#e8eef8">${t.bat_med}%</b></div>
-                        <div>Ciclos: ${t.ciclos}× (${Math.round(t.ciclos*5/60*10)/10}h)</div>
-                        ${t.horario_pior_ping?`<div style="color:#8096b8">Pior ping: ${h(t.horario_pior_ping)}</div>`:''}
-                        ${t.horario_pior_perda?`<div style="color:#8096b8">Maior perda: ${h(t.horario_pior_perda)}</div>`:''}
-                    </div>
-                </div>`).join('')}
-            </div>
-            <div style="background:var(--bg3);border-radius:8px;padding:10px 14px;font-size:11px;color:#8096b8">
-                <b style="color:#a0b8d0">Legenda:</b>
-                🟢 Excelente: latência &lt;300ms e perda &lt;2% ·
-                🟡 Instável: latência &lt;500ms ou perda &lt;10% ·
-                🔴 Crítico: latência ≥500ms ou perda ≥10%
-                <span style="float:right;font-family:var(--mono)">
-                    ${_diagRede[0]?.horario_inicio ? 'Sessão a partir de '+h(_diagRede[0].horario_inicio) : ''}
-                </span>
-            </div>
-        </div>`;
-
-        document.getElementById('tab-tablets').innerHTML += mapaHtml;
-    }
-
-    // ── Tab Diagnóstico de Correlação ────────────────────────────────────────
+// ── Tab Diagnóstico de Correlação ────────────────────────────────────────
     const corrs = pay.correlacoes || [];
     const maqD  = pay.maquina;
     const latD  = pay.latencia;
@@ -2278,14 +2235,14 @@ function renderTopoNoc(tablets, imps, serverIp, latencia) {
 
 
 function showTab(name) {
-    document.querySelectorAll('.modal-tab').forEach((b,i)=>b.classList.remove('on'));
-    document.querySelectorAll('.modal-panel').forEach(p=>p.classList.remove('on'));
-    const tabs=['resumo','diagnostico','tablets','erros','topologia','maquina','historico','autocorrecoes','config'];
-    const idx=tabs.indexOf(name);
-    if(idx>=0){
-        document.querySelectorAll('.modal-tab')[idx]?.classList.add('on');
-        document.getElementById('tab-'+name)?.classList.add('on');
-    }
+    document.querySelectorAll('.modal-tab').forEach(b => b.classList.remove('on'));
+    document.querySelectorAll('.modal-panel').forEach(p => p.classList.remove('on'));
+    // Ativar painel
+    document.getElementById('tab-' + name)?.classList.add('on');
+    // Ativar botão correspondente — busca pelo onclick em vez de índice
+    document.querySelectorAll('.modal-tab').forEach(b => {
+        if (b.getAttribute('onclick')?.includes("'" + name + "'")) b.classList.add('on');
+    });
 }
 
 function closeOverlay(e){
