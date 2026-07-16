@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.11'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.12'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -2975,29 +2975,6 @@ async function ciclo() {
             console.log(`[TESTE-REDE] Aguardando janela — atual: ${hAtual2} | janela: ${_config.teste_rede_inicio}–${_config.teste_rede_fim}`);
         }
 
-        // ── Auto-atualização ─────────────────────────────────────────────────
-        if (_config.auto_atualizacao) {
-            _ciclosDesdeUltimaVerificacao++;
-            const forcarAgora = String(_config.atualizar_agora) === 'true';
-
-            // Verificar nova versão a cada CICLOS_ENTRE_VERIFICACOES ou quando forçado
-            if (forcarAgora || _ciclosDesdeUltimaVerificacao >= CICLOS_ENTRE_VERIFICACOES) {
-                _ciclosDesdeUltimaVerificacao = 0;
-                await verificarAtualizacao();
-            }
-
-            // Aplicar atualização pendente — só em horário seguro ou quando forçado
-            if (_atualizacaoPendente) {
-                const horaAtual    = new Date().getHours();
-                const horarioSeguro = horaAtual >= 2 && horaAtual <= 5;
-                if (horarioSeguro || forcarAgora) {
-                    await aplicarAtualizacao(); // process.exit(0) interno
-                } else {
-                    console.log(`[UPDATE] Atualização pendente — aguardando horário seguro (2h-5h) | atual: ${horaAtual}h. Ative 'atualizar_agora' para forçar.`);
-                }
-            }
-        }
-
         const snap = await coletarSnapshot();
 
         // Verificar se a loja está bloqueada no NOC — se sim, não enviar snapshot
@@ -3019,6 +2996,29 @@ async function ciclo() {
         }
         const status = await enviarSupabase(snap);
         console.log(`[${agora}] ✓ Enviado — loja: ${snap.nome_loja} | nota: ${snap.nota} (${snap.score}%) | status HTTP: ${status}`);
+
+        // ── Auto-atualização — sempre APÓS enviar o snapshot ─────────────────
+        if (_config.auto_atualizacao) {
+            _ciclosDesdeUltimaVerificacao++;
+            const forcarAgora = String(_config.atualizar_agora) === 'true';
+
+            // Verificar nova versão a cada CICLOS_ENTRE_VERIFICACOES ou quando forçado
+            if (forcarAgora || _ciclosDesdeUltimaVerificacao >= CICLOS_ENTRE_VERIFICACOES) {
+                _ciclosDesdeUltimaVerificacao = 0;
+                await verificarAtualizacao();
+            }
+
+            // Aplicar atualização pendente — só em horário seguro ou quando forçado
+            if (_atualizacaoPendente) {
+                const horaAtual     = new Date().getHours();
+                const horarioSeguro = horaAtual >= 2 && horaAtual <= 5;
+                if (horarioSeguro || forcarAgora) {
+                    await aplicarAtualizacao(); // process.exit(0) interno
+                } else {
+                    console.log(`[UPDATE] Atualização pendente — aguardando horário seguro (2h-5h) | atual: ${horaAtual}h. Ative 'atualizar_agora' para forçar.`);
+                }
+            }
+        }
     } catch(e) {
         console.error(`[${agora}] ✗ Erro na coleta: ${e.message}`);
         // ── Autocorreção: MySQL offline ──────────────────────────────────────
