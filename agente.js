@@ -2559,28 +2559,74 @@ async function aplicarAtualizacao() {
     if (!_atualizacaoPendente) return false;
     const { sha, conteudo } = _atualizacaoPendente;
     try {
-        const caminhoAtual = process.argv[1] || __filename;
-        const caminhoBak   = caminhoAtual + '.bak';
-        const caminhoNovo  = caminhoAtual + '.novo';
+        const os = require('os');
+        const path = require('path');
 
-        // Salvar arquivo novo temporário
+        // Detectar se está rodando como executável compilado (pkg) ou script Node
+        const eExe = process.pkg !== undefined || process.execPath.endsWith('.exe');
+
+        // Caminho real do executável ou script em disco
+        const caminhoAtual = eExe
+            ? process.execPath          // caminho do .exe compilado
+            : (process.argv[1] || __filename); // caminho do agente.js
+
+        console.log(`[UPDATE] Modo: ${eExe ? 'executável compilado' : 'script Node'}`);
+        console.log(`[UPDATE] Caminho atual: ${caminhoAtual}`);
+
+        // Usar pasta temporária do sistema para arquivos intermediários
+        const tmpDir      = os.tmpdir();
+        const caminhoNovo = path.join(tmpDir, 'goomer-agente-novo' + (eExe ? '.exe' : '.js'));
+        const caminhoBak  = caminhoAtual + '.bak';
+
+        // Salvar novo arquivo no diretório temporário
         fs.writeFileSync(caminhoNovo, conteudo, 'utf8');
+        console.log(`[UPDATE] Novo arquivo salvo em: ${caminhoNovo}`);
 
-        // Backup do arquivo atual
-        fs.copyFileSync(caminhoAtual, caminhoBak);
+        // Backup do atual
+        try { fs.copyFileSync(caminhoAtual, caminhoBak); } catch(eBak) {
+            console.log(`[UPDATE] Aviso: não foi possível fazer backup — ${eBak.message}`);
+        }
 
-        // Substituir pelo novo
-        fs.copyFileSync(caminhoNovo, caminhoAtual);
-        fs.unlinkSync(caminhoNovo);
+        // Substituir — no Windows o .exe em uso não pode ser sobrescrito diretamente
+        // Usar cmd para mover após o processo encerrar (move via script batch)
+        if (eExe) {
+            const script = path.join(tmpDir, 'goomer-update.bat');
+            const bat = [
+                '@echo off',
+                'timeout /t 3 /nobreak >nul',
+                `copy /y "${caminhoNovo}" "${caminhoAtual}"`,
+                `del "${caminhoNovo}"`,
+                `net start GoomerAgente`,
+            ].join('
+');
+            fs.writeFileSync(script, bat, 'utf8');
 
-        console.log(`✅ [UPDATE] Agente atualizado: ${AGENTE_VERSION} → ${sha} — reiniciando...`);
-        _atualizacaoPendente = null;
+            console.log(`✅ [UPDATE] Script de atualização criado: ${script}`);
+            console.log(`[UPDATE] Encerrando para aplicar atualização ${AGENTE_VERSION} → ${sha}...`);
 
-        // Aguardar 2s para garantir que o log foi escrito
-        await new Promise(r => setTimeout(r, 2000));
+            _atualizacaoPendente = null;
+            await new Promise(r => setTimeout(r, 1000));
 
-        // NSSM vai reiniciar automaticamente
-        process.exit(0);
+            // Iniciar o bat de atualização de forma destacada e encerrar
+            const { spawn } = require('child_process');
+            spawn('cmd.exe', ['/c', script], {
+                detached: true, stdio: 'ignore', shell: false
+            }).unref();
+
+            await new Promise(r => setTimeout(r, 1500));
+            process.exit(0);
+
+        } else {
+            // Script Node — substituição direta é possível
+            fs.copyFileSync(caminhoNovo, caminhoAtual);
+            fs.unlinkSync(caminhoNovo);
+
+            console.log(`✅ [UPDATE] Agente atualizado: ${AGENTE_VERSION} → ${sha} — reiniciando...`);
+            _atualizacaoPendente = null;
+            await new Promise(r => setTimeout(r, 2000));
+            process.exit(0);
+        }
+
         return true;
     } catch(eApl) {
         console.log(`[UPDATE] ⚠ Erro ao aplicar atualização: ${eApl.message}`);
