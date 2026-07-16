@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.10'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.11'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -2591,12 +2591,37 @@ async function aplicarAtualizacao() {
         // Usar cmd para mover após o processo encerrar (move via script batch)
         if (eExe) {
             const script = path.join(tmpDir, 'goomer-update.bat');
+            const logBat = path.join(tmpDir, 'goomer-update.log');
             const bat = [
                 '@echo off',
-                'timeout /t 3 /nobreak >nul',
-                'copy /y "' + caminhoNovo + '" "' + caminhoAtual + '"',
-                'del "' + caminhoNovo + '"',
-                'net start GoomerAgente',
+                'echo [UPDATE-BAT] Iniciado: %DATE% %TIME% >> "' + logBat + '"',
+                // Aguardar o processo encerrar e o NSSM liberar o arquivo
+                'echo [UPDATE-BAT] Aguardando liberacao do executavel... >> "' + logBat + '"',
+                'timeout /t 6 /nobreak >nul',
+                // Tentar a copia com até 5 tentativas
+                'set TENTATIVA=0',
+                ':RETRY',
+                'set /a TENTATIVA+=1',
+                'copy /y "' + caminhoNovo + '" "' + caminhoAtual + '" >nul 2>&1',
+                'if %ERRORLEVEL%==0 goto COPIADO',
+                'if %TENTATIVA% geq 5 goto ERRO',
+                'echo [UPDATE-BAT] Tentativa %TENTATIVA% falhou, aguardando... >> "' + logBat + '"',
+                'timeout /t 4 /nobreak >nul',
+                'goto RETRY',
+                ':COPIADO',
+                'echo [UPDATE-BAT] Copia concluida com sucesso >> "' + logBat + '"',
+                'del "' + caminhoNovo + '" >nul 2>&1',
+                // NSSM reinicia automaticamente (AppRestartDelay) — só forcar se demorar
+                'timeout /t 8 /nobreak >nul',
+                'sc query GoomerAgente | find "RUNNING" >nul 2>&1',
+                'if %ERRORLEVEL%==0 goto FIM',
+                'echo [UPDATE-BAT] Servico nao iniciou, forcando reinicio... >> "' + logBat + '"',
+                'net start GoomerAgente >nul 2>&1',
+                'goto FIM',
+                ':ERRO',
+                'echo [UPDATE-BAT] ERRO: nao foi possivel copiar o arquivo apos 5 tentativas >> "' + logBat + '"',
+                ':FIM',
+                'echo [UPDATE-BAT] Concluido: %DATE% %TIME% >> "' + logBat + '"',
             ].join('\r\n');
             fs.writeFileSync(script, bat, 'utf8');
 
