@@ -290,10 +290,12 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
         <button class="modal-tab"    onclick="showTab('topologia')">Topologia</button>
         <button class="modal-tab"    onclick="showTab('maquina')">Máquina</button>
         <button class="modal-tab"    onclick="showTab('historico')">Histórico</button>
+        <button class="modal-tab" id="btn-tab-teste-rede" onclick="showTab('teste-rede')" style="display:none">📶 Teste de Rede</button>
         <button class="modal-tab"    onclick="showTab('autocorrecoes')">⚙ Autocorreções</button>
         <button class="modal-tab"    onclick="showTab('config')">Agente</button>
       </div>
       <div id="tab-resumo"        class="modal-panel on"></div>
+      <div id="tab-teste-rede"    class="modal-panel"></div>
       <div id="tab-diagnostico"   class="modal-panel"></div>
       <div id="tab-tablets"       class="modal-panel"></div>
       <div id="tab-erros"         class="modal-panel"></div>
@@ -1235,7 +1237,134 @@ async function abrirLoja(token, abaInicial) {
         renderTopoNoc(tablets_t, imps_t, ip, pay.latencia||null);
     }, 50);
 
-// ── Tab Diagnóstico de Correlação ────────────────────────────────────────
+    // ── Tab Teste de Rede ──────────────────────────────────────────────────
+    let _diagRedeData = pay.diagnostico_rede;
+    if (!_diagRedeData || _diagRedeData.length === 0) {
+        const snapComTeste = rows.find(r => r.payload?.diagnostico_rede?.length > 0);
+        if (snapComTeste) _diagRedeData = snapComTeste.payload.diagnostico_rede;
+    }
+    const _btnTesteRede = document.getElementById('btn-tab-teste-rede');
+    if (_btnTesteRede) _btnTesteRede.style.display = _diagRedeData?.length > 0 ? '' : 'none';
+
+    (function renderTesteRede() {
+        const el = document.getElementById('tab-teste-rede');
+        if (!el) return;
+        if (!_diagRedeData || _diagRedeData.length === 0) {
+            el.innerHTML = '<div style="text-align:center;padding:48px 20px;color:#8096b8">'
+                + '<div style="font-size:32px;margin-bottom:12px">📶</div>'
+                + '<div style="font-size:14px;font-weight:600;color:#a0b8d0;margin-bottom:8px">Nenhum teste de rede registrado</div>'
+                + '<div style="font-size:12px">Ative o Modo Teste de Rede na aba <b style="color:#e8eef8">⚙ Agente</b> e configure um horário.</div>'
+                + '</div>';
+            return;
+        }
+
+        const corSR  = s => s==='excelente'?'#00d68f':s==='instavel'?'#ffb830':'#ff4455';
+        const bgSR   = s => s==='excelente'?'rgba(0,214,143,.07)':s==='instavel'?'rgba(255,184,48,.07)':'rgba(255,68,85,.07)';
+        const lblSR  = s => ({'excelente':'🟢 Excelente','instavel':'🟡 Instável','critico':'🔴 Crítico'}[s]||s);
+        const minSR  = t => Math.round((t.ciclos||0) * 5);
+        const latCor = v => v>=500?'var(--red)':v>=300?'var(--amber)':'var(--green)';
+        const pctCor = v => v>=10?'var(--red)':v>=2?'var(--amber)':'var(--green)';
+
+        let html = '<div>';
+        html += '<div style="font-size:12px;color:#8096b8;margin-bottom:14px">'
+            + 'Sessão registrada'
+            + (_diagRedeData[0]?.horario_inicio ? ' · a partir de ' + h(_diagRedeData[0].horario_inicio) : '')
+            + ' · ' + _diagRedeData.length + ' tablet(s) testado(s)'
+            + ' · ' + minSR(_diagRedeData[0]) + ' min de coleta'
+            + '</div>';
+
+        // Mapa de calor
+        html += '<div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Mapa de Calor por Mesa</div>';
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-bottom:24px">';
+        _diagRedeData.forEach(t => {
+            const cor = corSR(t.saude);
+            html += '<div style="background:' + bgSR(t.saude) + ';border:1px solid ' + cor + '40;border-left:3px solid ' + cor + ';border-radius:8px;padding:10px 12px">'
+                + '<div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:2px">Mesa ' + h(String(t.mesa)) + '</div>'
+                + '<div style="font-size:10px;font-family:var(--mono);color:#8096b8;margin-bottom:6px">' + h(t.ip) + '</div>'
+                + '<div style="font-size:11px;font-weight:700;color:' + cor + ';margin-bottom:8px">' + lblSR(t.saude) + '</div>'
+                + '<div style="font-size:10px;color:#a0b8d0;line-height:1.8">'
+                + '<div>Latência: <b style="color:' + latCor(t.ping_med||0) + '">' + (t.ping_med||'?') + 'ms</b> <span style="color:#606880">(máx ' + (t.ping_max_abs||'?') + 'ms)</span></div>'
+                + '<div>Perda: <b style="color:' + pctCor(t.perda_med_pct||0) + '">' + (t.perda_med_pct||0) + '%</b> <span style="color:#606880">(máx ' + (t.perda_max_pct||0) + '%)</span></div>'
+                + '<div>WiFi: <b style="color:#e8eef8">' + (t.wifi_med||0) + '%</b> <span style="color:#606880">(mín ' + (t.wifi_min||0) + '%)</span></div>'
+                + '<div style="color:#606880">Ciclos: ' + (t.ciclos||0) + '× · ' + minSR(t) + 'min</div>'
+                + (t.horario_pior_ping ? '<div style="color:#606880">Pior ping: ' + h(t.horario_pior_ping) + '</div>' : '')
+                + (t.horario_pior_perda ? '<div style="color:#606880">Maior perda: ' + h(t.horario_pior_perda) + '</div>' : '')
+                + '</div></div>';
+        });
+        html += '</div>';
+
+        // Gráfico temporal
+        const comHist = _diagRedeData.filter(t => t.historico?.length > 0);
+        if (comHist.length > 0) {
+            html += '<div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Latência ao longo do tempo (ms)</div>';
+            html += '<canvas id="chart-teste-rede" style="width:100%;height:220px;display:block"></canvas>';
+        }
+
+        html += '<div style="background:var(--bg3);border-radius:8px;padding:10px 14px;font-size:10px;color:#8096b8;margin-top:16px">'
+            + '<b style="color:#a0b8d0">Critérios:</b>'
+            + ' 🟢 Excelente: latência &lt;300ms e perda &lt;2%'
+            + ' · 🟡 Instável: latência &lt;500ms ou perda &lt;10%'
+            + ' · 🔴 Crítico: latência ≥500ms ou perda ≥10%'
+            + '</div></div>';
+
+        el.innerHTML = html;
+
+        if (comHist.length > 0) setTimeout(() => {
+            const cv = document.getElementById('chart-teste-rede');
+            if (!cv) return;
+            cv.width = cv.offsetWidth || 800; cv.height = 220;
+            const cx = cv.getContext('2d');
+            const cores = ['#00d68f','#3b82f6','#ffb830','#ff4455','#a855f7','#06b6d4'];
+            const limIns = 300, limCrit = 500;
+            const hSet = new Set();
+            comHist.forEach(t => t.historico.forEach(c => hSet.add(c.h)));
+            const hLst = [...hSet].sort();
+            if (hLst.length < 2) return;
+            const W = cv.width, H = cv.height, pL = 50, pR = 16, pT = 22, pB = 32;
+            const aW = W-pL-pR, aH = H-pT-pB;
+            let maxL = 600;
+            comHist.forEach(t => t.historico.forEach(c => { if ((c.pm||0) > maxL) maxL = c.pm; }));
+            maxL = Math.ceil(maxL * 1.1 / 100) * 100;
+            const xP = i => pL + (i/(hLst.length-1))*aW;
+            const yP = v => pT + aH - (Math.min(v||0,maxL)/maxL)*aH;
+            cx.fillStyle = '#111827'; cx.fillRect(0,0,W,H);
+            cx.fillStyle = 'rgba(255,68,85,.06)'; cx.fillRect(pL,pT,aW,yP(limCrit)-pT);
+            cx.fillStyle = 'rgba(255,184,48,.05)'; cx.fillRect(pL,yP(limCrit),aW,yP(limIns)-yP(limCrit));
+            [[limIns,'rgba(255,184,48,.35)','#ffb830'],[limCrit,'rgba(255,68,85,.35)','#ff4455']].forEach(([lim,sc,fc])=>{
+                cx.strokeStyle=sc; cx.setLineDash([4,4]); cx.lineWidth=1;
+                cx.beginPath(); cx.moveTo(pL,yP(lim)); cx.lineTo(W-pR,yP(lim)); cx.stroke();
+                cx.setLineDash([]); cx.fillStyle=fc; cx.font='9px Segoe UI';
+                cx.fillText(lim+'ms',2,yP(lim)+3);
+            });
+            cx.strokeStyle='rgba(255,255,255,.05)'; cx.lineWidth=1;
+            for(let v=0;v<=maxL;v+=maxL/4){
+                cx.beginPath(); cx.moveTo(pL,yP(v)); cx.lineTo(W-pR,yP(v)); cx.stroke();
+                cx.fillStyle='#8096b8'; cx.font='9px Segoe UI';
+                cx.fillText(Math.round(v)+'ms',2,yP(v)+3);
+            }
+            comHist.forEach((t,ti)=>{
+                const cor=cores[ti%cores.length];
+                const pts=hLst.map(hh=>{const c=t.historico.find(c=>c.h===hh);return c?.pm??null;});
+                cx.strokeStyle=cor; cx.lineWidth=2; cx.shadowColor=cor; cx.shadowBlur=4;
+                cx.beginPath(); let f=true;
+                pts.forEach((v,i)=>{if(v===null){f=true;return;} if(f){cx.moveTo(xP(i),yP(v));f=false;}else cx.lineTo(xP(i),yP(v));});
+                cx.stroke(); cx.shadowBlur=0;
+                pts.forEach((v,i)=>{
+                    if(v===null)return;
+                    cx.fillStyle=v>=limCrit?'#ff4455':v>=limIns?'#ffb830':cor;
+                    cx.beginPath();cx.arc(xP(i),yP(v),3,0,Math.PI*2);cx.fill();
+                });
+                const lx=pL+ti*110;
+                if(lx+100<=W){cx.fillStyle=cor;cx.fillRect(lx,pT-16,16,3);cx.fillStyle='#e8eef8';cx.font='10px Segoe UI';cx.fillText('Mesa '+t.mesa,lx+20,pT-13);}
+            });
+            const step=Math.max(1,Math.floor(hLst.length/8));
+            cx.fillStyle='#606880'; cx.font='9px Segoe UI';
+            hLst.forEach((hh,i)=>{if(i%step!==0&&i!==hLst.length-1)return;cx.fillText(hh,xP(i)-12,H-6);});
+        }, 100);
+    })();
+
+
+    // ── Tab Diagnóstico de Correlação ────────────────────────────────────────
     const corrs = pay.correlacoes || [];
     const maqD  = pay.maquina;
     const latD  = pay.latencia;
