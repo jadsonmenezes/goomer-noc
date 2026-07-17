@@ -2617,27 +2617,29 @@ async function aplicarAtualizacao() {
                 'echo [UPDATE-BAT] PID do processo: ' + pidAtual + ' >> "' + logBat + '"',
                 'echo [UPDATE-BAT] Servico: ' + nomeServico + ' >> "' + logBat + '"',
 
-                // 1. Matar o processo pelo PID (mais confiavel que net stop)
-                'echo [UPDATE-BAT] Encerrando processo PID ' + pidAtual + '... >> "' + logBat + '"',
-                'taskkill /PID ' + pidAtual + ' /F >nul 2>&1',
-                'echo [UPDATE-BAT] taskkill executado >> "' + logBat + '"',
-
-                // 2. Aguardar processo encerrar (verificar pelo PID)
-                'set /a ESPERA=0',
-                ':WAIT_PID',
-                'set /a ESPERA+=1',
-                'tasklist /FI "PID eq ' + pidAtual + '" 2>nul | find "' + pidAtual + '" >nul',
-                'if %ERRORLEVEL% neq 0 goto PROCESSO_MORTO',
-                'if %ESPERA% geq 10 goto PROCESSO_MORTO',
-                'timeout /t 1 /nobreak >nul',
-                'goto WAIT_PID',
-                ':PROCESSO_MORTO',
-                'echo [UPDATE-BAT] Processo encerrado (espera: %ESPERA%s) >> "' + logBat + '"',
-                'timeout /t 2 /nobreak >nul',
-
-                // 3. Parar o serviço via SC para liberar handles residuais
+                // 1. Parar o servico pelo nome — libera o handle do exe
+                'echo [UPDATE-BAT] Parando servico ' + nomeServico + '... >> "' + logBat + '"',
                 'sc stop ' + nomeServico + ' >nul 2>&1',
+
+                // 2. Aguardar servico parar (sc query STOPPED)
+                'set /a ESPERA=0',
+                ':WAIT_STOP',
+                'set /a ESPERA+=1',
+                'sc query ' + nomeServico + ' | find "STOPPED" >nul 2>&1',
+                'if %ERRORLEVEL%==0 goto SERVICO_PARADO',
+                'if %ESPERA% geq 15 goto FORCAR_KILL',
+                'timeout /t 2 /nobreak >nul',
+                'goto WAIT_STOP',
+
+                // 3. Se nao parou, matar pelo nome do exe (nao pelo PID interno do pkg)
+                ':FORCAR_KILL',
+                'echo [UPDATE-BAT] Forcando encerramento pelo nome do exe... >> "' + logBat + '"',
+                'taskkill /IM goomer-agente.exe /F >nul 2>&1',
                 'timeout /t 3 /nobreak >nul',
+
+                ':SERVICO_PARADO',
+                'echo [UPDATE-BAT] Servico parado (espera: %ESPERA%s) >> "' + logBat + '"',
+                'timeout /t 2 /nobreak >nul',
 
                 // 4. Copiar novo exe (com retry)
                 'set /a TENTATIVA=0',
@@ -2681,30 +2683,18 @@ async function aplicarAtualizacao() {
 
             // Iniciar o bat de atualização de forma destacada
             const { spawn, execSync: esKill } = require('child_process');
-            // Usar powershell para iniciar o bat elevado e destacado
-            spawn('powershell.exe', [
-                '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
-                '-Command',
-                `Start-Process cmd.exe -ArgumentList '/c "${script}"' -Verb RunAs -WindowStyle Hidden`
-            ], { detached: true, stdio: 'ignore' }).unref();
+            // Iniciar bat de forma destacada
+            spawn('cmd.exe', ['/c', script], {
+                detached: true, stdio: 'ignore', shell: false
+            }).unref();
 
-            // Aguardar bat iniciar
-            await new Promise(r => setTimeout(r, 1500));
-
-            // Encerrar o processo — múltiplos métodos em cascata
-            // para garantir que o exe compilado (pkg) realmente morra
-            console.log(`[UPDATE] Encerrando processo PID ${process.pid}...`);
-            try {
-                // Método 1: process.exit (pode não funcionar em pkg)
-                process.exit(0);
-            } catch(eExit) { /* ignorar */ }
-
-            // Método 2: taskkill no próprio PID como fallback
-            // (executado pelo bat, mas também tentamos aqui)
+            // Aguardar bat iniciar antes de encerrar
             await new Promise(r => setTimeout(r, 2000));
-            try {
-                esKill(`taskkill /PID ${process.pid} /F`, { timeout: 5000 });
-            } catch(eTk) { /* o processo já pode ter morrido */ }
+
+            // O bat vai matar o processo pelo nome do exe e reiniciar o serviço
+            // Encerrar via process.exit como sinal para o NSSM
+            console.log(`[UPDATE] Sinalizando encerramento...`);
+            process.exit(0);
 
         } else {
             // Script Node — substituição direta é possível
