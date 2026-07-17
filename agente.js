@@ -10,7 +10,7 @@ const fs     = require('fs');
 const crypto = require('crypto');
 
 // ── Versão do agente (SHA do commit — atualizado automaticamente) ─────────────
-const AGENTE_VERSION  = '1.0.13'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
+const AGENTE_VERSION  = '1.0.12'; // Incrementar a cada publicação: MAJOR.MINOR.PATCH
 const GITHUB_RAW_USER = 'jadsonmenezes';
 const GITHUB_RAW_REPO = 'goomer-noc';
 const GITHUB_RAW_FILE = 'agente.js';
@@ -2595,31 +2595,55 @@ async function aplicarAtualizacao() {
             const bat = [
                 '@echo off',
                 'echo [UPDATE-BAT] Iniciado: %DATE% %TIME% >> "' + logBat + '"',
-                // Aguardar o processo encerrar e o NSSM liberar o arquivo
-                'echo [UPDATE-BAT] Aguardando liberacao do executavel... >> "' + logBat + '"',
-                'timeout /t 6 /nobreak >nul',
-                // Tentar a copia com até 5 tentativas
-                'set TENTATIVA=0',
+
+                // 1. Parar o serviço para liberar o handle do exe
+                'echo [UPDATE-BAT] Parando servico GoomerAgente... >> "' + logBat + '"',
+                'net stop GoomerAgente >nul 2>&1',
+
+                // 2. Aguardar confirmação que o serviço parou (até 30s)
+                'set /a ESPERA=0',
+                ':WAIT_STOP',
+                'set /a ESPERA+=1',
+                'sc query GoomerAgente | find "STOPPED" >nul 2>&1',
+                'if %ERRORLEVEL%==0 goto PARADO',
+                'if %ESPERA% geq 15 goto PARADO',
+                'timeout /t 2 /nobreak >nul',
+                'goto WAIT_STOP',
+                ':PARADO',
+                'echo [UPDATE-BAT] Servico parado (tentativas: %ESPERA%) >> "' + logBat + '"',
+                'timeout /t 2 /nobreak >nul',
+
+                // 3. Copiar novo exe (com retry)
+                'set /a TENTATIVA=0',
                 ':RETRY',
                 'set /a TENTATIVA+=1',
                 'copy /y "' + caminhoNovo + '" "' + caminhoAtual + '" >nul 2>&1',
                 'if %ERRORLEVEL%==0 goto COPIADO',
                 'if %TENTATIVA% geq 5 goto ERRO',
-                'echo [UPDATE-BAT] Tentativa %TENTATIVA% falhou, aguardando... >> "' + logBat + '"',
-                'timeout /t 4 /nobreak >nul',
+                'echo [UPDATE-BAT] Copia tentativa %TENTATIVA% falhou, aguardando... >> "' + logBat + '"',
+                'timeout /t 3 /nobreak >nul',
                 'goto RETRY',
+
                 ':COPIADO',
-                'echo [UPDATE-BAT] Copia concluida com sucesso >> "' + logBat + '"',
+                'echo [UPDATE-BAT] Copia concluida na tentativa %TENTATIVA% >> "' + logBat + '"',
                 'del "' + caminhoNovo + '" >nul 2>&1',
-                // NSSM reinicia automaticamente (AppRestartDelay) — só forcar se demorar
-                'timeout /t 8 /nobreak >nul',
+
+                // 4. Reiniciar o serviço
+                'echo [UPDATE-BAT] Reiniciando servico... >> "' + logBat + '"',
+                'net start GoomerAgente >nul 2>&1',
+                'timeout /t 5 /nobreak >nul',
                 'sc query GoomerAgente | find "RUNNING" >nul 2>&1',
                 'if %ERRORLEVEL%==0 goto FIM',
-                'echo [UPDATE-BAT] Servico nao iniciou, forcando reinicio... >> "' + logBat + '"',
+                'echo [UPDATE-BAT] Servico nao iniciou, tentando novamente... >> "' + logBat + '"',
+                'timeout /t 5 /nobreak >nul',
                 'net start GoomerAgente >nul 2>&1',
                 'goto FIM',
+
                 ':ERRO',
-                'echo [UPDATE-BAT] ERRO: nao foi possivel copiar o arquivo apos 5 tentativas >> "' + logBat + '"',
+                'echo [UPDATE-BAT] ERRO: nao foi possivel copiar apos 5 tentativas >> "' + logBat + '"',
+                'echo [UPDATE-BAT] Reiniciando servico com exe antigo... >> "' + logBat + '"',
+                'net start GoomerAgente >nul 2>&1',
+
                 ':FIM',
                 'echo [UPDATE-BAT] Concluido: %DATE% %TIME% >> "' + logBat + '"',
             ].join('\r\n');
@@ -3120,6 +3144,36 @@ async function ciclo() {
 }
 
 // Rodar imediatamente e depois a cada INTERVALO_MS
+// ── Controle de encerramento limpo ───────────────────────────────────────
+// O NSSM/SCM envia SIGTERM ao parar o serviço — sem handler, o processo
+// ignora o sinal e fica preso em "Parando" até timeout (ou taskkill)
+let _intervaloId = null;
+let _encerrando  = false;
+
+function encerrarLimpo(motivo) {
+    if (_encerrando) return;
+    _encerrando = true;
+    console.log(`[AGENTE] Encerrando — motivo: ${motivo}`);
+    if (_intervaloId) clearInterval(_intervaloId);
+    // Pequena pausa para garantir que o log foi escrito
+    setTimeout(() => process.exit(0), 500);
+}
+
+process.on('SIGTERM', () => encerrarLimpo('SIGTERM (servico parado pelo SCM/NSSM)'));
+process.on('SIGINT',  () => encerrarLimpo('SIGINT (Ctrl+C)'));
+process.on('SIGBREAK',() => encerrarLimpo('SIGBREAK (console fechado)'));
+
+// Windows não tem SIGTERM nativo para processos filhos em alguns casos
+// O NSSM usa TerminateProcess como fallback após timeout
+// Configurar o NSSM para aguardar até 8s antes de forçar
+process.on('uncaughtException', e => {
+    console.log(`[AGENTE] Erro não capturado: ${e.message}`);
+    console.log(e.stack);
+});
+process.on('unhandledRejection', (reason) => {
+    console.log(`[AGENTE] Promise rejeitada: ${reason}`);
+});
+
 ciclo();
-setInterval(ciclo, INTERVALO_MS);
+_intervaloId = setInterval(ciclo, INTERVALO_MS);
 console.log(`Goomer Agente iniciado — enviando a cada ${INTERVALO_MS/60000} minutos para Supabase`);
