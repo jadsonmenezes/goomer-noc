@@ -2561,156 +2561,55 @@ async function aplicarAtualizacao() {
     try {
         const os   = require('os');
         const path = require('path');
-        const { execSync: esA, spawn } = require('child_process');
 
         const eExe       = process.pkg !== undefined || process.execPath.toLowerCase().endsWith('.exe');
         const caminhoExe = process.execPath;
         const caminhoJs  = process.argv[1] || __filename;
-        const caminhoAtual = eExe ? caminhoExe : caminhoJs;
-        const tmpDir     = os.tmpdir();
-        const logBat     = path.join(tmpDir, 'goomer-update.log');
+        const pastaAgente = path.dirname(eExe ? caminhoExe : caminhoJs);
 
-        console.log(`[UPDATE] Modo: ${eExe ? 'executavel compilado' : 'script Node'}`);
-        console.log(`[UPDATE] Caminho atual: ${caminhoAtual}`);
-
-        // Backup
-        try { fs.copyFileSync(caminhoAtual, caminhoAtual + '.bak'); } catch(e) {}
+        console.log(`[UPDATE] Modo: ${eExe ? 'exe compilado' : 'script Node'}`);
+        console.log(`[UPDATE] Preparando atualização ${AGENTE_VERSION} -> ${sha}...`);
 
         if (eExe) {
-            // ── Modo EXE: recompilar localmente com pkg ──────────────────
-            // O .exe gerado na própria máquina não tem Zone.Identifier
-            // e passa pelo SAC sem bloqueio
+            // ── Modo EXE: salvar novo js + flag — updater faz o resto ─────
+            const novoJs  = path.join(pastaAgente, 'agente-pending.js');
+            const flagFile = path.join(pastaAgente, 'UPDATE_PENDING');
 
-            // 1. Salvar novo agente.js no tmp
-            const novoJs  = path.join(tmpDir, 'goomer-agente-novo.js');
-            const novoExe = path.join(tmpDir, 'goomer-agente-novo.exe');
+            // Salvar novo agente.js na pasta do agente
             fs.writeFileSync(novoJs, conteudo, 'utf8');
-            console.log(`[UPDATE] Novo agente.js salvo em: ${novoJs}`);
+            // Criar flag com a versão nova para o updater saber o que fazer
+            fs.writeFileSync(flagFile, JSON.stringify({
+                versao_atual: AGENTE_VERSION,
+                versao_nova:  sha,
+                js_pendente:  novoJs,
+                exe_destino:  caminhoExe,
+                horario:      new Date().toISOString()
+            }, null, 2), 'utf8');
 
-            // 2. Verificar se pkg está disponível
-            let pkgPath = null;
-            try {
-                pkgPath = esA('where pkg', { encoding: 'utf8', timeout: 3000 }).trim().split(/\r?\n/)[0].trim();
-            } catch(e) {
-                // Tentar caminho padrão npm global
-                const npmGlobal = path.join(process.env.APPDATA || '', 'npm', 'pkg.cmd');
-                if (fs.existsSync(npmGlobal)) pkgPath = npmGlobal;
-            }
-
-            if (!pkgPath) {
-                // pkg não encontrado — tentar instalar
-                console.log('[UPDATE] pkg nao encontrado, instalando via npm...');
-                try {
-                    esA('npm install -g pkg', { encoding: 'utf8', timeout: 60000 });
-                    pkgPath = esA('where pkg', { encoding: 'utf8', timeout: 3000 }).trim().split(/\r?\n/)[0].trim();
-                    console.log(`[UPDATE] pkg instalado: ${pkgPath}`);
-                } catch(eNpm) {
-                    console.log(`[UPDATE] Falha ao instalar pkg: ${eNpm.message}`);
-                    console.log('[UPDATE] Aplicando como .js e recompilando manualmente na proxima reinicializacao...');
-                    // Fallback: salvar .js e usar bat para recompilar depois
-                }
-            }
-
-            if (pkgPath) {
-                // 3. Recompilar localmente
-                console.log(`[UPDATE] Recompilando com pkg (pode levar 30-60s)...`);
-                try {
-                    const nodeVersion = esA('node --version', { encoding: 'utf8', timeout: 3000 }).trim().replace('v','').split('.')[0];
-                    const target = `node${nodeVersion}-win-x64`;
-                    esA(`"${pkgPath}" "${novoJs}" --targets ${target} --output "${novoExe}"`, {
-                        encoding: 'utf8',
-                        timeout: 120000
-                    });
-                    console.log(`[UPDATE] Recompilado com sucesso: ${novoExe}`);
-                } catch(ePkg) {
-                    console.log(`[UPDATE] Erro ao compilar: ${ePkg.message}`);
-                    _atualizacaoPendente = null;
-                    return false;
-                }
-            } else {
-                // Sem pkg — fallback para modo script
-                console.log('[UPDATE] Fallback: substituindo agente.js e reiniciando como script...');
-                const jsDestino = path.join(path.dirname(caminhoExe), 'agente.js');
-                fs.writeFileSync(jsDestino, conteudo, 'utf8');
-                console.log(`[UPDATE] agente.js atualizado em: ${jsDestino}`);
-                _atualizacaoPendente = null;
-                await new Promise(r => setTimeout(r, 1000));
-                process.exit(0);
-                return true;
-            }
-
-            // 4. Detectar nome do serviço
-            let nomeServico = 'GoomerAgente';
-            try {
-                const wmi = esA(
-                    'wmic service where "PathName like '%goomer%'" get Name /value 2>nul',
-                    { encoding: 'utf8', timeout: 5000 }
-                );
-                const m = wmi.match(/Name=([^\r\n]+)/i);
-                if (m && m[1].trim()) nomeServico = m[1].trim();
-                console.log(`[UPDATE] Servico: ${nomeServico}`);
-            } catch(e) {}
-
-            // 5. Criar bat de substituição
-            const script = path.join(tmpDir, 'goomer-update.bat');
-            const bat = [
-                '@echo off',
-                'echo [BAT] Iniciado %DATE% %TIME% >> "' + logBat + '"',
-                // Aguardar exe morrer
-                'set /a N=0',
-                ':WAIT',
-                'set /a N+=1',
-                'tasklist /FI "IMAGENAME eq goomer-agente.exe" 2>nul | find /i "goomer-agente.exe" >nul',
-                'if %ERRORLEVEL% neq 0 goto DEAD',
-                'if %N% geq 15 goto KILL',
-                'timeout /t 1 /nobreak >nul',
-                'goto WAIT',
-                ':KILL',
-                'taskkill /IM goomer-agente.exe /F >nul 2>&1',
-                'timeout /t 2 /nobreak >nul',
-                ':DEAD',
-                'echo [BAT] Processo encerrado >> "' + logBat + '"',
-                'timeout /t 2 /nobreak >nul',
-                // Copiar novo exe
-                'copy /y "' + novoExe + '" "' + caminhoExe + '" >> "' + logBat + '" 2>&1',
-                'if %ERRORLEVEL%==0 goto OK',
-                'echo [BAT] ERRO na copia >> "' + logBat + '"',
-                'sc start ' + nomeServico + ' >nul 2>&1',
-                'goto FIM',
-                ':OK',
-                'del "' + novoExe + '" >nul 2>&1',
-                'del "' + novoJs  + '" >nul 2>&1',
-                'echo [BAT] Copia OK, iniciando servico >> "' + logBat + '"',
-                'sc start ' + nomeServico + ' >nul 2>&1',
-                ':FIM',
-                'echo [BAT] Concluido %DATE% %TIME% >> "' + logBat + '"',
-            ].join('\r\n');
-
-            fs.writeFileSync(script, bat, 'utf8');
-            console.log(`[UPDATE] Script criado: ${script}`);
-            console.log(`[UPDATE] Encerrando para aplicar ${AGENTE_VERSION} -> ${sha}...`);
-
-            spawn('cmd.exe', ['/c', script], { detached: true, stdio: 'ignore' }).unref();
-            _atualizacaoPendente = null;
-            await new Promise(r => setTimeout(r, 2000));
-            process.exit(0);
+            console.log(`[UPDATE] Flag criado: ${flagFile}`);
+            console.log(`[UPDATE] Novo agente.js salvo: ${novoJs}`);
+            console.log(`[UPDATE] Aguardando tarefa agendada GoomerUpdater aplicar a atualizacao...`);
+            console.log(`[UPDATE] (O agente continua rodando normalmente)`);
 
         } else {
-            // ── Modo Script Node: substituição direta ────────────────────
-            const caminhoNovo = path.join(tmpDir, 'goomer-agente-novo.js');
-            fs.writeFileSync(caminhoNovo, conteudo, 'utf8');
-            fs.copyFileSync(caminhoNovo, caminhoAtual);
-            fs.unlinkSync(caminhoNovo);
+            // ── Modo Script Node: substituição direta ─────────────────────
+            const tmpJs = path.join(os.tmpdir(), 'goomer-agente-novo.js');
+            fs.writeFileSync(tmpJs, conteudo, 'utf8');
+            fs.copyFileSync(tmpJs, caminhoJs);
+            fs.unlinkSync(tmpJs);
 
-            console.log(`[UPDATE] Agente atualizado: ${AGENTE_VERSION} -> ${sha} - reiniciando...`);
+            console.log(`[UPDATE] agente.js atualizado: ${AGENTE_VERSION} -> ${sha}`);
+            console.log(`[UPDATE] Reiniciando...`);
             _atualizacaoPendente = null;
             await new Promise(r => setTimeout(r, 1000));
             process.exit(0);
         }
 
+        _atualizacaoPendente = null;
         return true;
+
     } catch(eApl) {
-        console.log(`[UPDATE] Erro ao aplicar: ${eApl.message}`);
+        console.log(`[UPDATE] Erro ao preparar atualização: ${eApl.message}`);
         _atualizacaoPendente = null;
         return false;
     }
