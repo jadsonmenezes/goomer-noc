@@ -2617,29 +2617,38 @@ async function aplicarAtualizacao() {
                 'echo [UPDATE-BAT] PID do processo: ' + pidAtual + ' >> "' + logBat + '"',
                 'echo [UPDATE-BAT] Servico: ' + nomeServico + ' >> "' + logBat + '"',
 
-                // 1. Parar o servico pelo nome — libera o handle do exe
-                'echo [UPDATE-BAT] Parando servico ' + nomeServico + '... >> "' + logBat + '"',
-                'sc stop ' + nomeServico + ' >nul 2>&1',
-
-                // 2. Aguardar servico parar (sc query STOPPED)
+                // 1. O processo ja encerrou via process.exit — aguardar SCM detectar
+                'echo [UPDATE-BAT] Aguardando SCM detectar encerramento do processo... >> "' + logBat + '"',
                 'set /a ESPERA=0',
-                ':WAIT_STOP',
+                ':WAIT_STOPPED',
                 'set /a ESPERA+=1',
-                'sc query ' + nomeServico + ' | find "STOPPED" >nul 2>&1',
-                'if %ERRORLEVEL%==0 goto SERVICO_PARADO',
-                'if %ESPERA% geq 15 goto FORCAR_KILL',
-                'timeout /t 2 /nobreak >nul',
-                'goto WAIT_STOP',
+                // Verificar se o exe ainda esta rodando
+                'tasklist /FI "IMAGENAME eq goomer-agente.exe" 2>nul | find /i "goomer-agente.exe" >nul',
+                'if %ERRORLEVEL% neq 0 goto EXE_MORTO',
+                'if %ESPERA% geq 10 goto FORCAR_KILL',
+                'timeout /t 1 /nobreak >nul',
+                'goto WAIT_STOPPED',
 
-                // 3. Se nao parou, matar pelo nome do exe (nao pelo PID interno do pkg)
                 ':FORCAR_KILL',
-                'echo [UPDATE-BAT] Forcando encerramento pelo nome do exe... >> "' + logBat + '"',
+                'echo [UPDATE-BAT] Exe ainda em memoria, forcando encerramento... >> "' + logBat + '"',
                 'taskkill /IM goomer-agente.exe /F >nul 2>&1',
-                'timeout /t 3 /nobreak >nul',
-
-                ':SERVICO_PARADO',
-                'echo [UPDATE-BAT] Servico parado (espera: %ESPERA%s) >> "' + logBat + '"',
                 'timeout /t 2 /nobreak >nul',
+
+                ':EXE_MORTO',
+                'echo [UPDATE-BAT] Exe encerrado (espera: %ESPERA%s) >> "' + logBat + '"',
+
+                // 2. Aguardar SCM transitar para STOPPED (sem forcar sc stop)
+                'set /a ESPERA2=0',
+                ':WAIT_SCM',
+                'set /a ESPERA2+=1',
+                'sc query ' + nomeServico + ' | find "STOPPED" >nul 2>&1',
+                'if %ERRORLEVEL%==0 goto SCM_STOPPED',
+                'if %ESPERA2% geq 8 goto SCM_STOPPED',
+                'timeout /t 1 /nobreak >nul',
+                'goto WAIT_SCM',
+                ':SCM_STOPPED',
+                'echo [UPDATE-BAT] SCM em STOPPED (espera: %ESPERA2%s) >> "' + logBat + '"',
+                'timeout /t 1 /nobreak >nul',
 
                 // 4. Copiar novo exe (com retry)
                 'set /a TENTATIVA=0',
