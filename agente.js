@@ -2679,14 +2679,32 @@ async function aplicarAtualizacao() {
             _atualizacaoPendente = null;
             await new Promise(r => setTimeout(r, 1000));
 
-            // Iniciar o bat de atualização de forma destacada e encerrar
-            const { spawn } = require('child_process');
-            spawn('cmd.exe', ['/c', script], {
-                detached: true, stdio: 'ignore', shell: false
-            }).unref();
+            // Iniciar o bat de atualização de forma destacada
+            const { spawn, execSync: esKill } = require('child_process');
+            // Usar powershell para iniciar o bat elevado e destacado
+            spawn('powershell.exe', [
+                '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+                '-Command',
+                `Start-Process cmd.exe -ArgumentList '/c "${script}"' -Verb RunAs -WindowStyle Hidden`
+            ], { detached: true, stdio: 'ignore' }).unref();
 
+            // Aguardar bat iniciar
             await new Promise(r => setTimeout(r, 1500));
-            process.exit(0);
+
+            // Encerrar o processo — múltiplos métodos em cascata
+            // para garantir que o exe compilado (pkg) realmente morra
+            console.log(`[UPDATE] Encerrando processo PID ${process.pid}...`);
+            try {
+                // Método 1: process.exit (pode não funcionar em pkg)
+                process.exit(0);
+            } catch(eExit) { /* ignorar */ }
+
+            // Método 2: taskkill no próprio PID como fallback
+            // (executado pelo bat, mas também tentamos aqui)
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+                esKill(`taskkill /PID ${process.pid} /F`, { timeout: 5000 });
+            } catch(eTk) { /* o processo já pode ter morrido */ }
 
         } else {
             // Script Node — substituição direta é possível
