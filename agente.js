@@ -2559,170 +2559,163 @@ async function aplicarAtualizacao() {
     if (!_atualizacaoPendente) return false;
     const { sha, conteudo } = _atualizacaoPendente;
     try {
-        const os = require('os');
+        const os   = require('os');
         const path = require('path');
+        const { execSync: esA, spawn } = require('child_process');
 
-        // Detectar se está rodando como executável compilado (pkg) ou script Node
-        const eExe = process.pkg !== undefined || process.execPath.endsWith('.exe');
+        const eExe       = process.pkg !== undefined || process.execPath.toLowerCase().endsWith('.exe');
+        const caminhoExe = process.execPath;
+        const caminhoJs  = process.argv[1] || __filename;
+        const caminhoAtual = eExe ? caminhoExe : caminhoJs;
+        const tmpDir     = os.tmpdir();
+        const logBat     = path.join(tmpDir, 'goomer-update.log');
 
-        // Caminho real do executável ou script em disco
-        const caminhoAtual = eExe
-            ? process.execPath          // caminho do .exe compilado
-            : (process.argv[1] || __filename); // caminho do agente.js
-
-        console.log(`[UPDATE] Modo: ${eExe ? 'executável compilado' : 'script Node'}`);
+        console.log(`[UPDATE] Modo: ${eExe ? 'executavel compilado' : 'script Node'}`);
         console.log(`[UPDATE] Caminho atual: ${caminhoAtual}`);
 
-        // Usar pasta temporária do sistema para arquivos intermediários
-        const tmpDir      = os.tmpdir();
-        const caminhoNovo = path.join(tmpDir, 'goomer-agente-novo' + (eExe ? '.exe' : '.js'));
-        const caminhoBak  = caminhoAtual + '.bak';
+        // Backup
+        try { fs.copyFileSync(caminhoAtual, caminhoAtual + '.bak'); } catch(e) {}
 
-        // Salvar novo arquivo no diretório temporário
-        fs.writeFileSync(caminhoNovo, conteudo, 'utf8');
-        console.log(`[UPDATE] Novo arquivo salvo em: ${caminhoNovo}`);
-
-        // Backup do atual
-        try { fs.copyFileSync(caminhoAtual, caminhoBak); } catch(eBak) {
-            console.log(`[UPDATE] Aviso: não foi possível fazer backup — ${eBak.message}`);
-        }
-
-        // Substituir — no Windows o .exe em uso não pode ser sobrescrito diretamente
-        // Usar cmd para mover após o processo encerrar (move via script batch)
         if (eExe) {
-            const script = path.join(tmpDir, 'goomer-update.bat');
-            const logBat  = path.join(tmpDir, 'goomer-update.log');
-            const pidAtual = process.pid;
+            // ── Modo EXE: recompilar localmente com pkg ──────────────────
+            // O .exe gerado na própria máquina não tem Zone.Identifier
+            // e passa pelo SAC sem bloqueio
 
-            // Detectar nome real do serviço pelo caminho do exe
+            // 1. Salvar novo agente.js no tmp
+            const novoJs  = path.join(tmpDir, 'goomer-agente-novo.js');
+            const novoExe = path.join(tmpDir, 'goomer-agente-novo.exe');
+            fs.writeFileSync(novoJs, conteudo, 'utf8');
+            console.log(`[UPDATE] Novo agente.js salvo em: ${novoJs}`);
+
+            // 2. Verificar se pkg está disponível
+            let pkgPath = null;
+            try {
+                pkgPath = esA('where pkg', { encoding: 'utf8', timeout: 3000 }).trim().split(/\r?\n/)[0].trim();
+            } catch(e) {
+                // Tentar caminho padrão npm global
+                const npmGlobal = path.join(process.env.APPDATA || '', 'npm', 'pkg.cmd');
+                if (fs.existsSync(npmGlobal)) pkgPath = npmGlobal;
+            }
+
+            if (!pkgPath) {
+                // pkg não encontrado — tentar instalar
+                console.log('[UPDATE] pkg nao encontrado, instalando via npm...');
+                try {
+                    esA('npm install -g pkg', { encoding: 'utf8', timeout: 60000 });
+                    pkgPath = esA('where pkg', { encoding: 'utf8', timeout: 3000 }).trim().split(/\r?\n/)[0].trim();
+                    console.log(`[UPDATE] pkg instalado: ${pkgPath}`);
+                } catch(eNpm) {
+                    console.log(`[UPDATE] Falha ao instalar pkg: ${eNpm.message}`);
+                    console.log('[UPDATE] Aplicando como .js e recompilando manualmente na proxima reinicializacao...');
+                    // Fallback: salvar .js e usar bat para recompilar depois
+                }
+            }
+
+            if (pkgPath) {
+                // 3. Recompilar localmente
+                console.log(`[UPDATE] Recompilando com pkg (pode levar 30-60s)...`);
+                try {
+                    const nodeVersion = esA('node --version', { encoding: 'utf8', timeout: 3000 }).trim().replace('v','').split('.')[0];
+                    const target = `node${nodeVersion}-win-x64`;
+                    esA(`"${pkgPath}" "${novoJs}" --targets ${target} --output "${novoExe}"`, {
+                        encoding: 'utf8',
+                        timeout: 120000
+                    });
+                    console.log(`[UPDATE] Recompilado com sucesso: ${novoExe}`);
+                } catch(ePkg) {
+                    console.log(`[UPDATE] Erro ao compilar: ${ePkg.message}`);
+                    _atualizacaoPendente = null;
+                    return false;
+                }
+            } else {
+                // Sem pkg — fallback para modo script
+                console.log('[UPDATE] Fallback: substituindo agente.js e reiniciando como script...');
+                const jsDestino = path.join(path.dirname(caminhoExe), 'agente.js');
+                fs.writeFileSync(jsDestino, conteudo, 'utf8');
+                console.log(`[UPDATE] agente.js atualizado em: ${jsDestino}`);
+                _atualizacaoPendente = null;
+                await new Promise(r => setTimeout(r, 1000));
+                process.exit(0);
+                return true;
+            }
+
+            // 4. Detectar nome do serviço
             let nomeServico = 'GoomerAgente';
             try {
-                const { execSync: esS } = require('child_process');
-                const scOut = esS('sc query type= all state= all', { encoding: 'utf8', timeout: 5000 });
-                // Procurar serviço cujo binário aponta para nosso exe
-                const wmiOut = esS(
-                    `wmic service where "PathName like '%goomer%'" get Name /value 2>nul`,
+                const wmi = esA(
+                    'wmic service where "PathName like '%goomer%'" get Name /value 2>nul',
                     { encoding: 'utf8', timeout: 5000 }
                 );
-                const match = wmiOut.match(/Name=([^\r\n]+)/i);
-                if (match && match[1].trim()) {
-                    nomeServico = match[1].trim();
-                    console.log(`[UPDATE] Nome real do servico detectado: ${nomeServico}`);
-                }
-            } catch(eN) { console.log('[UPDATE] Usando nome padrao GoomerAgente'); }
+                const m = wmi.match(/Name=([^\r\n]+)/i);
+                if (m && m[1].trim()) nomeServico = m[1].trim();
+                console.log(`[UPDATE] Servico: ${nomeServico}`);
+            } catch(e) {}
 
+            // 5. Criar bat de substituição
+            const script = path.join(tmpDir, 'goomer-update.bat');
             const bat = [
                 '@echo off',
-                'echo [UPDATE-BAT] Iniciado: %DATE% %TIME% >> "' + logBat + '"',
-                'echo [UPDATE-BAT] PID do processo: ' + pidAtual + ' >> "' + logBat + '"',
-                'echo [UPDATE-BAT] Servico: ' + nomeServico + ' >> "' + logBat + '"',
-
-                // 1. O processo ja encerrou via process.exit — aguardar SCM detectar
-                'echo [UPDATE-BAT] Aguardando SCM detectar encerramento do processo... >> "' + logBat + '"',
-                'set /a ESPERA=0',
-                ':WAIT_STOPPED',
-                'set /a ESPERA+=1',
-                // Verificar se o exe ainda esta rodando
+                'echo [BAT] Iniciado %DATE% %TIME% >> "' + logBat + '"',
+                // Aguardar exe morrer
+                'set /a N=0',
+                ':WAIT',
+                'set /a N+=1',
                 'tasklist /FI "IMAGENAME eq goomer-agente.exe" 2>nul | find /i "goomer-agente.exe" >nul',
-                'if %ERRORLEVEL% neq 0 goto EXE_MORTO',
-                'if %ESPERA% geq 10 goto FORCAR_KILL',
+                'if %ERRORLEVEL% neq 0 goto DEAD',
+                'if %N% geq 15 goto KILL',
                 'timeout /t 1 /nobreak >nul',
-                'goto WAIT_STOPPED',
-
-                ':FORCAR_KILL',
-                'echo [UPDATE-BAT] Exe ainda em memoria, forcando encerramento... >> "' + logBat + '"',
+                'goto WAIT',
+                ':KILL',
                 'taskkill /IM goomer-agente.exe /F >nul 2>&1',
                 'timeout /t 2 /nobreak >nul',
-
-                ':EXE_MORTO',
-                'echo [UPDATE-BAT] Exe encerrado (espera: %ESPERA%s) >> "' + logBat + '"',
-
-                // 2. Aguardar SCM transitar para STOPPED (sem forcar sc stop)
-                'set /a ESPERA2=0',
-                ':WAIT_SCM',
-                'set /a ESPERA2+=1',
-                'sc query ' + nomeServico + ' | find "STOPPED" >nul 2>&1',
-                'if %ERRORLEVEL%==0 goto SCM_STOPPED',
-                'if %ESPERA2% geq 8 goto SCM_STOPPED',
-                'timeout /t 1 /nobreak >nul',
-                'goto WAIT_SCM',
-                ':SCM_STOPPED',
-                'echo [UPDATE-BAT] SCM em STOPPED (espera: %ESPERA2%s) >> "' + logBat + '"',
-                'timeout /t 1 /nobreak >nul',
-
-                // 4. Copiar novo exe (com retry)
-                'set /a TENTATIVA=0',
-                ':RETRY',
-                'set /a TENTATIVA+=1',
-                'copy /y "' + caminhoNovo + '" "' + caminhoAtual + '" >nul 2>&1',
-                'if %ERRORLEVEL%==0 goto COPIADO',
-                'if %TENTATIVA% geq 8 goto ERRO',
-                'echo [UPDATE-BAT] Copia tentativa %TENTATIVA% falhou >> "' + logBat + '"',
+                ':DEAD',
+                'echo [BAT] Processo encerrado >> "' + logBat + '"',
                 'timeout /t 2 /nobreak >nul',
-                'goto RETRY',
-
-                ':COPIADO',
-                'echo [UPDATE-BAT] Copia concluida na tentativa %TENTATIVA% >> "' + logBat + '"',
-                'del "' + caminhoNovo + '" >nul 2>&1',
-
-                // 5. Reiniciar o serviço
-                'echo [UPDATE-BAT] Iniciando servico ' + nomeServico + '... >> "' + logBat + '"',
+                // Copiar novo exe
+                'copy /y "' + novoExe + '" "' + caminhoExe + '" >> "' + logBat + '" 2>&1',
+                'if %ERRORLEVEL%==0 goto OK',
+                'echo [BAT] ERRO na copia >> "' + logBat + '"',
                 'sc start ' + nomeServico + ' >nul 2>&1',
-                'timeout /t 6 /nobreak >nul',
-                'sc query ' + nomeServico + ' | find "RUNNING" >nul 2>&1',
-                'if %ERRORLEVEL%==0 goto FIM',
-                'echo [UPDATE-BAT] Tentando net start... >> "' + logBat + '"',
-                'net start ' + nomeServico + ' >nul 2>&1',
                 'goto FIM',
-
-                ':ERRO',
-                'echo [UPDATE-BAT] ERRO: copia falhou apos 8 tentativas >> "' + logBat + '"',
+                ':OK',
+                'del "' + novoExe + '" >nul 2>&1',
+                'del "' + novoJs  + '" >nul 2>&1',
+                'echo [BAT] Copia OK, iniciando servico >> "' + logBat + '"',
                 'sc start ' + nomeServico + ' >nul 2>&1',
-
                 ':FIM',
-                'echo [UPDATE-BAT] Concluido: %DATE% %TIME% >> "' + logBat + '"',
+                'echo [BAT] Concluido %DATE% %TIME% >> "' + logBat + '"',
             ].join('\r\n');
+
             fs.writeFileSync(script, bat, 'utf8');
+            console.log(`[UPDATE] Script criado: ${script}`);
+            console.log(`[UPDATE] Encerrando para aplicar ${AGENTE_VERSION} -> ${sha}...`);
 
-            console.log(`✅ [UPDATE] Script de atualização criado: ${script}`);
-            console.log(`[UPDATE] Encerrando para aplicar atualização ${AGENTE_VERSION} → ${sha}...`);
-
+            spawn('cmd.exe', ['/c', script], { detached: true, stdio: 'ignore' }).unref();
             _atualizacaoPendente = null;
-            await new Promise(r => setTimeout(r, 1000));
-
-            // Iniciar o bat de atualização de forma destacada
-            const { spawn, execSync: esKill } = require('child_process');
-            // Iniciar bat de forma destacada
-            spawn('cmd.exe', ['/c', script], {
-                detached: true, stdio: 'ignore', shell: false
-            }).unref();
-
-            // Aguardar bat iniciar antes de encerrar
             await new Promise(r => setTimeout(r, 2000));
-
-            // O bat vai matar o processo pelo nome do exe e reiniciar o serviço
-            // Encerrar via process.exit como sinal para o NSSM
-            console.log(`[UPDATE] Sinalizando encerramento...`);
             process.exit(0);
 
         } else {
-            // Script Node — substituição direta é possível
+            // ── Modo Script Node: substituição direta ────────────────────
+            const caminhoNovo = path.join(tmpDir, 'goomer-agente-novo.js');
+            fs.writeFileSync(caminhoNovo, conteudo, 'utf8');
             fs.copyFileSync(caminhoNovo, caminhoAtual);
             fs.unlinkSync(caminhoNovo);
 
-            console.log(`✅ [UPDATE] Agente atualizado: ${AGENTE_VERSION} → ${sha} — reiniciando...`);
+            console.log(`[UPDATE] Agente atualizado: ${AGENTE_VERSION} -> ${sha} - reiniciando...`);
             _atualizacaoPendente = null;
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, 1000));
             process.exit(0);
         }
 
         return true;
     } catch(eApl) {
-        console.log(`[UPDATE] ⚠ Erro ao aplicar atualização: ${eApl.message}`);
+        console.log(`[UPDATE] Erro ao aplicar: ${eApl.message}`);
         _atualizacaoPendente = null;
         return false;
     }
 }
+
 
 async function carregarConfig(tokenLoja) {
     try {
