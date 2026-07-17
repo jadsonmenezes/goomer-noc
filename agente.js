@@ -2591,58 +2591,82 @@ async function aplicarAtualizacao() {
         // Usar cmd para mover após o processo encerrar (move via script batch)
         if (eExe) {
             const script = path.join(tmpDir, 'goomer-update.bat');
-            const logBat = path.join(tmpDir, 'goomer-update.log');
+            const logBat  = path.join(tmpDir, 'goomer-update.log');
+            const pidAtual = process.pid;
+
+            // Detectar nome real do serviço pelo caminho do exe
+            let nomeServico = 'GoomerAgente';
+            try {
+                const { execSync: esS } = require('child_process');
+                const scOut = esS('sc query type= all state= all', { encoding: 'utf8', timeout: 5000 });
+                // Procurar serviço cujo binário aponta para nosso exe
+                const wmiOut = esS(
+                    `wmic service where "PathName like '%goomer%'" get Name /value 2>nul`,
+                    { encoding: 'utf8', timeout: 5000 }
+                );
+                const match = wmiOut.match(/Name=([^\r\n]+)/i);
+                if (match && match[1].trim()) {
+                    nomeServico = match[1].trim();
+                    console.log(`[UPDATE] Nome real do servico detectado: ${nomeServico}`);
+                }
+            } catch(eN) { console.log('[UPDATE] Usando nome padrao GoomerAgente'); }
+
             const bat = [
                 '@echo off',
                 'echo [UPDATE-BAT] Iniciado: %DATE% %TIME% >> "' + logBat + '"',
+                'echo [UPDATE-BAT] PID do processo: ' + pidAtual + ' >> "' + logBat + '"',
+                'echo [UPDATE-BAT] Servico: ' + nomeServico + ' >> "' + logBat + '"',
 
-                // 1. Parar o serviço para liberar o handle do exe
-                'echo [UPDATE-BAT] Parando servico GoomerAgente... >> "' + logBat + '"',
-                'net stop GoomerAgente >nul 2>&1',
+                // 1. Matar o processo pelo PID (mais confiavel que net stop)
+                'echo [UPDATE-BAT] Encerrando processo PID ' + pidAtual + '... >> "' + logBat + '"',
+                'taskkill /PID ' + pidAtual + ' /F >nul 2>&1',
+                'echo [UPDATE-BAT] taskkill executado >> "' + logBat + '"',
 
-                // 2. Aguardar confirmação que o serviço parou (até 30s)
+                // 2. Aguardar processo encerrar (verificar pelo PID)
                 'set /a ESPERA=0',
-                ':WAIT_STOP',
+                ':WAIT_PID',
                 'set /a ESPERA+=1',
-                'sc query GoomerAgente | find "STOPPED" >nul 2>&1',
-                'if %ERRORLEVEL%==0 goto PARADO',
-                'if %ESPERA% geq 15 goto PARADO',
-                'timeout /t 2 /nobreak >nul',
-                'goto WAIT_STOP',
-                ':PARADO',
-                'echo [UPDATE-BAT] Servico parado (tentativas: %ESPERA%) >> "' + logBat + '"',
+                'tasklist /FI "PID eq ' + pidAtual + '" 2>nul | find "' + pidAtual + '" >nul',
+                'if %ERRORLEVEL% neq 0 goto PROCESSO_MORTO',
+                'if %ESPERA% geq 10 goto PROCESSO_MORTO',
+                'timeout /t 1 /nobreak >nul',
+                'goto WAIT_PID',
+                ':PROCESSO_MORTO',
+                'echo [UPDATE-BAT] Processo encerrado (espera: %ESPERA%s) >> "' + logBat + '"',
                 'timeout /t 2 /nobreak >nul',
 
-                // 3. Copiar novo exe (com retry)
+                // 3. Parar o serviço via SC para liberar handles residuais
+                'sc stop ' + nomeServico + ' >nul 2>&1',
+                'timeout /t 3 /nobreak >nul',
+
+                // 4. Copiar novo exe (com retry)
                 'set /a TENTATIVA=0',
                 ':RETRY',
                 'set /a TENTATIVA+=1',
                 'copy /y "' + caminhoNovo + '" "' + caminhoAtual + '" >nul 2>&1',
                 'if %ERRORLEVEL%==0 goto COPIADO',
-                'if %TENTATIVA% geq 5 goto ERRO',
-                'echo [UPDATE-BAT] Copia tentativa %TENTATIVA% falhou, aguardando... >> "' + logBat + '"',
-                'timeout /t 3 /nobreak >nul',
+                'if %TENTATIVA% geq 8 goto ERRO',
+                'echo [UPDATE-BAT] Copia tentativa %TENTATIVA% falhou >> "' + logBat + '"',
+                'timeout /t 2 /nobreak >nul',
                 'goto RETRY',
 
                 ':COPIADO',
                 'echo [UPDATE-BAT] Copia concluida na tentativa %TENTATIVA% >> "' + logBat + '"',
                 'del "' + caminhoNovo + '" >nul 2>&1',
 
-                // 4. Reiniciar o serviço
-                'echo [UPDATE-BAT] Reiniciando servico... >> "' + logBat + '"',
-                'net start GoomerAgente >nul 2>&1',
-                'timeout /t 5 /nobreak >nul',
-                'sc query GoomerAgente | find "RUNNING" >nul 2>&1',
+                // 5. Reiniciar o serviço
+                'echo [UPDATE-BAT] Iniciando servico ' + nomeServico + '... >> "' + logBat + '"',
+                'sc start ' + nomeServico + ' >nul 2>&1',
+                'timeout /t 6 /nobreak >nul',
+                'sc query ' + nomeServico + ' | find "RUNNING" >nul 2>&1',
                 'if %ERRORLEVEL%==0 goto FIM',
-                'echo [UPDATE-BAT] Servico nao iniciou, tentando novamente... >> "' + logBat + '"',
-                'timeout /t 5 /nobreak >nul',
-                'net start GoomerAgente >nul 2>&1',
+                'echo [UPDATE-BAT] Tentando net start... >> "' + logBat + '"',
+                'net start ' + nomeServico + ' >nul 2>&1',
                 'goto FIM',
 
                 ':ERRO',
-                'echo [UPDATE-BAT] ERRO: nao foi possivel copiar apos 5 tentativas >> "' + logBat + '"',
-                'echo [UPDATE-BAT] Reiniciando servico com exe antigo... >> "' + logBat + '"',
-                'net start GoomerAgente >nul 2>&1',
+                'echo [UPDATE-BAT] ERRO: copia falhou apos 8 tentativas >> "' + logBat + '"',
+                'sc start ' + nomeServico + ' >nul 2>&1',
 
                 ':FIM',
                 'echo [UPDATE-BAT] Concluido: %DATE% %TIME% >> "' + logBat + '"',
