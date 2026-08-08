@@ -2808,7 +2808,7 @@ async function gerarDashboard(token, nome) {
             + '&criado_em=gte.' + encodeURIComponent(iniStr)
             + '&criado_em=lte.' + encodeURIComponent(fimStr)
             + '&order=criado_em.asc'
-            + '&select=criado_em,score,nota,servidor_online,ip_divergente,payload';
+            + '&select=criado_em,score,nota,payload';
         const resp = await fetch(url, { headers:{ 'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY }});
         _relSnaps = (await resp.json()) || [];
     } catch(e) {
@@ -2835,9 +2835,11 @@ function renderDashboardConteudo() {
     const scoreMedia = Math.round(scores.reduce((a,b)=>a+b,0) / total);
     const scoreMin   = Math.min(...scores);
     const scoreMax   = Math.max(...scores);
-    const srvOnline  = snaps.filter(s => s.servidor_online).length;
+    const srvOnline  = snaps.filter(s => s.payload?.servidor_goomer === 'online').length;
     const srvDisp    = Math.round((srvOnline / total) * 100);
-    const ipDiverg   = snaps.filter(s => s.ip_divergente).length;
+    const ipDiverg   = snaps.filter(s => s.payload?.ip_divergente === true).length;
+    const erroERP    = snaps.reduce((a,s) => a + (s.payload?.erp_errors||0), 0);
+    const semTablets = snaps.filter(s => (s.payload?.tablets_ativos||0) === 0).length;
 
     // Autocorreções de todos os snapshots
     const todasAC = snaps.flatMap(s => (s.payload?.autocorrecoes||[]));
@@ -2953,6 +2955,34 @@ function renderDashboardConteudo() {
         html += '</div></div>';
     }
 
+    // ── Insights automáticos ───────────────────────────────────────
+    const insights = [];
+    const acTipos = Object.keys(acPorTipo);
+
+    if (srvDisp < 95) insights.push({ nivel:'critico', ico:'🖥️', txt: `Servidor ficou offline em ${100-srvDisp}% dos ciclos — verifique estabilidade do processo Goomer.` });
+    if (scoreMedia < 70) insights.push({ nivel:'critico', ico:'📉', txt: `Score médio crítico (${scoreMedia}%) — loja operou com qualidade abaixo do esperado no período.` });
+    else if (scoreMedia < 85) insights.push({ nivel:'atencao', ico:'⚠️', txt: `Score médio (${scoreMedia}%) abaixo do ideal — investigue os ofensores recorrentes.` });
+    if (ipDiverg > total * 0.1) insights.push({ nivel:'critico', ico:'🌐', txt: `IP divergente em ${ipDiverg} snapshots (${Math.round(ipDiverg/total*100)}% do período) — pode indicar DHCP sem reserva ou configuração incorreta.` });
+    if (acPorTipo['spooler_reiniciado'] > 3) insights.push({ nivel:'atencao', ico:'🖨️', txt: `Spooler reiniciado ${acPorTipo['spooler_reiniciado']} vezes — impressora ou driver com problemas recorrentes.` });
+    if (acPorTipo['mysql_reiniciado'] > 2) insights.push({ nivel:'critico', ico:'🗄️', txt: `MySQL reiniciado ${acPorTipo['mysql_reiniciado']} vezes — investigar causas de queda do banco.` });
+    if (acPorTipo['servidor_iniciado'] > 3) insights.push({ nivel:'critico', ico:'🔄', txt: `Servidor Goomer reiniciado ${acPorTipo['servidor_iniciado']} vezes — processo instável, verificar hardware ou conflito de software.` });
+    if (semTablets > total * 0.05) insights.push({ nivel:'atencao', ico:'📱', txt: `${semTablets} snapshots sem tablets ativos (${Math.round(semTablets/total*100)}% do período) — tablets podem estar desconectados recorrentemente.` });
+    if (scoreMin < 50) insights.push({ nivel:'critico', ico:'🚨', txt: `Score mínimo de ${scoreMin}% registrado — houve ao menos um ciclo crítico. Verifique o histórico próximo ao evento.` });
+    if (insights.length === 0) insights.push({ nivel:'ok', ico:'✅', txt: 'Loja operou dentro dos parâmetros normais no período analisado. Sem ofensores significativos identificados.' });
+
+    const corInsight = { critico:'#ff4455', atencao:'#ffb830', ok:'#00d68f' };
+    const bgInsight  = { critico:'rgba(255,68,85,.07)', atencao:'rgba(255,184,48,.07)', ok:'rgba(0,214,143,.07)' };
+    const bdInsight  = { critico:'rgba(255,68,85,.3)', atencao:'rgba(255,184,48,.3)', ok:'rgba(0,214,143,.3)' };
+
+    html += `<div class="db-section">
+        <div class="db-section-title">💡 Insights do período</div>
+        ${insights.map(ins => `
+        <div style="background:${bgInsight[ins.nivel]};border:1px solid ${bdInsight[ins.nivel]};border-left:3px solid ${corInsight[ins.nivel]};border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start">
+            <span style="font-size:16px;flex-shrink:0">${ins.ico}</span>
+            <span style="font-size:12px;color:#e8eef8;line-height:1.5">${ins.txt}</span>
+        </div>`).join('')}
+    </div>`;
+
     document.getElementById('db-conteudo').innerHTML = html;
 
     // ── Renderizar gráficos Canvas ────────────────────────────────
@@ -3022,6 +3052,18 @@ function desenharLinhaScore(cv, dias, valores, fmtDia, corFn) {
         ctx.strokeStyle='#111827'; ctx.lineWidth=1.5; ctx.stroke();
     });
 
+    // Labels de valor em cada ponto
+    ctx.font = 'bold 9px Segoe UI';
+    valores.forEach((v,i) => {
+        const px = xP(i), py = yP(v);
+        const lbl = v + '%';
+        const tw  = ctx.measureText(lbl).width;
+        // Posicionar acima ou abaixo do ponto conforme espaço
+        const labelY = py < pT + 16 ? py + 16 : py - 7;
+        ctx.fillStyle = corFn(v);
+        ctx.fillText(lbl, px - tw/2, labelY);
+    });
+
     // Eixo X
     ctx.fillStyle='#606880'; ctx.font='9px Segoe UI';
     const step = Math.max(1,Math.floor(n/8));
@@ -3029,6 +3071,47 @@ function desenharLinhaScore(cv, dias, valores, fmtDia, corFn) {
         if (i%step!==0 && i!==n-1) return;
         ctx.fillText(fmtDia(d), xP(i)-10, H-6);
     });
+
+    // Tooltip interativo no mousemove
+    if (cv._tooltipListener) cv.removeEventListener('mousemove', cv._tooltipListener);
+    if (cv._leaveListener)   cv.removeEventListener('mouseleave', cv._leaveListener);
+
+    let _dbTooltip = document.getElementById('db-tooltip');
+    if (!_dbTooltip) {
+        _dbTooltip = document.createElement('div');
+        _dbTooltip.id = 'db-tooltip';
+        _dbTooltip.style.cssText = 'position:fixed;background:#1a2332;border:1px solid #1e3050;border-radius:8px;padding:8px 12px;font-size:12px;color:#e8eef8;pointer-events:none;display:none;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,.6)';
+        document.body.appendChild(_dbTooltip);
+    }
+
+    const _pontosDash = valores.map((v,i) => ({ x: xP(i), y: yP(v), v, d: dias[i] }));
+
+    cv._tooltipListener = function(e) {
+        const rect = cv.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        let closest = null, minD = 20;
+        _pontosDash.forEach(p => {
+            const d = Math.sqrt((mx-p.x)**2+(my-p.y)**2);
+            if (d < minD) { minD = d; closest = p; }
+        });
+        if (closest) {
+            const cor = corFn(closest.v);
+            _dbTooltip.innerHTML = '<div style="font-size:10px;color:#8096b8;margin-bottom:3px">' + fmtDia(closest.d) + '</div>'
+                + '<div style="font-size:18px;font-weight:800;color:' + cor + ';font-family:monospace">' + closest.v + '%</div>';
+            _dbTooltip.style.left  = Math.min(e.clientX+14, window.innerWidth-120) + 'px';
+            _dbTooltip.style.top   = (e.clientY-44) + 'px';
+            _dbTooltip.style.display = 'block';
+            cv.style.cursor = 'crosshair';
+        } else {
+            _dbTooltip.style.display = 'none';
+            cv.style.cursor = 'default';
+        }
+    };
+    cv._leaveListener = function() {
+        _dbTooltip.style.display = 'none';
+    };
+    cv.addEventListener('mousemove', cv._tooltipListener);
+    cv.addEventListener('mouseleave', cv._leaveListener);
 }
 
 function desenharBarrasDisp(cv, dias, valores, fmtDia) {
@@ -3046,8 +3129,7 @@ function desenharBarrasDisp(cv, dias, valores, fmtDia) {
     valores.forEach((v,i) => {
         const x=pL+i*gap+(gap-bW)/2, bH=(v/100)*aH;
         ctx.fillStyle=v>=95?'#00d68f':v>=80?'#ffb830':'#ff4455';
-        ctx.beginPath(); ctx.roundRect(x, pT+aH-bH, bW, bH, 3);
-        ctx.fill();
+        ctx.fillRect(x, pT+aH-bH, bW, bH);
     });
     ctx.fillStyle='#606880'; ctx.font='9px Segoe UI';
     const step=Math.max(1,Math.floor(n/6));
@@ -3117,8 +3199,8 @@ function exportarRelatorioExcel() {
             new Date(s.criado_em).toLocaleString('pt-BR'),
             s.score || 0,
             s.nota || '',
-            s.servidor_online ? 'Sim' : 'Não',
-            s.ip_divergente ? 'Sim' : 'Não',
+            s.payload?.servidor_goomer === 'online' ? 'Sim' : 'Não',
+            s.payload?.ip_divergente ? 'Sim' : 'Não',
             s.payload?.erp_errors || 0,
             acs
         ]);
@@ -3129,7 +3211,7 @@ function exportarRelatorioExcel() {
     // Aba resumo
     const scores = _relSnaps.map(s=>s.score||0);
     const todasAC = _relSnaps.flatMap(s=>s.payload?.autocorrecoes||[]);
-    const srvOnline = _relSnaps.filter(s=>s.servidor_online).length;
+    const srvOnline = _relSnaps.filter(s=>s.payload?.servidor_goomer==='online').length;
     const resumo = [
         ['Relatório NOC — ' + _relNome],
         [],
@@ -3146,8 +3228,15 @@ function exportarRelatorioExcel() {
     wsResumo['!cols'] = [{wch:28},{wch:30}];
     XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
     XLSX.utils.book_append_sheet(wb, ws, 'Snapshots');
-    const nome = (_relNome||'loja').replace(/[^a-zA-Z0-9]/g,'_');
-    XLSX.utils.writeFile(wb, 'relatorio_' + nome + '_' + new Date().toISOString().slice(0,10) + '.xlsx');
+    try {
+        const nome = (_relNome||'loja').replace(/[^a-zA-Z0-9]/g,'_');
+        const arquivo = 'relatorio_' + nome + '_' + new Date().toISOString().slice(0,10) + '.xlsx';
+        XLSX.utils.writeFile(wb, arquivo);
+        console.log('[RELATORIO] Excel gerado:', arquivo);
+    } catch(eXls) {
+        console.error('[RELATORIO] Erro ao gerar Excel:', eXls);
+        alert('Erro ao gerar Excel: ' + eXls.message + '\nVerifique o console do navegador.');
+    }
 }
 
 // ════════════════════════════════════════════════════════════════
