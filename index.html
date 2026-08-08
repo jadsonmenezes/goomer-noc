@@ -128,6 +128,17 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
 .tag-filter-btn.ativo{box-shadow:0 0 0 2px rgba(255,255,255,.2)}
 #tags-filter-row{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0 2px;min-height:0;transition:all .2s}
 #gerenciar-tags-panel{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;display:none}
+/* Relatório / Dashboard */
+.db-stat-card{background:#111827;border:1px solid #1E3050;border-radius:12px;padding:18px 20px;text-align:center}
+.db-stat-val{font-size:28px;font-weight:800;font-family:var(--mono);margin-bottom:4px}
+.db-stat-lbl{font-size:11px;color:#8096b8;text-transform:uppercase;letter-spacing:.07em}
+.db-section{background:#111827;border:1px solid #1E3050;border-radius:12px;padding:18px 20px;margin-bottom:16px}
+.db-section-title{font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:14px}
+.db-timeline-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px}
+.db-timeline-row:last-child{border:none}
+.period-btn{padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:#a0b8d0;transition:.15s}
+.period-btn.ativo{background:rgba(14,92,254,.15);border-color:rgba(14,92,254,.5);color:#7ab3ff}
+.period-btn:hover{border-color:#3b82f6;color:#7ab3ff}
 .sec{margin-bottom:18px}
 .sec-t{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#8096b8;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
 .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
@@ -345,9 +356,11 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
         <button class="modal-tab"    onclick="showTab('autocorrecoes')">⚙ Autocorreções</button>
         <button class="modal-tab"    onclick="showTab('config')">Agente</button>
         <button class="modal-tab"    onclick="showTab('tags-loja')">🏷 Tags</button>
+        <button class="modal-tab"    onclick="showTab('relatorio')">📊 Relatório</button>
       </div>
       <div id="tab-resumo"        class="modal-panel on"></div>
       <div id="tab-tags-loja"      class="modal-panel"></div>
+      <div id="tab-relatorio"       class="modal-panel"></div>
       <div id="tab-teste-rede"    class="modal-panel"></div>
       <div id="tab-diagnostico"   class="modal-panel"></div>
       <div id="tab-tablets"       class="modal-panel"></div>
@@ -1301,6 +1314,45 @@ async function abrirLoja(token, abaInicial) {
 
     // ── Tab Tags da Loja
     renderTagsLoja(l.token_loja);
+
+    // ── Tab Relatório — seletor de período
+    (function() {
+        const el = document.getElementById('tab-relatorio');
+        if (!el) return;
+        el.innerHTML = `
+        <div style="padding:4px 0 20px">
+            <div style="font-size:13px;color:#a0b8d0;margin-bottom:16px">
+                Selecione o período para gerar o relatório e dashboard desta loja.
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
+                <button class="period-btn ativo" id="pbtn-7"  onclick="setPeriodo(7,  this)">Última semana</button>
+                <button class="period-btn"        id="pbtn-30" onclick="setPeriodo(30, this)">Último mês</button>
+                <button class="period-btn"        id="pbtn-0"  onclick="setPeriodo(0,  this)">Personalizado</button>
+            </div>
+            <div id="periodo-custom" style="display:none;margin-bottom:16px;display:none;gap:10px;align-items:center;flex-wrap:wrap">
+                <label style="font-size:12px;color:#8096b8">De:
+                    <input type="date" id="periodo-ini" style="margin-left:6px;background:var(--bg3);border:1px solid var(--border);color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
+                </label>
+                <label style="font-size:12px;color:#8096b8">Até:
+                    <input type="date" id="periodo-fim" style="margin-left:6px;background:var(--bg3);border:1px solid var(--border);color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
+                </label>
+            </div>
+            <button onclick="gerarDashboard('${l.token_loja}','${h(l.nome_loja||'')}')"
+                style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;width:100%">
+                📊 Gerar Dashboard
+            </button>
+        </div>`;
+
+        window._periodoSelecionado = 7; // padrão: 7 dias
+
+        window.setPeriodo = function(dias, btn) {
+            window._periodoSelecionado = dias;
+            document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('ativo'));
+            btn.classList.add('ativo');
+            const custom = document.getElementById('periodo-custom');
+            if (custom) custom.style.display = dias === 0 ? 'flex' : 'none';
+        };
+    })();
 
     // ── Tab Teste de Rede ──────────────────────────────────────────────────
     let _diagRedeData = pay.diagnostico_rede;
@@ -2716,6 +2768,389 @@ function fecharModalTesteRede() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// DASHBOARD E RELATÓRIO
+// ════════════════════════════════════════════════════════════════
+
+let _relToken = null, _relNome = null, _relSnaps = [];
+
+async function gerarDashboard(token, nome) {
+    _relToken = token; _relNome = nome;
+
+    // Calcular datas
+    const fim   = new Date();
+    let ini;
+    const dias = window._periodoSelecionado;
+    if (dias === 0) {
+        const iniVal = document.getElementById('periodo-ini')?.value;
+        const fimVal = document.getElementById('periodo-fim')?.value;
+        if (!iniVal || !fimVal) { alert('Informe o período personalizado.'); return; }
+        ini = new Date(iniVal + 'T00:00:00');
+        fim.setTime(new Date(fimVal + 'T23:59:59').getTime());
+    } else {
+        ini = new Date(fim.getTime() - dias * 24 * 60 * 60 * 1000);
+    }
+
+    const iniStr = ini.toISOString();
+    const fimStr = fim.toISOString();
+    const fmtDate = d => new Date(d).toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit'});
+    const label = dias === 7 ? 'Última semana' : dias === 30 ? 'Último mês' : `${fmtDate(iniStr)} → ${fmtDate(fimStr)}`;
+
+    // Buscar snapshots do período
+    document.getElementById('db-titulo').textContent = nome;
+    document.getElementById('db-subtitulo').textContent = 'Carregando dados do período: ' + label + '...';
+    document.getElementById('db-conteudo').innerHTML = '<div style="text-align:center;padding:60px;color:#8096b8">⏳ Buscando snapshots...</div>';
+    document.getElementById('modal-dashboard').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+
+    try {
+        const url = SB_URL + '/rest/v1/snapshots'
+            + '?token_loja=eq.' + encodeURIComponent(token)
+            + '&criado_em=gte.' + encodeURIComponent(iniStr)
+            + '&criado_em=lte.' + encodeURIComponent(fimStr)
+            + '&order=criado_em.asc'
+            + '&select=criado_em,score,nota,servidor_online,ip_divergente,payload';
+        const resp = await fetch(url, { headers:{ 'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY }});
+        _relSnaps = (await resp.json()) || [];
+    } catch(e) {
+        document.getElementById('db-conteudo').innerHTML = '<div style="color:#ff4455;padding:40px;text-align:center">Erro ao buscar dados: ' + e.message + '</div>';
+        return;
+    }
+
+    document.getElementById('db-subtitulo').textContent = label + ' · ' + _relSnaps.length + ' snapshots';
+
+    if (_relSnaps.length === 0) {
+        document.getElementById('db-conteudo').innerHTML = '<div style="text-align:center;padding:60px;color:#8096b8">Nenhum dado encontrado para este período.</div>';
+        return;
+    }
+
+    renderDashboardConteudo();
+}
+
+function renderDashboardConteudo() {
+    const snaps = _relSnaps;
+    const total = snaps.length;
+
+    // ── Calcular métricas ─────────────────────────────────────────
+    const scores     = snaps.map(s => s.score || 0);
+    const scoreMedia = Math.round(scores.reduce((a,b)=>a+b,0) / total);
+    const scoreMin   = Math.min(...scores);
+    const scoreMax   = Math.max(...scores);
+    const srvOnline  = snaps.filter(s => s.servidor_online).length;
+    const srvDisp    = Math.round((srvOnline / total) * 100);
+    const ipDiverg   = snaps.filter(s => s.ip_divergente).length;
+
+    // Autocorreções de todos os snapshots
+    const todasAC = snaps.flatMap(s => (s.payload?.autocorrecoes||[]));
+    const acPorTipo = {};
+    todasAC.forEach(ac => {
+        const t = ac.tipo || 'outro';
+        acPorTipo[t] = (acPorTipo[t]||0) + 1;
+    });
+    const totalAC = todasAC.length;
+
+    // Erros ERP por snapshot
+    const errosTotal = snaps.reduce((a,s) => a + (s.payload?.erp_errors||0), 0);
+
+    // Score por dia (agrupar)
+    const porDia = {};
+    snaps.forEach(s => {
+        const dia = s.criado_em?.slice(0,10);
+        if (!dia) return;
+        if (!porDia[dia]) porDia[dia] = [];
+        porDia[dia].push(s.score||0);
+    });
+    const dias = Object.keys(porDia).sort();
+    const scorePorDia = dias.map(d => Math.round(porDia[d].reduce((a,b)=>a+b,0)/porDia[d].length));
+
+    // Disponibilidade por dia
+    const dispPorDia = {};
+    snaps.forEach(s => {
+        const dia = s.criado_em?.slice(0,10);
+        if (!dia) return;
+        if (!dispPorDia[dia]) dispPorDia[dia] = {on:0,tot:0};
+        dispPorDia[dia].tot++;
+        if (s.servidor_online) dispPorDia[dia].on++;
+    });
+    const dispDias = Object.keys(dispPorDia).sort();
+    const dispValues = dispDias.map(d => Math.round((dispPorDia[d].on/dispPorDia[d].tot)*100));
+
+    const corScore = s => s >= 85 ? '#00d68f' : s >= 60 ? '#ffb830' : '#ff4455';
+    const fmtDia = d => { const [,m,dd]=d.split('-'); return dd+'/'+m; };
+
+    // ── Render HTML ───────────────────────────────────────────────
+    let html = '';
+
+    // KPIs principais
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px">
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${corScore(scoreMedia)}">${scoreMedia}%</div>
+            <div class="db-stat-lbl">Score médio</div>
+        </div>
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${srvDisp>=95?'#00d68f':srvDisp>=80?'#ffb830':'#ff4455'}">${srvDisp}%</div>
+            <div class="db-stat-lbl">Disponibilidade</div>
+        </div>
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${totalAC>0?'#ffb830':'#00d68f'}">${totalAC}</div>
+            <div class="db-stat-lbl">Autocorreções</div>
+        </div>
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${ipDiverg>5?'#ff4455':ipDiverg>0?'#ffb830':'#00d68f'}">${ipDiverg}</div>
+            <div class="db-stat-lbl">Divergências de IP</div>
+        </div>
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:#e8eef8">${total}</div>
+            <div class="db-stat-lbl">Snapshots</div>
+        </div>
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${scoreMin<60?'#ff4455':'#e8eef8'}">${scoreMin}%</div>
+            <div class="db-stat-lbl">Score mínimo</div>
+        </div>
+    </div>`;
+
+    // Gráfico 1: Score ao longo do tempo
+    html += `<div class="db-section">
+        <div class="db-section-title">Score médio por dia</div>
+        <canvas id="db-chart-score" style="width:100%;height:180px;display:block"></canvas>
+    </div>`;
+
+    // Gráfico 2: Disponibilidade do servidor
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="db-section" style="margin-bottom:0">
+            <div class="db-section-title">Disponibilidade do servidor por dia (%)</div>
+            <canvas id="db-chart-disp" style="width:100%;height:160px;display:block"></canvas>
+        </div>
+        <div class="db-section" style="margin-bottom:0">
+            <div class="db-section-title">Autocorreções por tipo</div>
+            <canvas id="db-chart-ac" style="width:100%;height:160px;display:block"></canvas>
+        </div>
+    </div>`;
+
+    // Linha do tempo de ocorrências
+    if (todasAC.length > 0) {
+        html += `<div class="db-section">
+            <div class="db-section-title">Linha do tempo — autocorreções (${todasAC.length} ocorrências)</div>
+            <div style="max-height:220px;overflow-y:auto">`;
+        const tipoLbl = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado',
+            mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado' };
+        const tipoIco = { ip_sincronizado:'🌐', spooler_reiniciado:'🖨️', mysql_reiniciado:'🗄️', servidor_iniciado:'🖥️' };
+        const tipoCol = { ip_sincronizado:'#3b82f6', spooler_reiniciado:'#ffb830', mysql_reiniciado:'#00d68f', servidor_iniciado:'#a855f7' };
+        // Mostrar últimas 50
+        [...todasAC].reverse().slice(0,50).forEach(ac => {
+            const cor = tipoCol[ac.tipo] || '#8096b8';
+            const ico = tipoIco[ac.tipo] || '⚡';
+            const lbl = tipoLbl[ac.tipo] || ac.tipo;
+            const hora = ac.horario ? new Date(ac.horario).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+            const ok  = ac.resultado === 'sucesso';
+            html += `<div class="db-timeline-row">
+                <span style="font-size:14px;width:20px">${ico}</span>
+                <span style="color:${cor};font-weight:600;min-width:160px">${lbl}</span>
+                <span style="color:${ok?'#00d68f':'#ff4455'};font-weight:700;min-width:60px">${ok?'✓ OK':'✗ Falhou'}</span>
+                <span style="color:#606880;flex:1">${ac.obs||''}</span>
+                <span style="color:#8096b8;white-space:nowrap;margin-left:8px">${hora}</span>
+            </div>`;
+        });
+        html += '</div></div>';
+    }
+
+    document.getElementById('db-conteudo').innerHTML = html;
+
+    // ── Renderizar gráficos Canvas ────────────────────────────────
+    setTimeout(() => {
+        // Gráfico Score
+        const cvScore = document.getElementById('db-chart-score');
+        if (cvScore && dias.length > 0) {
+            cvScore.width  = cvScore.offsetWidth || 800;
+            cvScore.height = 180;
+            desenharLinhaScore(cvScore, dias, scorePorDia, fmtDia, corScore);
+        }
+        // Gráfico Disponibilidade
+        const cvDisp = document.getElementById('db-chart-disp');
+        if (cvDisp && dispDias.length > 0) {
+            cvDisp.width  = cvDisp.offsetWidth || 400;
+            cvDisp.height = 160;
+            desenharBarrasDisp(cvDisp, dispDias, dispValues, fmtDia);
+        }
+        // Gráfico Autocorreções
+        const cvAC = document.getElementById('db-chart-ac');
+        if (cvAC) {
+            cvAC.width  = cvAC.offsetWidth || 400;
+            cvAC.height = 160;
+            desenharPizzaAC(cvAC, acPorTipo);
+        }
+    }, 80);
+}
+
+function desenharLinhaScore(cv, dias, valores, fmtDia, corFn) {
+    const ctx = cv.getContext('2d');
+    const W=cv.width, H=cv.height, pL=40, pR=16, pT=16, pB=28;
+    const aW=W-pL-pR, aH=H-pT-pB;
+    const n = dias.length;
+    const xP = i => pL + (n<2 ? aW/2 : (i/(n-1))*aW);
+    const yP = v => pT + aH - (v/100)*aH;
+
+    ctx.fillStyle='#111827'; ctx.fillRect(0,0,W,H);
+
+    // Grid
+    ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
+    [0,25,50,75,100].forEach(v => {
+        ctx.beginPath(); ctx.moveTo(pL,yP(v)); ctx.lineTo(W-pR,yP(v)); ctx.stroke();
+        ctx.fillStyle='#606880'; ctx.font='9px Segoe UI';
+        ctx.fillText(v+'%', 2, yP(v)+3);
+    });
+
+    // Área preenchida
+    const grad = ctx.createLinearGradient(0,pT,0,pT+aH);
+    grad.addColorStop(0,'rgba(59,130,246,.25)');
+    grad.addColorStop(1,'rgba(59,130,246,0)');
+    ctx.beginPath();
+    valores.forEach((v,i) => i===0 ? ctx.moveTo(xP(i),yP(v)) : ctx.lineTo(xP(i),yP(v)));
+    ctx.lineTo(xP(n-1),pT+aH); ctx.lineTo(xP(0),pT+aH); ctx.closePath();
+    ctx.fillStyle=grad; ctx.fill();
+
+    // Linha
+    ctx.strokeStyle='#3b82f6'; ctx.lineWidth=2.5;
+    ctx.shadowColor='#3b82f6'; ctx.shadowBlur=6;
+    ctx.beginPath();
+    valores.forEach((v,i) => i===0 ? ctx.moveTo(xP(i),yP(v)) : ctx.lineTo(xP(i),yP(v)));
+    ctx.stroke(); ctx.shadowBlur=0;
+
+    // Pontos coloridos por score
+    valores.forEach((v,i) => {
+        ctx.fillStyle=corFn(v);
+        ctx.beginPath(); ctx.arc(xP(i),yP(v),4,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle='#111827'; ctx.lineWidth=1.5; ctx.stroke();
+    });
+
+    // Eixo X
+    ctx.fillStyle='#606880'; ctx.font='9px Segoe UI';
+    const step = Math.max(1,Math.floor(n/8));
+    dias.forEach((d,i) => {
+        if (i%step!==0 && i!==n-1) return;
+        ctx.fillText(fmtDia(d), xP(i)-10, H-6);
+    });
+}
+
+function desenharBarrasDisp(cv, dias, valores, fmtDia) {
+    const ctx = cv.getContext('2d');
+    const W=cv.width, H=cv.height, pL=36, pR=12, pT=12, pB=28;
+    const aW=W-pL-pR, aH=H-pT-pB;
+    const n=dias.length, bW=Math.max(4, aW/n*0.7), gap=aW/n;
+    ctx.fillStyle='#111827'; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
+    [0,50,100].forEach(v => {
+        const y=pT+aH-(v/100)*aH;
+        ctx.beginPath(); ctx.moveTo(pL,y); ctx.lineTo(W-pR,y); ctx.stroke();
+        ctx.fillStyle='#606880'; ctx.font='9px Segoe UI'; ctx.fillText(v+'%',2,y+3);
+    });
+    valores.forEach((v,i) => {
+        const x=pL+i*gap+(gap-bW)/2, bH=(v/100)*aH;
+        ctx.fillStyle=v>=95?'#00d68f':v>=80?'#ffb830':'#ff4455';
+        ctx.beginPath(); ctx.roundRect(x, pT+aH-bH, bW, bH, 3);
+        ctx.fill();
+    });
+    ctx.fillStyle='#606880'; ctx.font='9px Segoe UI';
+    const step=Math.max(1,Math.floor(n/6));
+    dias.forEach((d,i) => {
+        if (i%step!==0 && i!==n-1) return;
+        ctx.fillText(fmtDia(d), pL+i*gap+gap/2-12, H-6);
+    });
+}
+
+function desenharPizzaAC(cv, acPorTipo) {
+    const ctx = cv.getContext('2d');
+    const W=cv.width, H=cv.height;
+    ctx.fillStyle='#111827'; ctx.fillRect(0,0,W,H);
+
+    const entradas = Object.entries(acPorTipo);
+    if (entradas.length === 0) {
+        ctx.fillStyle='#8096b8'; ctx.font='12px Segoe UI'; ctx.textAlign='center';
+        ctx.fillText('Sem autocorreções', W/2, H/2); ctx.textAlign='left';
+        return;
+    }
+    const total = entradas.reduce((a,[,v])=>a+v,0);
+    const cores = ['#3b82f6','#00d68f','#ffb830','#ff4455','#a855f7','#f97316'];
+    const tipoLbl = { ip_sincronizado:'IP', spooler_reiniciado:'Spooler',
+        mysql_reiniciado:'MySQL', servidor_iniciado:'Servidor' };
+
+    const cx=W*0.38, cy=H/2, raio=Math.min(cx,cy)*0.85;
+    let ang = -Math.PI/2;
+    entradas.forEach(([tipo,val],i) => {
+        const slice = (val/total)*Math.PI*2;
+        ctx.fillStyle=cores[i%cores.length];
+        ctx.beginPath(); ctx.moveTo(cx,cy);
+        ctx.arc(cx,cy,raio,ang,ang+slice); ctx.closePath(); ctx.fill();
+        ang+=slice;
+    });
+    // Buraco central
+    ctx.fillStyle='#111827'; ctx.beginPath(); ctx.arc(cx,cy,raio*0.55,0,Math.PI*2); ctx.fill();
+    // Total no centro
+    ctx.fillStyle='#e8eef8'; ctx.font='bold 14px Segoe UI'; ctx.textAlign='center';
+    ctx.fillText(total, cx, cy+5); ctx.textAlign='left';
+
+    // Legenda
+    const lx=W*0.72, ly=cy-entradas.length*14;
+    entradas.forEach(([tipo,val],i) => {
+        const y=ly+i*28;
+        ctx.fillStyle=cores[i%cores.length];
+        ctx.fillRect(lx, y, 12, 12);
+        ctx.fillStyle='#e8eef8'; ctx.font='11px Segoe UI';
+        ctx.fillText(tipoLbl[tipo]||tipo, lx+16, y+10);
+        ctx.fillStyle='#8096b8'; ctx.font='10px Segoe UI';
+        ctx.fillText(val + 'x (' + Math.round(val/total*100)+'%)', lx+16, y+22);
+    });
+}
+
+function fecharDashboard() {
+    document.getElementById('modal-dashboard').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+function exportarRelatorioExcel() {
+    if (!_relSnaps.length) return;
+    const ws_data = [
+        ['Data/Hora','Score','Status','Servidor Online','IP Divergente','Erros ERP','Autocorreções']
+    ];
+    _relSnaps.forEach(s => {
+        const acs = (s.payload?.autocorrecoes||[]).length;
+        ws_data.push([
+            new Date(s.criado_em).toLocaleString('pt-BR'),
+            s.score || 0,
+            s.nota || '',
+            s.servidor_online ? 'Sim' : 'Não',
+            s.ip_divergente ? 'Sim' : 'Não',
+            s.payload?.erp_errors || 0,
+            acs
+        ]);
+    });
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
+    ws['!cols'] = [{wch:20},{wch:8},{wch:12},{wch:16},{wch:14},{wch:10},{wch:14}];
+    // Aba resumo
+    const scores = _relSnaps.map(s=>s.score||0);
+    const todasAC = _relSnaps.flatMap(s=>s.payload?.autocorrecoes||[]);
+    const srvOnline = _relSnaps.filter(s=>s.servidor_online).length;
+    const resumo = [
+        ['Relatório NOC — ' + _relNome],
+        [],
+        ['Período',       _relSnaps[0]?.criado_em?.slice(0,10) + ' → ' + _relSnaps[_relSnaps.length-1]?.criado_em?.slice(0,10)],
+        ['Total snapshots', _relSnaps.length],
+        ['Score médio',   Math.round(scores.reduce((a,b)=>a+b,0)/scores.length) + '%'],
+        ['Score mínimo',  Math.min(...scores) + '%'],
+        ['Score máximo',  Math.max(...scores) + '%'],
+        ['Disponibilidade servidor', Math.round(srvOnline/_relSnaps.length*100) + '%'],
+        ['Total autocorreções', todasAC.length],
+        ['Divergências de IP', _relSnaps.filter(s=>s.ip_divergente).length],
+    ];
+    const wsResumo = XLSX.utils.aoa_to_sheet(resumo);
+    wsResumo['!cols'] = [{wch:28},{wch:30}];
+    XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
+    XLSX.utils.book_append_sheet(wb, ws, 'Snapshots');
+    const nome = (_relNome||'loja').replace(/[^a-zA-Z0-9]/g,'_');
+    XLSX.utils.writeFile(wb, 'relatorio_' + nome + '_' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
+
+// ════════════════════════════════════════════════════════════════
 // SISTEMA DE TAGS
 // ════════════════════════════════════════════════════════════════
 
@@ -3190,6 +3625,30 @@ async function exportarDesatualizados() {
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Modal Dashboard Fullscreen -->
+  <div id="modal-dashboard" onclick="if(event.target===this)fecharDashboard()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10000;overflow-y:auto;padding:0">
+    <div style="background:#0A0F1E;min-height:100vh;padding:24px 28px;max-width:1200px;margin:0 auto">
+      <!-- Header dashboard -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+        <div>
+          <div id="db-titulo" style="font-size:20px;font-weight:800;color:#e8eef8"></div>
+          <div id="db-subtitulo" style="font-size:12px;color:#8096b8;margin-top:3px"></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button onclick="exportarRelatorioExcel()"
+            style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">
+            ↓ Exportar Excel
+          </button>
+          <button onclick="fecharDashboard()"
+            style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#8096b8;padding:8px 14px;border-radius:8px;font-size:14px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <!-- Conteúdo renderizado dinamicamente -->
+      <div id="db-conteudo"></div>
     </div>
   </div>
 
