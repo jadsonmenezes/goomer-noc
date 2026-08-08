@@ -2850,8 +2850,25 @@ function renderDashboardConteudo() {
     });
     const totalAC = todasAC.length;
 
-    // Erros ERP por snapshot
-    const errosTotal = snaps.reduce((a,s) => a + (s.payload?.erp_errors||0), 0);
+    // ── Análise detalhada dos ofensores via payload ───────────────
+    const errosTotal  = snaps.reduce((a,s) => a + (s.payload?.erp_errors||s.payload?.erros_erp||0), 0);
+    const retryTotal  = snaps.reduce((a,s) => a + (s.payload?.retry_expirados||0), 0);
+    const errosLog    = snaps.reduce((a,s) => a + (s.payload?.erros_log||0), 0);
+
+    // Máquina: quantos snapshots com CPU ou RAM acima do limiar
+    const snapsCpuAlto  = snaps.filter(s => parseInt(s.payload?.maquina?.cpu||0) >= 70).length;
+    const snapsRamAlto  = snaps.filter(s => parseInt(s.payload?.maquina?.ram_pct||0) >= 80).length;
+    const snapsCpuCrit  = snaps.filter(s => parseInt(s.payload?.maquina?.cpu||0) >= 90).length;
+    const snapsRamCrit  = snaps.filter(s => parseInt(s.payload?.maquina?.ram_pct||0) >= 90).length;
+    const snapsDiskoCrit = snaps.filter(s => (s.payload?.maquina?.discos||[]).some(d=>parseInt(d.pct)>90)).length;
+
+    // CPU/RAM médias
+    const cpuVals = snaps.map(s=>parseInt(s.payload?.maquina?.cpu||0)).filter(v=>v>0);
+    const ramVals = snaps.map(s=>parseInt(s.payload?.maquina?.ram_pct||0)).filter(v=>v>0);
+    const cpuMedia = cpuVals.length ? Math.round(cpuVals.reduce((a,b)=>a+b,0)/cpuVals.length) : 0;
+    const ramMedia = ramVals.length ? Math.round(ramVals.reduce((a,b)=>a+b,0)/ramVals.length) : 0;
+
+    // Tablets: snapshots sem tablets ativos
 
     // Score por dia (agrupar)
     const porDia = {};
@@ -2957,18 +2974,57 @@ function renderDashboardConteudo() {
 
     // ── Insights automáticos ───────────────────────────────────────
     const insights = [];
-    const acTipos = Object.keys(acPorTipo);
 
-    if (srvDisp < 95) insights.push({ nivel:'critico', ico:'🖥️', txt: `Servidor ficou offline em ${100-srvDisp}% dos ciclos — verifique estabilidade do processo Goomer.` });
-    if (scoreMedia < 70) insights.push({ nivel:'critico', ico:'📉', txt: `Score médio crítico (${scoreMedia}%) — loja operou com qualidade abaixo do esperado no período.` });
-    else if (scoreMedia < 85) insights.push({ nivel:'atencao', ico:'⚠️', txt: `Score médio (${scoreMedia}%) abaixo do ideal — investigue os ofensores recorrentes.` });
-    if (ipDiverg > total * 0.1) insights.push({ nivel:'critico', ico:'🌐', txt: `IP divergente em ${ipDiverg} snapshots (${Math.round(ipDiverg/total*100)}% do período) — pode indicar DHCP sem reserva ou configuração incorreta.` });
-    if (acPorTipo['spooler_reiniciado'] > 3) insights.push({ nivel:'atencao', ico:'🖨️', txt: `Spooler reiniciado ${acPorTipo['spooler_reiniciado']} vezes — impressora ou driver com problemas recorrentes.` });
-    if (acPorTipo['mysql_reiniciado'] > 2) insights.push({ nivel:'critico', ico:'🗄️', txt: `MySQL reiniciado ${acPorTipo['mysql_reiniciado']} vezes — investigar causas de queda do banco.` });
-    if (acPorTipo['servidor_iniciado'] > 3) insights.push({ nivel:'critico', ico:'🔄', txt: `Servidor Goomer reiniciado ${acPorTipo['servidor_iniciado']} vezes — processo instável, verificar hardware ou conflito de software.` });
-    if (semTablets > total * 0.05) insights.push({ nivel:'atencao', ico:'📱', txt: `${semTablets} snapshots sem tablets ativos (${Math.round(semTablets/total*100)}% do período) — tablets podem estar desconectados recorrentemente.` });
-    if (scoreMin < 50) insights.push({ nivel:'critico', ico:'🚨', txt: `Score mínimo de ${scoreMin}% registrado — houve ao menos um ciclo crítico. Verifique o histórico próximo ao evento.` });
-    if (insights.length === 0) insights.push({ nivel:'ok', ico:'✅', txt: 'Loja operou dentro dos parâmetros normais no período analisado. Sem ofensores significativos identificados.' });
+    // ── Servidor (40pts) ──────────────────────────────────────────
+    if (srvDisp < 85)
+        insights.push({ nivel:'critico', ico:'🖥️', txt: `Servidor offline em ${100-srvDisp}% dos ciclos — principal ofensor do score. Verifique estabilidade do processo Goomer e reinicializações do servidor.` });
+    else if (srvDisp < 95)
+        insights.push({ nivel:'atencao', ico:'🖥️', txt: `Servidor ficou offline em ${100-srvDisp}% dos ciclos — impacta diretamente 40pts do score.` });
+
+    // ── IP divergente (-20pts penalidade) ─────────────────────────
+    if (ipDiverg > total * 0.2)
+        insights.push({ nivel:'critico', ico:'🌐', txt: `IP divergente em ${ipDiverg} ciclos (${Math.round(ipDiverg/total*100)}% do período), penalizando -20pts por ocorrência. Configure reserva de IP no roteador para este servidor.` });
+    else if (ipDiverg > 0)
+        insights.push({ nivel:'atencao', ico:'🌐', txt: `IP divergente detectado ${ipDiverg} vez(es) — autocorreção aplicada mas considere fixar o IP no roteador.` });
+
+    // ── Máquina (15pts) ────────────────────────────────────────────
+    if (snapsRamCrit > total * 0.1)
+        insights.push({ nivel:'critico', ico:'💾', txt: `RAM acima de 90% em ${snapsRamCrit} ciclos (${Math.round(snapsRamCrit/total*100)}% do tempo) — principal ofensor de performance. Média: ${ramMedia}%. Considere ampliar a memória ou reduzir processos.` });
+    else if (snapsRamAlto > total * 0.2)
+        insights.push({ nivel:'atencao', ico:'💾', txt: `RAM entre 80-90% em ${snapsRamAlto} ciclos — impactando os 15pts de performance da máquina. Média: ${ramMedia}%.` });
+
+    if (snapsCpuCrit > total * 0.1)
+        insights.push({ nivel:'critico', ico:'⚙️', txt: `CPU acima de 90% em ${snapsCpuCrit} ciclos (${Math.round(snapsCpuCrit/total*100)}% do tempo) — servidor sobrecarregado. Média: ${cpuMedia}%.` });
+    else if (snapsCpuAlto > total * 0.2)
+        insights.push({ nivel:'atencao', ico:'⚙️', txt: `CPU entre 70-90% em ${snapsCpuAlto} ciclos — afetando performance. Média: ${cpuMedia}%.` });
+
+    if (snapsDiskoCrit > 0)
+        insights.push({ nivel:'critico', ico:'💿', txt: `Disco acima de 90% detectado em ${snapsDiskoCrit} ciclos — risco de falha crítica. Libere espaço imediatamente.` });
+
+    // ── ERP (25pts) ────────────────────────────────────────────────
+    if (retryTotal > 0)
+        insights.push({ nivel:'atencao', ico:'🔗', txt: `${retryTotal} pedidos com retry expirado no período — integração ERP com falhas. Verifique conexão com o sistema de gestão.` });
+
+    // ── Erros de log (20pts) ──────────────────────────────────────
+    if (errosLog > 500 * snaps.length / snaps.length)
+        insights.push({ nivel:'atencao', ico:'📋', txt: `Alto volume de erros sistêmicos nos logs — ${Math.round(errosLog/total)} erros por ciclo em média. Pode indicar problema de integração recorrente.` });
+
+    // ── Autocorreções recorrentes ─────────────────────────────────
+    if ((acPorTipo['spooler_reiniciado']||0) > 3)
+        insights.push({ nivel:'atencao', ico:'🖨️', txt: `Spooler reiniciado ${acPorTipo['spooler_reiniciado']} vezes — problema recorrente de impressora. Verifique driver ou hardware.` });
+    if ((acPorTipo['mysql_reiniciado']||0) > 2)
+        insights.push({ nivel:'critico', ico:'🗄️', txt: `MySQL reiniciado ${acPorTipo['mysql_reiniciado']} vezes — banco de dados instável. Verifique memória disponível e logs do MySQL.` });
+    if ((acPorTipo['servidor_iniciado']||0) > 3)
+        insights.push({ nivel:'critico', ico:'🔄', txt: `Servidor Goomer reiniciado ${acPorTipo['servidor_iniciado']} vezes — processo muito instável. Pode estar relacionado a alta de RAM/CPU.` });
+    if (semTablets > total * 0.05)
+        insights.push({ nivel:'atencao', ico:'📱', txt: `${semTablets} ciclos sem tablets ativos (${Math.round(semTablets/total*100)}% do período) — tablets desconectando recorrentemente. Verifique WiFi.` });
+
+    // ── Score geral ───────────────────────────────────────────────
+    if (scoreMin < 40)
+        insights.push({ nivel:'critico', ico:'🚨', txt: `Score mínimo crítico de ${scoreMin}% registrado — houve ao menos um ciclo grave. Analise o horário exato na linha do tempo.` });
+
+    if (insights.length === 0)
+        insights.push({ nivel:'ok', ico:'✅', txt: `Score médio de ${scoreMedia}% — loja operou dentro dos parâmetros normais. Servidor disponível ${srvDisp}% do tempo, sem ofensores significativos.` });
 
     const corInsight = { critico:'#ff4455', atencao:'#ffb830', ok:'#00d68f' };
     const bgInsight  = { critico:'rgba(255,68,85,.07)', atencao:'rgba(255,184,48,.07)', ok:'rgba(0,214,143,.07)' };
@@ -3131,6 +3187,18 @@ function desenharBarrasDisp(cv, dias, valores, fmtDia) {
         ctx.fillStyle=v>=95?'#00d68f':v>=80?'#ffb830':'#ff4455';
         ctx.fillRect(x, pT+aH-bH, bW, bH);
     });
+    // Labels de valor em cima de cada barra
+    ctx.font = 'bold 9px Segoe UI';
+    valores.forEach((v,i) => {
+        const x=pL+i*gap+(gap-bW)/2, bH=(v/100)*aH;
+        const lbl = v + '%';
+        const tw = ctx.measureText(lbl).width;
+        ctx.fillStyle = v>=95?'#00d68f':v>=80?'#ffb830':'#ff4455';
+        if (bH > 14) {
+            ctx.fillText(lbl, x + bW/2 - tw/2, pT+aH-bH-3);
+        }
+    });
+
     ctx.fillStyle='#606880'; ctx.font='9px Segoe UI';
     const step=Math.max(1,Math.floor(n/6));
     dias.forEach((d,i) => {
@@ -3229,13 +3297,20 @@ function exportarRelatorioExcel() {
     XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
     XLSX.utils.book_append_sheet(wb, ws, 'Snapshots');
     try {
-        const nome = (_relNome||'loja').replace(/[^a-zA-Z0-9]/g,'_');
+        const nome    = (_relNome||'loja').replace(/[^a-zA-Z0-9]/g,'_');
         const arquivo = 'relatorio_' + nome + '_' + new Date().toISOString().slice(0,10) + '.xlsx';
-        XLSX.utils.writeFile(wb, arquivo);
+        // Gerar buffer e fazer download via Blob — compatível com todos os browsers
+        const wbOut = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        const blob  = new Blob([wbOut], { type: 'application/octet-stream' });
+        const url   = URL.createObjectURL(blob);
+        const a     = document.createElement('a');
+        a.href = url; a.download = arquivo;
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
         console.log('[RELATORIO] Excel gerado:', arquivo);
     } catch(eXls) {
         console.error('[RELATORIO] Erro ao gerar Excel:', eXls);
-        alert('Erro ao gerar Excel: ' + eXls.message + '\nVerifique o console do navegador.');
+        alert('Erro ao gerar Excel: ' + eXls.message);
     }
 }
 
