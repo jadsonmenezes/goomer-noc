@@ -2588,6 +2588,58 @@ function abrirModalTesteRede(ti) {
             ctx.beginPath(); ctx.moveTo(x,pT); ctx.lineTo(x,pT+aH); ctx.stroke();
             ctx.setLineDash([]);
         });
+        // ── Tooltip ao passar o mouse sobre os pontos ─────────────────
+        // Guardar dados dos pontos para hit-test no mousemove
+        const _pontos = hist.map((c, i) => ({
+            x: xP(i), y: c.pm !== null && c.pm !== undefined ? yP(c.pm) : null,
+            pm: c.pm, h: c.h, pp: c.pp
+        })).filter(p => p.y !== null);
+
+        // Div de tooltip
+        let _tooltip = document.getElementById('mtr-tooltip');
+        if (!_tooltip) {
+            _tooltip = document.createElement('div');
+            _tooltip.id = 'mtr-tooltip';
+            _tooltip.style.cssText = 'position:fixed;background:#1a2332;border:1px solid #1e3050;border-radius:8px;padding:8px 12px;font-size:12px;color:#e8eef8;pointer-events:none;display:none;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,.5);min-width:100px';
+            document.body.appendChild(_tooltip);
+        }
+
+        cv.addEventListener('mousemove', function(e) {
+            const rect = cv.getBoundingClientRect();
+            const mx   = e.clientX - rect.left;
+            const my   = e.clientY - rect.top;
+
+            // Encontrar ponto mais próximo dentro de 18px
+            let closest = null, minDist = 18;
+            _pontos.forEach(p => {
+                const dist = Math.sqrt((mx - p.x) ** 2 + (my - p.y) ** 2);
+                if (dist < minDist) { minDist = dist; closest = p; }
+            });
+
+            if (closest) {
+                const cor = closest.pm >= limCrit ? '#ff4455' : closest.pm >= limIns ? '#ffb830' : '#00d68f';
+                _tooltip.innerHTML =
+                    '<div style="font-size:10px;color:#8096b8;margin-bottom:4px">' + (closest.h || '') + '</div>' +
+                    '<div style="font-weight:700;color:' + cor + ';font-size:16px;font-family:var(--mono,monospace)">' + closest.pm + 'ms</div>' +
+                    (closest.pp !== undefined ? '<div style="font-size:10px;color:#8096b8;margin-top:2px">Perda: ' + closest.pp + '%</div>' : '');
+
+                // Posicionar tooltip próximo ao cursor mas dentro da tela
+                const tx = e.clientX + 14;
+                const ty = e.clientY - 40;
+                _tooltip.style.left  = Math.min(tx, window.innerWidth  - 140) + 'px';
+                _tooltip.style.top   = Math.max(ty, 8) + 'px';
+                _tooltip.style.display = 'block';
+                cv.style.cursor = 'crosshair';
+            } else {
+                _tooltip.style.display = 'none';
+                cv.style.cursor = 'default';
+            }
+        });
+
+        cv.addEventListener('mouseleave', function() {
+            _tooltip.style.display = 'none';
+        });
+
     }, 50);
 }
 
