@@ -120,6 +120,14 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
 .modal-tab{background:var(--bg3);border:1px solid var(--border);color:var(--sub);padding:6px 14px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;transition:.15s}
 .modal-tab:hover,.modal-tab.on{background:rgba(14,92,254,.15);border-color:var(--blue);color:var(--blue-l)}
 .modal-panel{display:none}.modal-panel.on{display:block}
+.tag-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;cursor:pointer;border:1px solid transparent;transition:.15s;white-space:nowrap}
+.tag-pill:hover{opacity:.8}
+.tag-pill .tag-x{font-size:11px;opacity:.7;margin-left:2px}
+.tag-filter-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid;transition:.15s;white-space:nowrap}
+.tag-filter-btn:hover{opacity:.8}
+.tag-filter-btn.ativo{box-shadow:0 0 0 2px rgba(255,255,255,.2)}
+#tags-filter-row{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0 2px;min-height:0;transition:all .2s}
+#gerenciar-tags-panel{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;display:none}
 .sec{margin-bottom:18px}
 .sec-t{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#8096b8;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
 .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
@@ -258,7 +266,50 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
     <button class="filter-btn"       id="f-desatualizado" onclick="setFiltro('desatualizado')">🔄 Desatualizado</button>
     <button class="filter-btn"       id="f-inativas"      onclick="setFiltro('inativas')">⊘ Inativas</button>
     <button class="filter-btn" id="btn-order" onclick="toggleOrder()" style="margin-left:auto" title="Ordenar por score">↑ score</button>
-    <button class="filter-btn" onclick="exportarDesatualizados()" title="Exportar lojas desatualizadas" style="background:rgba(14,92,254,.1);border-color:rgba(14,92,254,.3);color:#7ab3ff">↓ exportar desatualizados</button>
+    <button class="filter-btn" onclick="document.getElementById('gerenciar-tags-panel').style.display=document.getElementById('gerenciar-tags-panel').style.display==='block'?'none':'block'"
+      title="Gerenciar tags de segmentação" style="background:rgba(168,85,247,.1);border-color:rgba(168,85,247,.3);color:#c084fc">🏷 Tags</button>
+    <button class="filter-btn" onclick="exportarDesatualizados()"  title="Exportar lojas desatualizadas" style="background:rgba(14,92,254,.1);border-color:rgba(14,92,254,.3);color:#7ab3ff">↓ exportar desatualizados</button>
+  </div>
+
+  <!-- Linha de tags de filtro (aparece quando há tags criadas) -->
+  <div id="tags-filter-row"></div>
+
+  <!-- Painel de gerenciamento de tags (abre/fecha) -->
+  <div id="gerenciar-tags-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span style="font-size:12px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em">Gerenciar Tags</span>
+      <button onclick="document.getElementById('gerenciar-tags-panel').style.display='none'"
+        style="background:none;border:none;color:#8096b8;cursor:pointer;font-size:16px">✕</button>
+    </div>
+    <!-- Criar nova tag -->
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+      <input id="nova-tag-nome" placeholder="Nome da tag..." maxlength="24"
+        style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:7px;font-size:12px;flex:1;min-width:120px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="cores-tag">
+        <span data-cor="#00d68f" onclick="selecionarCorTag(this)" title="Verde"
+          style="width:20px;height:20px;border-radius:50%;background:#00d68f;cursor:pointer;border:2px solid transparent"></span>
+        <span data-cor="#3b82f6" onclick="selecionarCorTag(this)" title="Azul"
+          style="width:20px;height:20px;border-radius:50%;background:#3b82f6;cursor:pointer;border:2px solid transparent"></span>
+        <span data-cor="#ffb830" onclick="selecionarCorTag(this)" title="Âmbar"
+          style="width:20px;height:20px;border-radius:50%;background:#ffb830;cursor:pointer;border:2px solid transparent"></span>
+        <span data-cor="#ff4455" onclick="selecionarCorTag(this)" title="Vermelho"
+          style="width:20px;height:20px;border-radius:50%;background:#ff4455;cursor:pointer;border:2px solid transparent"></span>
+        <span data-cor="#a855f7" onclick="selecionarCorTag(this)" title="Roxo"
+          style="width:20px;height:20px;border-radius:50%;background:#a855f7;cursor:pointer;border:2px solid transparent"></span>
+        <span data-cor="#06b6d4" onclick="selecionarCorTag(this)" title="Ciano"
+          style="width:20px;height:20px;border-radius:50%;background:#06b6d4;cursor:pointer;border:2px solid transparent"></span>
+        <span data-cor="#f97316" onclick="selecionarCorTag(this)" title="Laranja"
+          style="width:20px;height:20px;border-radius:50%;background:#f97316;cursor:pointer;border:2px solid transparent"></span>
+        <span data-cor="#ec4899" onclick="selecionarCorTag(this)" title="Rosa"
+          style="width:20px;height:20px;border-radius:50%;background:#ec4899;cursor:pointer;border:2px solid transparent"></span>
+      </div>
+      <button onclick="criarTag()"
+        style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:6px 14px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">
+        + Criar Tag
+      </button>
+    </div>
+    <!-- Lista de tags existentes -->
+    <div id="lista-tags-admin" style="display:flex;flex-wrap:wrap;gap:6px"></div>
   </div>
 
   <div id="grid"><div class="loading">carregando lojas...</div></div>
@@ -293,8 +344,10 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
         <button class="modal-tab" id="btn-tab-teste-rede" onclick="showTab('teste-rede')" style="display:none">📶 Teste de Rede</button>
         <button class="modal-tab"    onclick="showTab('autocorrecoes')">⚙ Autocorreções</button>
         <button class="modal-tab"    onclick="showTab('config')">Agente</button>
+        <button class="modal-tab"    onclick="showTab('tags-loja')">🏷 Tags</button>
       </div>
       <div id="tab-resumo"        class="modal-panel on"></div>
+      <div id="tab-tags-loja"      class="modal-panel"></div>
       <div id="tab-teste-rede"    class="modal-panel"></div>
       <div id="tab-diagnostico"   class="modal-panel"></div>
       <div id="tab-tablets"       class="modal-panel"></div>
@@ -331,6 +384,10 @@ const BAR_COR = (v,lo,hi) => v>=hi?'#ff4455':v>=lo?'#ffb830':'#00d68f';
 
 let _cfgLojaAtual = {}; // espelho local do cfgLoja do modal aberto
 let _dados = [], _filtro = 'todos', _order = 'asc'; // asc = piores primeiro
+let _filtroTag  = null;   // id da tag ativa no filtro (null = sem filtro de tag)
+let _tags       = [];     // [ { id, nome, cor } ] — carregadas do Supabase
+let _lojasTags  = {};     // { token_loja: [id_tag, ...] } — vínculo loja↔tags
+let _corTagSel  = '#00d68f'; // cor selecionada no painel de criar tag
 let _versoesPadrao = {}; // versões mínimas carregadas do Supabase
 let _todosRows = []; // todos os snapshots para cálculo de tendência
 let _tendencias = {}; // tendência por loja
@@ -544,6 +601,11 @@ function filtrar() {
             const tabDesat = _versoesPadrao.app_tablet &&
                 (pay.tablets||[]).some(t => compararVersao(t.versao, _versoesPadrao.app_tablet) === 'desatualizado');
             return srvDesat || tabDesat;
+        }
+        // Filtro por tag
+        if (_filtroTag) {
+            const lojaTagIds = _lojasTags[l.token_loja] || [];
+            if (!lojaTagIds.includes(_filtroTag)) return false;
         }
         return true;
     });
@@ -1236,6 +1298,9 @@ async function abrirLoja(token, abaInicial) {
         nocTopoScale = 1; nocVX = 0; nocVY = 0; nocNodes = {};
         renderTopoNoc(tablets_t, imps_t, ip, pay.latencia||null);
     }, 50);
+
+    // ── Tab Tags da Loja
+    renderTagsLoja(l.token_loja);
 
     // ── Tab Teste de Rede ──────────────────────────────────────────────────
     let _diagRedeData = pay.diagnostico_rede;
@@ -2338,8 +2403,10 @@ function closeOverlay(e){
         document.getElementById('overlay').classList.remove('on');
 }
 
+carregarTags();
 carregar();
 setInterval(carregar, 5*60*1000);
+setInterval(carregarTags, 10*60*1000); // atualizar tags a cada 10min
 
 // ── Controle de flags do agente ──────────────────────────────────────────────
 function renderWidgetTesteRede(getValor, h, token) {
@@ -2646,6 +2713,216 @@ function abrirModalTesteRede(ti) {
 function fecharModalTesteRede() {
     document.getElementById('modal-teste-rede').style.display = 'none';
     document.body.style.overflow = '';
+}
+
+// ════════════════════════════════════════════════════════════════
+// SISTEMA DE TAGS
+// ════════════════════════════════════════════════════════════════
+
+// Carregar tags e vínculos do Supabase
+async function carregarTags() {
+    try {
+        const [resTags, resVinc] = await Promise.all([
+            sb('noc_tags',         '?select=*&order=nome'),
+            sb('noc_lojas_tags',   '?select=*'),
+        ]);
+        _tags      = resTags  || [];
+        // Montar mapa token → [ids]
+        _lojasTags = {};
+        (resVinc || []).forEach(v => {
+            if (!_lojasTags[v.token_loja]) _lojasTags[v.token_loja] = [];
+            _lojasTags[v.token_loja].push(v.tag_id);
+        });
+        renderTagsFilterRow();
+        renderListaTagsAdmin();
+    } catch(e) { console.warn('Tags:', e.message); }
+}
+
+// Renderizar linha de filtros de tags
+function renderTagsFilterRow() {
+    const row = document.getElementById('tags-filter-row');
+    if (!row) return;
+    if (_tags.length === 0) { row.innerHTML = ''; return; }
+
+    let html = '';
+    _tags.forEach(t => {
+        const ativo = _filtroTag === t.id;
+        html += `<button class="tag-filter-btn ${ativo ? 'ativo' : ''}"
+            onclick="setFiltroTag('${t.id}')"
+            style="background:${t.cor}${ativo?'33':'18'};border-color:${t.cor}${ativo?'':'66'};color:${t.cor}">
+            ${h(t.nome)}
+            <span style="opacity:.6;font-size:10px;margin-left:2px">${contarLojasPorTag(t.id)}</span>
+        </button>`;
+    });
+    if (_filtroTag) {
+        html += `<button class="tag-filter-btn" onclick="setFiltroTag(null)"
+            style="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.15);color:#8096b8">
+            ✕ limpar filtro
+        </button>`;
+    }
+    row.innerHTML = html;
+}
+
+function contarLojasPorTag(tagId) {
+    return Object.values(_lojasTags).filter(ids => ids.includes(tagId)).length;
+}
+
+function setFiltroTag(tagId) {
+    _filtroTag = tagId;
+    // Desativar filtros de status ao filtrar por tag
+    if (tagId) {
+        _filtro = 'todos';
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('ativo'));
+        document.getElementById('f-todos')?.classList.add('ativo');
+    }
+    renderTagsFilterRow();
+    filtrar();
+}
+
+// Renderizar lista de tags no painel admin
+function renderListaTagsAdmin() {
+    const el = document.getElementById('lista-tags-admin');
+    if (!el) return;
+    if (_tags.length === 0) {
+        el.innerHTML = '<span style="font-size:11px;color:#8096b8">Nenhuma tag criada ainda.</span>';
+        return;
+    }
+    el.innerHTML = _tags.map(t => `
+        <span class="tag-pill" style="background:${t.cor}22;border-color:${t.cor}66;color:${t.cor}">
+            ${h(t.nome)}
+            <span class="tag-x" onclick="excluirTag('${t.id}')" title="Excluir tag">×</span>
+        </span>`
+    ).join('');
+}
+
+// Selecionar cor no painel
+function selecionarCorTag(el) {
+    document.querySelectorAll('#cores-tag span').forEach(s => s.style.border = '2px solid transparent');
+    el.style.border = '2px solid white';
+    _corTagSel = el.dataset.cor;
+}
+
+// Criar nova tag
+async function criarTag() {
+    const nome = (document.getElementById('nova-tag-nome')?.value || '').trim();
+    if (!nome) { alert('Informe o nome da tag.'); return; }
+    if (_tags.some(t => t.nome.toLowerCase() === nome.toLowerCase())) {
+        alert('Já existe uma tag com esse nome.'); return;
+    }
+    const id = 'tag_' + Date.now();
+    const novaTag = { id, nome, cor: _corTagSel };
+    try {
+        const resp = await fetch(SB_URL + '/rest/v1/noc_tags', {
+            method: 'POST',
+            headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
+                       'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+            body: JSON.stringify(novaTag)
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        _tags.push(novaTag);
+        document.getElementById('nova-tag-nome').value = '';
+        renderListaTagsAdmin();
+        renderTagsFilterRow();
+        console.log('[TAG] Criada:', nome);
+    } catch(e) { alert('Erro ao criar tag: ' + e.message); }
+}
+
+// Excluir tag
+async function excluirTag(tagId) {
+    const tag = _tags.find(t => t.id === tagId);
+    if (!tag) return;
+    if (!confirm('Excluir a tag "' + tag.nome + '"? Os vínculos com lojas também serão removidos.')) return;
+    try {
+        await fetch(SB_URL + '/rest/v1/noc_tags?id=eq.' + tagId, {
+            method: 'DELETE',
+            headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+        });
+        await fetch(SB_URL + '/rest/v1/noc_lojas_tags?tag_id=eq.' + tagId, {
+            method: 'DELETE',
+            headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+        });
+        _tags = _tags.filter(t => t.id !== tagId);
+        Object.keys(_lojasTags).forEach(tk => {
+            _lojasTags[tk] = (_lojasTags[tk] || []).filter(id => id !== tagId);
+        });
+        if (_filtroTag === tagId) { _filtroTag = null; filtrar(); }
+        renderListaTagsAdmin();
+        renderTagsFilterRow();
+    } catch(e) { alert('Erro ao excluir tag: ' + e.message); }
+}
+
+// Vincular/desvincular tag de uma loja
+async function toggleTag(token, tagId) {
+    const tags = _lojasTags[token] || [];
+    const jaVinculada = tags.includes(tagId);
+    try {
+        if (jaVinculada) {
+            await fetch(SB_URL + '/rest/v1/noc_lojas_tags?token_loja=eq.' + encodeURIComponent(token) + '&tag_id=eq.' + tagId, {
+                method: 'DELETE',
+                headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+            });
+            _lojasTags[token] = tags.filter(id => id !== tagId);
+        } else {
+            await fetch(SB_URL + '/rest/v1/noc_lojas_tags', {
+                method: 'POST',
+                headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
+                           'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+                body: JSON.stringify({ token_loja: token, tag_id: tagId })
+            });
+            if (!_lojasTags[token]) _lojasTags[token] = [];
+            _lojasTags[token].push(tagId);
+        }
+        renderTagsFilterRow();
+        renderTagsLoja(token);
+        filtrar(); // atualizar badges nos cards
+    } catch(e) { alert('Erro ao atualizar tag: ' + e.message); }
+}
+
+// Renderizar tags de uma loja no modal (aba Tags)
+function renderTagsLoja(token) {
+    const el = document.getElementById('tab-tags-loja');
+    if (!el) return;
+    const lojaTagIds = _lojasTags[token] || [];
+
+    let html = '<div style="margin-bottom:16px">';
+    html += '<div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Tags desta loja</div>';
+
+    // Tags aplicadas
+    if (lojaTagIds.length > 0) {
+        html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">';
+        lojaTagIds.forEach(tid => {
+            const tag = _tags.find(t => t.id === tid);
+            if (!tag) return;
+            html += `<span class="tag-pill" style="background:${tag.cor}22;border-color:${tag.cor}66;color:${tag.cor};font-size:11px;padding:3px 10px">
+                ${h(tag.nome)}
+                <span class="tag-x" onclick="toggleTag('${token}','${tid}')" title="Remover">×</span>
+            </span>`;
+        });
+        html += '</div>';
+    } else {
+        html += '<div style="font-size:12px;color:#8096b8;margin-bottom:14px">Nenhuma tag aplicada.</div>';
+    }
+
+    // Tags disponíveis para adicionar
+    const disponiveis = _tags.filter(t => !lojaTagIds.includes(t.id));
+    if (disponiveis.length > 0) {
+        html += '<div style="font-size:11px;color:#a0b8d0;margin-bottom:8px">Adicionar tag:</div>';
+        html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+        disponiveis.forEach(tag => {
+            html += `<span class="tag-pill" onclick="toggleTag('${token}','${tag.id}')"
+                style="background:${tag.cor}18;border-color:${tag.cor}44;color:${tag.cor};opacity:.7">
+                + ${h(tag.nome)}
+            </span>`;
+        });
+        html += '</div>';
+    }
+
+    if (_tags.length === 0) {
+        html += '<div style="font-size:12px;color:#8096b8">Crie tags no painel principal (botão 🏷 Tags).</div>';
+    }
+
+    html += '</div>';
+    el.innerHTML = html;
 }
 
 async function toggleFlag(token, chave, novoValor, btnEl) {
