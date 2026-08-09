@@ -269,43 +269,6 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
   <!-- Linha de tags de filtro (aparece quando há tags criadas) -->
   <div id="tags-filter-row"></div>
 
-  <!-- Painel de tags movido para Configurações Globais -->
-  <div id="gerenciar-tags-panel" style="display:none">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <span style="font-size:12px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em">Gerenciar Tags</span>
-      <button onclick="document.getElementById('gerenciar-tags-panel').style.display='none'"
-        style="background:none;border:none;color:#8096b8;cursor:pointer;font-size:16px">✕</button>
-    </div>
-    <!-- Criar nova tag -->
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
-      <input id="nova-tag-nome" placeholder="Nome da tag..." maxlength="24"
-        style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:7px;font-size:12px;flex:1;min-width:120px">
-      <div style="display:flex;gap:6px;flex-wrap:wrap" id="cores-tag">
-        <span data-cor="#00d68f" onclick="selecionarCorTag(this)" title="Verde"
-          style="width:20px;height:20px;border-radius:50%;background:#00d68f;cursor:pointer;border:2px solid transparent"></span>
-        <span data-cor="#3b82f6" onclick="selecionarCorTag(this)" title="Azul"
-          style="width:20px;height:20px;border-radius:50%;background:#3b82f6;cursor:pointer;border:2px solid transparent"></span>
-        <span data-cor="#ffb830" onclick="selecionarCorTag(this)" title="Âmbar"
-          style="width:20px;height:20px;border-radius:50%;background:#ffb830;cursor:pointer;border:2px solid transparent"></span>
-        <span data-cor="#ff4455" onclick="selecionarCorTag(this)" title="Vermelho"
-          style="width:20px;height:20px;border-radius:50%;background:#ff4455;cursor:pointer;border:2px solid transparent"></span>
-        <span data-cor="#a855f7" onclick="selecionarCorTag(this)" title="Roxo"
-          style="width:20px;height:20px;border-radius:50%;background:#a855f7;cursor:pointer;border:2px solid transparent"></span>
-        <span data-cor="#06b6d4" onclick="selecionarCorTag(this)" title="Ciano"
-          style="width:20px;height:20px;border-radius:50%;background:#06b6d4;cursor:pointer;border:2px solid transparent"></span>
-        <span data-cor="#f97316" onclick="selecionarCorTag(this)" title="Laranja"
-          style="width:20px;height:20px;border-radius:50%;background:#f97316;cursor:pointer;border:2px solid transparent"></span>
-        <span data-cor="#ec4899" onclick="selecionarCorTag(this)" title="Rosa"
-          style="width:20px;height:20px;border-radius:50%;background:#ec4899;cursor:pointer;border:2px solid transparent"></span>
-      </div>
-      <button onclick="criarTag()"
-        style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:6px 14px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">
-        + Criar Tag
-      </button>
-    </div>
-    <!-- Lista de tags existentes -->
-    <div id="lista-tags-admin" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-  </div>
 
   <div id="grid"><div class="loading">carregando lojas...</div></div>
 </div>
@@ -2597,11 +2560,10 @@ function closeOverlay(e){
 }
 
 carregarConfiguracoes();
-carregarPerfis();
-carregarTags();
-carregar();
+Promise.all([carregarPerfis(), carregarTags()]).then(() => carregar());
 setInterval(carregar, 5*60*1000);
-setInterval(carregarTags, 10*60*1000); // atualizar tags a cada 10min
+setInterval(carregarTags,   10*60*1000);
+setInterval(carregarPerfis, 15*60*1000);
 
 // ── Controle de flags do agente ──────────────────────────────────────────────
 function renderWidgetTesteRede(getValor, h, token) {
@@ -4769,6 +4731,42 @@ function exportarRelatorioHTML() {
         <div id="cfg-versoes-status" style="font-size:12px;margin-top:10px;color:#8096b8"></div>
       </div>
 
+      <!-- Painel Perfis de Score -->
+      <div id="cfgpanel-perfis" style="padding:20px 24px;display:none">
+
+        <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:16px;margin-bottom:16px">
+          <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:12px">+ Criar novo perfil</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+            <input id="perfil-nome" placeholder="Nome do perfil (ex: Sem ERP)" maxlength="40"
+              style="flex:1;min-width:160px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px">
+            <input id="perfil-desc" placeholder="Descricao (opcional)" maxlength="80"
+              style="flex:2;min-width:200px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px">
+          </div>
+          <div style="font-size:11px;color:#a0b8d0;margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Componentes e pesos (total deve ser 100)</div>
+          <div id="perfil-componentes" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px"></div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span id="perfil-total-pts" style="font-size:12px;color:#8096b8">Total: 0pts</span>
+            <label style="font-size:12px;color:#8096b8;display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="perfil-padrao" style="cursor:pointer"> Definir como padrao
+            </label>
+            <button onclick="criarPerfil()"
+              style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto">
+              + Criar Perfil
+            </button>
+          </div>
+        </div>
+
+        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Perfis disponíveis</div>
+        <div id="lista-perfis" style="margin-bottom:16px"></div>
+
+        <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:16px">
+          <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:8px">Vincular tag a perfil</div>
+          <div style="font-size:12px;color:#8096b8;margin-bottom:12px">Todas as lojas com a tag usam o perfil vinculado. Lojas sem tag usam o perfil padrao.</div>
+          <div id="lista-tag-perfil" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+
+      </div>
+
     </div>
   </div>
 
@@ -5365,276 +5363,6 @@ async function exportarDesatualizados() {
     </div>
   </div>
 
-  <!-- Botão fixo de configurações -->
-  <button onclick="abrirConfiguracoes()" title="Configurações Globais"
-    style="position:fixed;bottom:20px;right:20px;z-index:8000;width:44px;height:44px;border-radius:50%;background:#1e3050;border:1px solid rgba(168,85,247,.4);color:#c084fc;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.4);transition:.2s"
-    onmouseover="this.style.background='rgba(168,85,247,.2)'" onmouseout="this.style.background='#1e3050'">⚙</button>
-
-  <!-- Modal Configurações Globais -->
-  <div id="modal-config" onclick="if(event.target===this)fecharConfiguracoes()"
-    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9997;overflow-y:auto;padding:20px">
-    <div style="background:#0d1117;border:1px solid #1e3050;border-radius:14px;max-width:720px;margin:0 auto;padding:0">
-
-      <!-- Header -->
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #1e3050">
-        <div>
-          <div style="font-size:16px;font-weight:800;color:#e8eef8">⚙ Configurações Globais</div>
-          <div style="font-size:12px;color:#8096b8;margin-top:2px">Alertas, tags, versão mínima e preferências do NOC</div>
-        </div>
-        <button onclick="fecharConfiguracoes()" style="background:none;border:none;color:#8096b8;font-size:20px;cursor:pointer">✕</button>
-      </div>
-
-      <!-- Abas internas -->
-      <div style="display:flex;border-bottom:1px solid #1e3050;padding:0 24px">
-        <button onclick="showCfgTab('alertas',this)"  id="cfgtab-alertas"
-          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid #c084fc;color:#c084fc;cursor:pointer;font-size:12px;font-weight:700">🔔 Alertas Slack</button>
-        <button onclick="showCfgTab('tags',this)"     id="cfgtab-tags"
-          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">🏷 Tags</button>
-        <button onclick="showCfgTab('sistema',this)"  id="cfgtab-sistema"
-          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">🖥 Sistema</button>
-        <button onclick="showCfgTab('perfis',this)"   id="cfgtab-perfis"
-          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">📊 Perfis de Score</button>
-      </div>
-
-      <!-- Painel Alertas -->
-      <div id="cfgpanel-alertas" style="padding:20px 24px">
-
-        <!-- Webhook -->
-        <div style="margin-bottom:20px">
-          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Webhook do Slack</div>
-          <input id="cfg-webhook" placeholder="https://hooks.slack.com/services/..." maxlength="200"
-            style="width:100%;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:8px 12px;border-radius:8px;font-size:12px;font-family:var(--mono)">
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <button onclick="salvarConfiguracoes()" style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">💾 Salvar</button>
-            <button onclick="testarSlack()" style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">🧪 Testar</button>
-          </div>
-        </div>
-
-        <!-- Mensagem personalizada -->
-        <div style="margin-bottom:20px">
-          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Mensagem de contexto (opcional)</div>
-          <input id="cfg-mensagem" placeholder="Ex: Verificar com o analista de plantão." maxlength="200"
-            style="width:100%;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:8px 12px;border-radius:8px;font-size:12px">
-        </div>
-
-        <!-- Horário de silêncio -->
-        <div style="margin-bottom:20px">
-          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Horário de silêncio (sem alertas)</div>
-          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-            <label style="font-size:12px;color:#8096b8">Das
-              <input type="time" id="cfg-silencio-ini"
-                style="margin-left:6px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
-            </label>
-            <label style="font-size:12px;color:#8096b8">às
-              <input type="time" id="cfg-silencio-fim"
-                style="margin-left:6px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
-            </label>
-            <span style="font-size:11px;color:#606880">Deixe em branco para alertar sempre</span>
-          </div>
-        </div>
-
-        <!-- Critérios -->
-        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Critérios de alerta</div>
-
-        <div style="display:flex;flex-direction:column;gap:10px" id="cfg-criterios">
-          <!-- Score crítico -->
-          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-              <div>
-                <span style="font-size:12px;font-weight:700;color:#e8eef8">🔴 Score crítico persistente</span>
-                <div style="font-size:11px;color:#8096b8;margin-top:2px">Alerta quando o score fica abaixo do limiar por vários ciclos consecutivos</div>
-              </div>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                <input type="checkbox" id="cfg-alerta-score" style="width:16px;height:16px;cursor:pointer">
-                <span style="font-size:11px;color:#8096b8">Ativo</span>
-              </label>
-            </div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap">
-              <label style="font-size:11px;color:#8096b8">Limiar
-                <input type="number" id="cfg-score-limiar" min="20" max="80" style="width:56px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">%
-              </label>
-              <label style="font-size:11px;color:#8096b8">Por
-                <input type="number" id="cfg-score-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
-                ciclos consecutivos (~<span id="cfg-score-min">20</span>min)
-              </label>
-            </div>
-          </div>
-
-          <!-- Servidor offline -->
-          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-              <div>
-                <span style="font-size:12px;font-weight:700;color:#e8eef8">🖥 Servidor offline persistente</span>
-                <div style="font-size:11px;color:#8096b8;margin-top:2px">Agente transmitindo mas servidor não volta — autocorreção não resolveu</div>
-              </div>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                <input type="checkbox" id="cfg-alerta-servidor" style="width:16px;height:16px;cursor:pointer">
-                <span style="font-size:11px;color:#8096b8">Ativo</span>
-              </label>
-            </div>
-            <label style="font-size:11px;color:#8096b8">Por
-              <input type="number" id="cfg-servidor-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
-              ciclos consecutivos (~<span id="cfg-servidor-min">30</span>min)
-            </label>
-          </div>
-
-          <!-- Tablets offline -->
-          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-              <div>
-                <span style="font-size:12px;font-weight:700;color:#e8eef8">📱 Nenhum tablet conectado</span>
-                <div style="font-size:11px;color:#8096b8;margin-top:2px">Servidor online mas zero tablets ativos — problema de rede/roteador</div>
-              </div>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                <input type="checkbox" id="cfg-alerta-tablets" style="width:16px;height:16px;cursor:pointer">
-                <span style="font-size:11px;color:#8096b8">Ativo</span>
-              </label>
-            </div>
-            <label style="font-size:11px;color:#8096b8">Por
-              <input type="number" id="cfg-tablets-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
-              ciclos consecutivos (~<span id="cfg-tablets-min">15</span>min)
-            </label>
-          </div>
-
-          <!-- MySQL -->
-          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-              <div>
-                <span style="font-size:12px;font-weight:700;color:#e8eef8">🗄 MySQL offline persistente</span>
-                <div style="font-size:11px;color:#8096b8;margin-top:2px">Banco não responde após tentativas de autocorreção</div>
-              </div>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                <input type="checkbox" id="cfg-alerta-mysql" style="width:16px;height:16px;cursor:pointer">
-                <span style="font-size:11px;color:#8096b8">Ativo</span>
-              </label>
-            </div>
-            <label style="font-size:11px;color:#8096b8">Por
-              <input type="number" id="cfg-mysql-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
-              ciclos consecutivos (~<span id="cfg-mysql-min">20</span>min)
-            </label>
-          </div>
-        </div>
-
-        <button onclick="salvarConfiguracoes()"
-          style="width:100%;margin-top:16px;background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:10px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">
-          💾 Salvar Configurações
-        </button>
-      </div>
-
-      <!-- Painel Tags -->
-      <div id="cfgpanel-tags" style="padding:20px 24px;display:none">
-        <div style="margin-bottom:16px">
-          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Criar nova tag</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input id="nova-tag-nome" placeholder="Nome da tag..." maxlength="24"
-              style="background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px;flex:1;min-width:120px">
-            <div style="display:flex;gap:6px;flex-wrap:wrap" id="cores-tag">
-              <span data-cor="#00d68f" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#00d68f;cursor:pointer;border:2px solid white"></span>
-              <span data-cor="#3b82f6" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#3b82f6;cursor:pointer;border:2px solid transparent"></span>
-              <span data-cor="#ffb830" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#ffb830;cursor:pointer;border:2px solid transparent"></span>
-              <span data-cor="#ff4455" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#ff4455;cursor:pointer;border:2px solid transparent"></span>
-              <span data-cor="#a855f7" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#a855f7;cursor:pointer;border:2px solid transparent"></span>
-              <span data-cor="#06b6d4" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#06b6d4;cursor:pointer;border:2px solid transparent"></span>
-              <span data-cor="#f97316" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#f97316;cursor:pointer;border:2px solid transparent"></span>
-              <span data-cor="#ec4899" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#ec4899;cursor:pointer;border:2px solid transparent"></span>
-            </div>
-            <button onclick="criarTag()"
-              style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">
-              + Criar Tag
-            </button>
-          </div>
-        </div>
-        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Tags existentes</div>
-        <div id="lista-tags-cfg" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-      </div>
-
-      <!-- Painel Sistema -->
-      <div id="cfgpanel-sistema" style="padding:20px 24px;display:none">
-        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:14px">
-          Versões mínimas aceitas
-        </div>
-        <div style="font-size:12px;color:#8096b8;margin-bottom:16px">
-          Lojas com versão inferior são destacadas no filtro 🔄 Desatualizado e no card com badge de alerta.
-        </div>
-        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
-          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
-            <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:8px">🖥 Servidor Goomer</div>
-            <div style="display:flex;gap:10px;align-items:center">
-              <input id="cfg-ver-servidor" placeholder="Ex: 2.4.100" maxlength="20"
-                style="width:140px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:13px;font-family:var(--mono)">
-              <span style="font-size:11px;color:#8096b8">Versão mínima do servidor Goomer instalado</span>
-            </div>
-          </div>
-          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
-            <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:8px">📱 App dos Tablets</div>
-            <div style="display:flex;gap:10px;align-items:center">
-              <input id="cfg-ver-tablet" placeholder="Ex: 3.2.0" maxlength="20"
-                style="width:140px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:13px;font-family:var(--mono)">
-              <span style="font-size:11px;color:#8096b8">Versão mínima do app nos tablets</span>
-            </div>
-          </div>
-        </div>
-        <button onclick="salvarVersoesSistema()"
-          style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">
-          💾 Salvar Versões
-        </button>
-        <div id="cfg-versoes-status" style="font-size:12px;margin-top:10px;color:#8096b8"></div>
-      </div>
-
-      <!-- Painel Perfis de Score -->
-      <div id="cfgpanel-perfis" style="padding:20px 24px;display:none">
-
-        <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:16px;margin-bottom:16px">
-          <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:12px">+ Criar novo perfil</div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-            <input id="perfil-nome" placeholder="Nome do perfil (ex: Sem ERP)" maxlength="40"
-              style="flex:1;min-width:160px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px">
-            <input id="perfil-desc" placeholder="Descricao (opcional)" maxlength="80"
-              style="flex:2;min-width:200px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px">
-          </div>
-          <div style="font-size:11px;color:#a0b8d0;margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Componentes e pesos (total deve ser 100)</div>
-          <div id="perfil-componentes" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px"></div>
-          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <span id="perfil-total-pts" style="font-size:12px;color:#8096b8">Total: 0pts</span>
-            <label style="font-size:12px;color:#8096b8;display:flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="checkbox" id="perfil-padrao" style="cursor:pointer">
-              Definir como padrao
-            </label>
-            <button onclick="criarPerfil()"
-              style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto">
-              + Criar Perfil
-            </button>
-          </div>
-        </div>
-
-        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Perfis disponíveis</div>
-        <div id="lista-perfis" style="margin-bottom:16px"></div>
-
-        <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:16px">
-          <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:8px">Vincular tag a perfil</div>
-          <div style="font-size:12px;color:#8096b8;margin-bottom:12px">Todas as lojas com uma tag usam o perfil vinculado. Lojas sem tag usam o perfil padrao.</div>
-          <div id="lista-tag-perfil" style="display:flex;flex-direction:column;gap:8px"></div>
-        </div>
-
-      </div>
-
-    </div>
-  </div>
-
-  <!-- Modal Visão de Rede/Franquia -->
-  <div id="modal-rede" onclick="if(event.target===this)fecharVisaoRede()"
-    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9998;overflow-y:auto;padding:20px">
-    <div style="background:#0d1117;border:1px solid #1e3050;border-radius:14px;max-width:1100px;margin:0 auto;padding:0">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #1e3050">
-        <div>
-          <div style="font-size:16px;font-weight:800;color:#e8eef8">🏢 Visão de Redes e Franquias</div>
-          <div style="font-size:12px;color:#8096b8;margin-top:2px">Análise consolidada por tag de segmentação</div>
-        </div>
-        <button onclick="fecharVisaoRede()" style="background:none;border:none;color:#8096b8;font-size:20px;cursor:pointer">✕</button>
-      </div>
-      <div id="rede-conteudo" style="padding:20px"></div>
-    </div>
-  </div>
 
 </body>
 </html>
