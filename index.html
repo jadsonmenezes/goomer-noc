@@ -3810,21 +3810,58 @@ const COMPONENTES_INFO = {
 const PERFIS_KEY = 'goomer_noc_perfis';
 const TAG_PERFIL_KEY = 'goomer_noc_tag_perfil';
 
-function carregarPerfis() {
+async function carregarPerfis() {
     try {
-        const p = localStorage.getItem(PERFIS_KEY);
-        if (p) _perfis = JSON.parse(p);
-        const tp = localStorage.getItem(TAG_PERFIL_KEY);
-        if (tp) _tagPerfil = JSON.parse(tp);
-    } catch(e) {}
-    if (_perfis.length === 0) {
-        // Criar perfil padrão se não existir
-        _perfis = [{ ...PERFIL_DEFAULT }];
-        salvarPerfisLocal();
+        const [rows, vincs] = await Promise.all([
+            sb('noc_perfis_score', '?select=*&order=criado_em.asc').catch(() => []),
+            sb('noc_tag_perfil',   '?select=*').catch(() => []),
+        ]);
+
+        _perfis = Array.isArray(rows) && rows.length > 0 ? rows : [];
+
+        // Se não tem nenhum perfil, criar o padrão
+        if (_perfis.length === 0) {
+            await criarPerfilSupabase(JSON.parse(JSON.stringify(PERFIL_DEFAULT)));
+        }
+
+        // Montar mapa tag_id → perfil_id
+        _tagPerfil = {};
+        (vincs || []).forEach(v => { _tagPerfil[v.tag_id] = v.perfil_id; });
+
+    } catch(e) {
+        console.warn('[PERFIS] Erro ao carregar:', e.message);
+        // Fallback local
+        try {
+            const p = localStorage.getItem(PERFIS_KEY);
+            if (p) _perfis = JSON.parse(p);
+        } catch(e2) {}
+        if (_perfis.length === 0) _perfis = [JSON.parse(JSON.stringify(PERFIL_DEFAULT))];
     }
 }
 
-function salvarPerfisLocal() {
+async function criarPerfilSupabase(perfil) {
+    try {
+        const resp = await fetch(SB_URL + '/rest/v1/noc_perfis_score', {
+            method: 'POST',
+            headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
+                       'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+            body: JSON.stringify({
+                id:          perfil.id,
+                nome:        perfil.nome,
+                descricao:   perfil.descricao || '',
+                componentes: perfil.componentes,
+                padrao:      perfil.padrao || false
+            })
+        });
+        if (resp.ok) {
+            const saved = await resp.json();
+            _perfis.push(Array.isArray(saved) ? saved[0] : saved);
+        }
+    } catch(e) { console.warn('[PERFIS] Erro ao criar no Supabase:', e.message); }
+}
+
+async function salvarPerfisLocal() {
+    // Mantido como fallback — Supabase é a fonte de verdade
     try {
         localStorage.setItem(PERFIS_KEY, JSON.stringify(_perfis));
         localStorage.setItem(TAG_PERFIL_KEY, JSON.stringify(_tagPerfil));
@@ -3880,7 +3917,7 @@ function atualizarTotalPerfil() {
     }
 }
 
-function criarPerfil() {
+async function criarPerfil() {
     const nome = document.getElementById('perfil-nome')?.value.trim();
     const desc = document.getElementById('perfil-desc')?.value.trim();
     if (!nome) { alert('Informe o nome do perfil.'); return; }
@@ -3906,8 +3943,20 @@ function criarPerfil() {
     // Se marcado como padrão, desmarcar o anterior
     if (padrao) _perfis.forEach(p => p.padrao = false);
 
-    _perfis.push({ id, nome, descricao: desc, componentes, padrao });
-    salvarPerfisLocal();
+    const novoPerfil = { id, nome, descricao: desc, componentes, padrao };
+    try {
+        const resp = await fetch(SB_URL + '/rest/v1/noc_perfis_score', {
+            method: 'POST',
+            headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
+                       'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+            body: JSON.stringify(novoPerfil)
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        _perfis.push(novoPerfil);
+    } catch(e) {
+        alert('Erro ao salvar perfil: ' + e.message);
+        return;
+    }
 
     // Limpar formulário
     document.getElementById('perfil-nome').value = '';
@@ -3919,24 +3968,40 @@ function criarPerfil() {
     console.log('[PERFIS] Criado:', nome);
 }
 
-function excluirPerfil(id) {
+async function excluirPerfil(id) {
     const p = _perfis.find(p => p.id === id);
     if (!p) return;
     if (p.padrao) { alert('Não é possível excluir o perfil padrão. Defina outro como padrão primeiro.'); return; }
     if (!confirm(`Excluir o perfil "${p.nome}"?`)) return;
+    try {
+        await fetch(SB_URL + '/rest/v1/noc_perfis_score?id=eq.' + id, {
+            method: 'DELETE',
+            headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+        });
+        await fetch(SB_URL + '/rest/v1/noc_tag_perfil?perfil_id=eq.' + id, {
+            method: 'DELETE',
+            headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+        });
+    } catch(e) { console.warn('[PERFIS] Erro ao excluir:', e.message); }
     _perfis = _perfis.filter(p => p.id !== id);
-    // Remover vínculos de tags com este perfil
     Object.keys(_tagPerfil).forEach(tagId => {
         if (_tagPerfil[tagId] === id) delete _tagPerfil[tagId];
     });
-    salvarPerfisLocal();
     renderListaPerfis();
     renderTagPerfil();
 }
 
-function setPadrao(id) {
+async function setPadrao(id) {
+    // Desmarcar todos no Supabase
+    await Promise.all(_perfis.map(p =>
+        fetch(SB_URL + '/rest/v1/noc_perfis_score?id=eq.' + p.id, {
+            method: 'PATCH',
+            headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
+                       'Content-Type': 'application/json' },
+            body: JSON.stringify({ padrao: p.id === id })
+        }).catch(() => {})
+    ));
     _perfis.forEach(p => p.padrao = p.id === id);
-    salvarPerfisLocal();
     renderListaPerfis();
 }
 
@@ -3994,11 +4059,25 @@ function renderTagPerfil() {
     }).join('');
 }
 
-function vincularTagPerfil(tagId, perfilId) {
-    if (perfilId === 'default') delete _tagPerfil[tagId];
-    else _tagPerfil[tagId] = perfilId;
-    salvarPerfisLocal();
-    console.log('[PERFIS] Tag', tagId, '→ perfil', perfilId);
+async function vincularTagPerfil(tagId, perfilId) {
+    try {
+        // Remover vínculo anterior
+        await fetch(SB_URL + '/rest/v1/noc_tag_perfil?tag_id=eq.' + encodeURIComponent(tagId), {
+            method: 'DELETE',
+            headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+        });
+        if (perfilId !== 'default') {
+            await fetch(SB_URL + '/rest/v1/noc_tag_perfil', {
+                method: 'POST',
+                headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
+                           'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+                body: JSON.stringify({ tag_id: tagId, perfil_id: perfilId })
+            });
+            _tagPerfil[tagId] = perfilId;
+        } else {
+            delete _tagPerfil[tagId];
+        }
+    } catch(e) { console.warn('[PERFIS] Erro ao vincular:', e.message); }
 }
 
 // Retorna o perfil ativo para uma loja baseado em suas tags
