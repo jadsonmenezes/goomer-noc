@@ -248,24 +248,7 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
 
 <div class="main">
   <div class="resumo" id="resumo"></div>
-  <div id="versoes-config" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-    <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em">Versões mínimas</div>
-    <div style="display:flex;align-items:center;gap:8px;font-size:12px">
-        <label style="color:#8096b8">Servidor Goomer:</label>
-        <input id="ver-servidor" type="text" placeholder="ex: 2.4.114"
-            style="background:var(--bg3);border:1px solid var(--border2);color:#e8eef8;padding:5px 10px;border-radius:5px;font-family:var(--mono);font-size:12px;width:100px">
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;font-size:12px">
-        <label style="color:#8096b8">App tablet:</label>
-        <input id="ver-tablet" type="text" placeholder="ex: 2.10.3"
-            style="background:var(--bg3);border:1px solid var(--border2);color:#e8eef8;padding:5px 10px;border-radius:5px;font-family:var(--mono);font-size:12px;width:100px">
-    </div>
-    <button onclick="salvarVersoes()"
-        style="background:var(--blue);border:none;color:#fff;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
-        💾 Salvar
-    </button>
-    <div id="ver-status" style="font-size:11px;color:#8096b8"></div>
-  </div>
+
 
   <div class="toolbar">
     <input class="search-input" id="busca" placeholder="🔍  buscar loja por nome..." oninput="filtrar()">
@@ -277,8 +260,7 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
     <button class="filter-btn"       id="f-desatualizado" onclick="setFiltro('desatualizado')">🔄 Desatualizado</button>
     <button class="filter-btn"       id="f-inativas"      onclick="setFiltro('inativas')">⊘ Inativas</button>
     <button class="filter-btn" id="btn-order" onclick="toggleOrder()" style="margin-left:auto" title="Ordenar por score">↑ score</button>
-    <button class="filter-btn" onclick="abrirConfiguracoes()"
-      title="Configurações globais do NOC" style="background:rgba(168,85,247,.1);border-color:rgba(168,85,247,.3);color:#c084fc">⚙ Config</button>
+
     <button class="filter-btn" onclick="abrirVisaoRede()"
       title="Visão consolidada por rede/franquia" style="background:rgba(6,182,212,.1);border-color:rgba(6,182,212,.3);color:#22d3ee">🏢 Redes</button>
     <button class="filter-btn" onclick="exportarDesatualizados()"  title="Exportar lojas desatualizadas" style="background:rgba(14,92,254,.1);border-color:rgba(14,92,254,.3);color:#7ab3ff">↓ exportar desatualizados</button>
