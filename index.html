@@ -1016,10 +1016,16 @@ async function abrirLoja(token, abaInicial) {
                 <div style="flex:1;min-width:180px">
                     <div style="font-size:10px;color:#8096b8;margin-bottom:5px">AnyDesk</div>
                     <div style="font-family:var(--mono);font-size:18px;font-weight:800;color:#e8eef8;letter-spacing:.1em;margin-bottom:8px">${h(pay.anydesk_id)}</div>
-                    <button onclick="navigator.clipboard.writeText('${pay.anydesk_id}').then(()=>{this.textContent='✓ Copiado!';setTimeout(()=>this.textContent='📋 Copiar ID',2000)}).catch(()=>{})"
-                        style="width:100%;background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
-                        📋 Copiar ID
-                    </button>
+                    <div style="display:flex;gap:6px">
+                        <button onclick="navigator.clipboard.writeText('${pay.anydesk_id}').then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='📋 Copiar',2000)}).catch(()=>{})"
+                            style="flex:1;background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;padding:8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
+                            📋 Copiar
+                        </button>
+                        <button onclick="(function(id){const a=document.createElement('a');a.href='anydesk:'+id;a.click();setTimeout(()=>this.textContent='🖥 Abrir',2000);}).call(this,'${pay.anydesk_id}');this.textContent='Abrindo...'"
+                            style="flex:1;background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
+                            🖥 Abrir
+                        </button>
+                    </div>
                 </div>` : ''}
             ${pay.teamviewer_id ? `
                 <div style="flex:1;min-width:180px">
