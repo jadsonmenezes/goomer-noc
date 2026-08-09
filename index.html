@@ -1013,41 +1013,21 @@ async function abrirLoja(token, abaInicial) {
             <div style="margin:12px 0 6px;font-size:10px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em">Acesso Remoto</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
                 ${pay.anydesk_id ? `
-                <div style="flex:1;min-width:200px">
-                    <div style="font-size:10px;color:#8096b8;margin-bottom:5px">AnyDesk ID</div>
-                    <div style="display:flex;gap:6px;align-items:center">
-                        <span style="font-family:var(--mono);font-size:16px;font-weight:800;color:#e8eef8;letter-spacing:.1em">${h(pay.anydesk_id)}</span>
-                        <button onclick="navigator.clipboard.writeText('${pay.anydesk_id}').then(()=>this.textContent='✓ copiado').catch(()=>{})"
-                            style="background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px">copiar</button>
-                    </div>
-                    <button onclick="(function(id){
-    const link = document.createElement('a');
-    link.href = 'anydesk:' + id;
-    link.click();
-    setTimeout(()=>this.textContent='🖥 Abrir AnyDesk',2000);
-}).call(this, '${pay.anydesk_id}'); this.textContent='Abrindo...'"
-                        style="margin-top:8px;width:100%;background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
-                        🖥 Abrir AnyDesk
+                <div style="flex:1;min-width:180px">
+                    <div style="font-size:10px;color:#8096b8;margin-bottom:5px">AnyDesk</div>
+                    <div style="font-family:var(--mono);font-size:18px;font-weight:800;color:#e8eef8;letter-spacing:.1em;margin-bottom:8px">${h(pay.anydesk_id)}</div>
+                    <button onclick="navigator.clipboard.writeText('${pay.anydesk_id}').then(()=>{this.textContent='✓ Copiado!';setTimeout(()=>this.textContent='📋 Copiar ID',2000)}).catch(()=>{})"
+                        style="width:100%;background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
+                        📋 Copiar ID
                     </button>
                 </div>` : ''}
             ${pay.teamviewer_id ? `
-                <div style="flex:1;min-width:200px">
-                    <div style="font-size:10px;color:#8096b8;margin-bottom:5px">TeamViewer ID</div>
-                    <div style="display:flex;gap:6px;align-items:center">
-                        <span style="font-family:var(--mono);font-size:16px;font-weight:800;color:#e8eef8;letter-spacing:.1em">${h(pay.teamviewer_id)}</span>
-                        <button onclick="navigator.clipboard.writeText('${pay.teamviewer_id}').then(()=>this.textContent='✓ copiado').catch(()=>{})"
-                            style="background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px">copiar</button>
-                    </div>
-                    <button onclick="(function(id){
-    const link = document.createElement('a');
-    link.href = 'teamviewer://control?device=' + id;
-    link.click();
-    // Copiar ID para área de transferência como fallback
-    navigator.clipboard.writeText(id).catch(()=>{});
-    setTimeout(()=>this.textContent='🔗 Abrir TeamViewer',2500);
-}).call(this, '${pay.teamviewer_id}'); this.textContent='Conectando...'"
-                        style="margin-top:8px;width:100%;background:rgba(0,114,186,.15);border:1px solid rgba(0,114,186,.4);color:#60a5fa;padding:8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
-                        🔗 Abrir TeamViewer
+                <div style="flex:1;min-width:180px">
+                    <div style="font-size:10px;color:#8096b8;margin-bottom:5px">TeamViewer</div>
+                    <div style="font-family:var(--mono);font-size:18px;font-weight:800;color:#e8eef8;letter-spacing:.1em;margin-bottom:8px">${h(pay.teamviewer_id)}</div>
+                    <button onclick="navigator.clipboard.writeText('${pay.teamviewer_id}').then(()=>{this.textContent='✓ Copiado!';setTimeout(()=>this.textContent='📋 Copiar ID',2000)}).catch(()=>{})"
+                        style="width:100%;background:rgba(0,114,186,.15);border:1px solid rgba(0,114,186,.4);color:#60a5fa;padding:8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
+                        📋 Copiar ID
                     </button>
                 </div>` : ''}
             </div>
@@ -3723,7 +3703,7 @@ function renderVisaoRede() {
                 const sc = l.score || 0;
                 const cor2 = corScore(sc);
                 const srv = l.servidor_goomer === 'online' || l.payload?.servidor_goomer === 'online';
-                return `<div onclick="fecharVisaoRede();setTimeout(()=>abrirLoja(${JSON.stringify(l).replace(/"/g,'\"')}),100)"
+                return `<div data-token="${h(l.token_loja)}" onclick="const tk=this.dataset.token;fecharVisaoRede();setTimeout(()=>{const lj=_dados.find(x=>x.token_loja===tk);if(lj)abrirLoja(lj);},150)"
                     style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:7px;cursor:pointer;transition:.15s;margin-bottom:3px"
                     onmouseover="this.style.background='rgba(255,255,255,.04)'" onmouseout="this.style.background='none'">
                     <span style="font-size:11px;color:#606880;min-width:20px;text-align:right">${i+1}º</span>
