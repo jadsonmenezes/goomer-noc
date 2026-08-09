@@ -675,6 +675,11 @@ function renderGrid(lista) {
         const cor   = corLoja(l);
         const pay   = l.payload||{};
         const agora = new Date();
+        // Score recalculado pelo perfil do segmento
+        const _perfilLoja    = getPerfilLoja(l.token_loja);
+        const _scoreRecalc   = (_perfilLoja && _perfilLoja.id !== 'default') ? calcularScoreComPerfil(pay, _perfilLoja) : null;
+        const _scoreCard     = _scoreRecalc !== null ? _scoreRecalc : (l.score || 0);
+        const _temPerfilCustom = _scoreRecalc !== null;
         const mins  = Math.round((agora-new Date(l.criado_em))/60000);
         const tempoLabel = mins<60?`${mins}min atrás`:`${Math.round(mins/60)}h atrás`;
         const desatual = mins>15;
@@ -4218,12 +4223,6 @@ function renderVisaoRede() {
     }
 
     const corScore = s => s>=85?'#00d68f':s>=60?'#ffb830':'#ff4455';
-        // Score recalculado pelo perfil da loja
-        const perfil = getPerfilLoja(l.token_loja);
-        const scoreRecalc = (perfil && perfil.id !== 'default') ? calcularScoreComPerfil(l.payload, perfil) : null;
-        const scoreExibido = scoreRecalc !== null ? scoreRecalc : (l.score || 0);
-        const temPerfil = scoreRecalc !== null;
-
     let html = '';
     redesData.forEach(r => {
         const cor = r.tag.cor;
@@ -4688,43 +4687,6 @@ function exportarRelatorioHTML() {
           💾 Salvar Versões
         </button>
         <div id="cfg-versoes-status" style="font-size:12px;margin-top:10px;color:#8096b8"></div>
-      </div>
-
-      <!-- Painel Perfis de Score -->
-      <div id="cfgpanel-perfis" style="padding:20px 24px;display:none">
-
-        <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:16px;margin-bottom:16px">
-          <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:12px">+ Criar novo perfil</div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-            <input id="perfil-nome" placeholder="Nome do perfil (ex: Sem ERP)" maxlength="40"
-              style="flex:1;min-width:160px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px">
-            <input id="perfil-desc" placeholder="Descricao (opcional)" maxlength="80"
-              style="flex:2;min-width:200px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px">
-          </div>
-          <div style="font-size:11px;color:#a0b8d0;margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Componentes e pesos (total deve ser 100)</div>
-          <div id="perfil-componentes" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px"></div>
-          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <span id="perfil-total-pts" style="font-size:12px;color:#8096b8">Total: 0pts</span>
-            <label style="font-size:12px;color:#8096b8;display:flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="checkbox" id="perfil-padrao" style="cursor:pointer">
-              Definir como padrao
-            </label>
-            <button onclick="criarPerfil()"
-              style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto">
-              + Criar Perfil
-            </button>
-          </div>
-        </div>
-
-        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Perfis disponíveis</div>
-        <div id="lista-perfis" style="margin-bottom:16px"></div>
-
-        <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:16px">
-          <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:8px">Vincular tag a perfil</div>
-          <div style="font-size:12px;color:#8096b8;margin-bottom:12px">Todas as lojas com uma tag usam o perfil vinculado. Lojas sem tag usam o perfil padrao.</div>
-          <div id="lista-tag-perfil" style="display:flex;flex-direction:column;gap:8px"></div>
-        </div>
-
       </div>
 
     </div>
