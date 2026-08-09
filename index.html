@@ -3729,14 +3729,14 @@ async function testarSlack() {
     if (!webhook) { alert('Informe a URL do webhook primeiro.'); return; }
     const btn = document.getElementById('cfg-webhook')?.nextElementSibling?.children[1];
     if (btn) btn.textContent = 'Enviando...';
-    const ok = await dispararAlertaSlack({
+    await dispararAlertaSlack({
         emoji: '🧪', titulo: 'Teste de Alerta — Goomer NOC',
         loja: 'Loja de Teste', token: 'teste',
         linhas: ['Este é um alerta de teste do Goomer NOC.', 'Se você recebeu esta mensagem, a integração está funcionando! ✅'],
         score: 100, webhook
     });
     if (btn) btn.textContent = '🧪 Testar';
-    alert(ok ? '✅ Mensagem enviada com sucesso!' : '❌ Falha ao enviar. Verifique a URL do webhook.');
+    alert('✅ Mensagem enviada! Verifique o canal do Slack.\n\n(Com webhooks do Slack não é possível confirmar a entrega pelo browser — se a URL estiver correta, a mensagem chegou.)');
 }
 
 function abrirConfiguracoes() {
@@ -3745,6 +3745,52 @@ function abrirConfiguracoes() {
     document.getElementById('modal-config').style.display = 'block';
     document.body.style.overflow = 'hidden';
     showCfgTab('alertas', document.getElementById('cfgtab-alertas'));
+}
+
+async function carregarVersoesSistema() {
+    try {
+        const rows = await sb('versoes_padrao','?select=*');
+        if (!Array.isArray(rows)) return;
+        rows.forEach(r => {
+            if (r.componente === 'servidor_goomer') {
+                const el = document.getElementById('cfg-ver-servidor');
+                if (el) el.value = r.versao || '';
+            }
+            if (r.componente === 'app_tablet') {
+                const el = document.getElementById('cfg-ver-tablet');
+                if (el) el.value = r.versao || '';
+            }
+        });
+    } catch(e) {}
+}
+
+async function salvarVersoesSistema() {
+    const verServidor = (document.getElementById('cfg-ver-servidor')?.value || '').trim();
+    const verTablet   = (document.getElementById('cfg-ver-tablet')?.value   || '').trim();
+    const status = document.getElementById('cfg-versoes-status');
+    if (status) status.textContent = 'Salvando...';
+
+    const upsert = async (componente, versao) => {
+        if (!versao) return;
+        await fetch(SB_URL + '/rest/v1/versoes_padrao', {
+            method:  'POST',
+            headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
+                       'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates' },
+            body: JSON.stringify({ componente, versao })
+        });
+    };
+
+    try {
+        await Promise.all([
+            verServidor ? upsert('servidor_goomer', verServidor) : Promise.resolve(),
+            verTablet   ? upsert('app_tablet',      verTablet)   : Promise.resolve(),
+        ]);
+        if (status) { status.style.color = '#00d68f'; status.textContent = '✅ Versões salvas! O painel vai destacar lojas desatualizadas.'; }
+        // Recarregar dados para refletir imediatamente
+        setTimeout(() => carregar(), 500);
+    } catch(e) {
+        if (status) { status.style.color = '#ff4455'; status.textContent = '❌ Erro ao salvar: ' + e.message; }
+    }
 }
 
 function fecharConfiguracoes() {
@@ -3758,6 +3804,8 @@ function showCfgTab(nome, btn) {
         const b = document.getElementById('cfgtab-'+t);
         if (b) { b.style.borderBottomColor = t===nome?'#c084fc':'transparent'; b.style.color = t===nome?'#c084fc':'#8096b8'; }
     });
+    if (nome === 'sistema') carregarVersoesSistema();
+    if (nome === 'tags')    renderListaTagsAdmin();
 }
 
 // ── Motor de alertas — chamado a cada carregamento ────────────────
@@ -3855,10 +3903,13 @@ async function dispararAlertaSlack({ emoji, titulo, loja, token, linhas, score, 
         { type:'context', elements:[{ type:'mrkdwn', text: `⏰ ${horaAtual} · Score atual: ${score}%` }] }
     ];
     try {
+        // Slack webhook requer mode:'no-cors' do browser
+        // Com no-cors não recebemos response — mas a mensagem é entregue
         await fetch(url, {
-            method:'POST',
-            headers:{ 'Content-Type':'application/json' },
-            body: JSON.stringify({ blocks })
+            method:  'POST',
+            mode:    'no-cors',
+            headers: { 'Content-Type':'application/json' },
+            body:    JSON.stringify({ blocks })
         });
         return true;
     } catch(e) {
@@ -4331,23 +4382,40 @@ function exportarRelatorioHTML() {
           </div>
         </div>
         <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Tags existentes</div>
-        <div id="lista-tags-admin" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        <div id="lista-tags-cfg" style="display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
 
       <!-- Painel Sistema -->
       <div id="cfgpanel-sistema" style="padding:20px 24px;display:none">
-        <div style="margin-bottom:20px">
-          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Versão mínima do agente</div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input id="cfg-versao-minima" placeholder="Ex: 1.0.20" maxlength="20"
-              style="width:140px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:8px 12px;border-radius:8px;font-size:13px;font-family:var(--mono)">
-            <span style="font-size:12px;color:#8096b8">Lojas com versão inferior serão destacadas no painel</span>
+        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:14px">
+          Versões mínimas aceitas
+        </div>
+        <div style="font-size:12px;color:#8096b8;margin-bottom:16px">
+          Lojas com versão inferior são destacadas no filtro 🔄 Desatualizado e no card com badge de alerta.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:8px">🖥 Servidor Goomer</div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <input id="cfg-ver-servidor" placeholder="Ex: 2.4.100" maxlength="20"
+                style="width:140px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:13px;font-family:var(--mono)">
+              <span style="font-size:11px;color:#8096b8">Versão mínima do servidor Goomer instalado</span>
+            </div>
+          </div>
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:8px">📱 App dos Tablets</div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <input id="cfg-ver-tablet" placeholder="Ex: 3.2.0" maxlength="20"
+                style="width:140px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:13px;font-family:var(--mono)">
+              <span style="font-size:11px;color:#8096b8">Versão mínima do app nos tablets</span>
+            </div>
           </div>
         </div>
-        <button onclick="salvarConfiguracoes()"
+        <button onclick="salvarVersoesSistema()"
           style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">
-          💾 Salvar
+          💾 Salvar Versões
         </button>
+        <div id="cfg-versoes-status" style="font-size:12px;margin-top:10px;color:#8096b8"></div>
       </div>
 
     </div>
@@ -4504,18 +4572,17 @@ function setFiltroTag(tagId) {
 
 // Renderizar lista de tags no painel admin
 function renderListaTagsAdmin() {
-    const el = document.getElementById('lista-tags-admin');
-    if (!el) return;
-    if (_tags.length === 0) {
-        el.innerHTML = '<span style="font-size:11px;color:#8096b8">Nenhuma tag criada ainda.</span>';
-        return;
-    }
-    el.innerHTML = _tags.map(t => `
+    const vazia = '<span style="font-size:11px;color:#8096b8">Nenhuma tag criada ainda.</span>';
+    const html  = _tags.length === 0 ? vazia : _tags.map(t => `
         <span class="tag-pill" style="background:${t.cor}22;border-color:${t.cor}66;color:${t.cor}">
             ${h(t.nome)}
             <span class="tag-x" onclick="excluirTag('${t.id}')" title="Excluir tag">×</span>
-        </span>`
-    ).join('');
+        </span>`).join('');
+    // Renderizar em todos os contêineres de lista de tags
+    ['lista-tags-admin','lista-tags-cfg'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = html;
+    });
 }
 
 // Selecionar cor no painel
@@ -5125,23 +5192,40 @@ async function exportarDesatualizados() {
           </div>
         </div>
         <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Tags existentes</div>
-        <div id="lista-tags-admin" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        <div id="lista-tags-cfg" style="display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
 
       <!-- Painel Sistema -->
       <div id="cfgpanel-sistema" style="padding:20px 24px;display:none">
-        <div style="margin-bottom:20px">
-          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Versão mínima do agente</div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input id="cfg-versao-minima" placeholder="Ex: 1.0.20" maxlength="20"
-              style="width:140px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:8px 12px;border-radius:8px;font-size:13px;font-family:var(--mono)">
-            <span style="font-size:12px;color:#8096b8">Lojas com versão inferior serão destacadas no painel</span>
+        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:14px">
+          Versões mínimas aceitas
+        </div>
+        <div style="font-size:12px;color:#8096b8;margin-bottom:16px">
+          Lojas com versão inferior são destacadas no filtro 🔄 Desatualizado e no card com badge de alerta.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:8px">🖥 Servidor Goomer</div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <input id="cfg-ver-servidor" placeholder="Ex: 2.4.100" maxlength="20"
+                style="width:140px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:13px;font-family:var(--mono)">
+              <span style="font-size:11px;color:#8096b8">Versão mínima do servidor Goomer instalado</span>
+            </div>
+          </div>
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:8px">📱 App dos Tablets</div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <input id="cfg-ver-tablet" placeholder="Ex: 3.2.0" maxlength="20"
+                style="width:140px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:13px;font-family:var(--mono)">
+              <span style="font-size:11px;color:#8096b8">Versão mínima do app nos tablets</span>
+            </div>
           </div>
         </div>
-        <button onclick="salvarConfiguracoes()"
+        <button onclick="salvarVersoesSistema()"
           style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">
-          💾 Salvar
+          💾 Salvar Versões
         </button>
+        <div id="cfg-versoes-status" style="font-size:12px;margin-top:10px;color:#8096b8"></div>
       </div>
 
     </div>
