@@ -3703,7 +3703,7 @@ function renderVisaoRede() {
                 const sc = l.score || 0;
                 const cor2 = corScore(sc);
                 const srv = l.servidor_goomer === 'online' || l.payload?.servidor_goomer === 'online';
-                return `<div data-token="${h(l.token_loja)}" onclick="const tk=this.dataset.token;fecharVisaoRede();setTimeout(()=>{const lj=_dados.find(x=>x.token_loja===tk);if(lj)abrirLoja(lj);},150)"
+                return `<div data-token="${h(l.token_loja)}" onclick="const tk=this.dataset.token;fecharVisaoRede();setTimeout(()=>abrirLoja(tk),150)"
                     style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:7px;cursor:pointer;transition:.15s;margin-bottom:3px"
                     onmouseover="this.style.background='rgba(255,255,255,.04)'" onmouseout="this.style.background='none'">
                     <span style="font-size:11px;color:#606880;min-width:20px;text-align:right">${i+1}º</span>
