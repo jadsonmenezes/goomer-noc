@@ -1020,7 +1020,12 @@ async function abrirLoja(token, abaInicial) {
                         <button onclick="navigator.clipboard.writeText('${pay.anydesk_id}').then(()=>this.textContent='✓ copiado').catch(()=>{})"
                             style="background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px">copiar</button>
                     </div>
-                    <button onclick="window.open('anydesk:${pay.anydesk_id}','_blank');this.textContent='Abrindo...';setTimeout(()=>this.textContent='🖥 Abrir AnyDesk',2000)"
+                    <button onclick="(function(id){
+    const link = document.createElement('a');
+    link.href = 'anydesk:' + id;
+    link.click();
+    setTimeout(()=>this.textContent='🖥 Abrir AnyDesk',2000);
+}).call(this, '${pay.anydesk_id}'); this.textContent='Abrindo...'"
                         style="margin-top:8px;width:100%;background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
                         🖥 Abrir AnyDesk
                     </button>
@@ -1033,7 +1038,15 @@ async function abrirLoja(token, abaInicial) {
                         <button onclick="navigator.clipboard.writeText('${pay.teamviewer_id}').then(()=>this.textContent='✓ copiado').catch(()=>{})"
                             style="background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px">copiar</button>
                     </div>
-                    <button onclick="window.open('teamviewer10://control?device=${pay.teamviewer_id}','_blank');this.textContent='Abrindo...';setTimeout(()=>this.textContent='🔗 Abrir TeamViewer',2000)"
+                    <button onclick="(function(id){
+    // Tenta deeplink nativo primeiro, fallback para URL web
+    const link = document.createElement('a');
+    link.href = 'teamviewer://control?device=' + id;
+    link.click();
+    setTimeout(()=>this.textContent='🔗 Abrir TeamViewer',2000);
+    // Fallback: abre URL web que redireciona para o app com o ID preenchido
+    setTimeout(()=>{ window.open('https://start.teamviewer.com/?id=' + id, '_blank'); }, 1500);
+}).call(this, '${pay.teamviewer_id}'); this.textContent='Abrindo...'"
                         style="margin-top:8px;width:100%;background:rgba(0,114,186,.15);border:1px solid rgba(0,114,186,.4);color:#60a5fa;padding:8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
                         🔗 Abrir TeamViewer
                     </button>
