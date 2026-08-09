@@ -279,6 +279,8 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
     <button class="filter-btn" id="btn-order" onclick="toggleOrder()" style="margin-left:auto" title="Ordenar por score">↑ score</button>
     <button class="filter-btn" onclick="document.getElementById('gerenciar-tags-panel').style.display=document.getElementById('gerenciar-tags-panel').style.display==='block'?'none':'block'"
       title="Gerenciar tags de segmentação" style="background:rgba(168,85,247,.1);border-color:rgba(168,85,247,.3);color:#c084fc">🏷 Tags</button>
+    <button class="filter-btn" onclick="abrirVisaoRede()"
+      title="Visão consolidada por rede/franquia" style="background:rgba(6,182,212,.1);border-color:rgba(6,182,212,.3);color:#22d3ee">🏢 Redes</button>
     <button class="filter-btn" onclick="exportarDesatualizados()"  title="Exportar lojas desatualizadas" style="background:rgba(14,92,254,.1);border-color:rgba(14,92,254,.3);color:#7ab3ff">↓ exportar desatualizados</button>
   </div>
 
@@ -1009,18 +1011,34 @@ async function abrirLoja(token, abaInicial) {
             <div class="row"><span class="rl">Servidor Goomer</span><span class="rv" style="color:${l.servidor_online?'var(--green)':'var(--red)'}">${l.servidor_online?'online':'offline'}${pay.goomer_version?' · v'+pay.goomer_version:''}${_versoesPadrao.servidor_goomer&&pay.goomer_version&&compararVersao(pay.goomer_version,_versoesPadrao.servidor_goomer)==='desatualizado'?' <span style=\"color:var(--amber);font-size:11px\">⚠ desatualizado</span>':''}</span></div>
             ${pay.anydesk_id||pay.teamviewer_id?`
             <div style="margin:12px 0 6px;font-size:10px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em">Acesso Remoto</div>
-            ${pay.anydesk_id?`<div class="row"><span class="rl">AnyDesk ID</span>
-                <span class="rv" style="display:flex;align-items:center;gap:8px">
-                    <span style="font-family:var(--mono);font-size:15px;font-weight:800;color:#e8eef8;letter-spacing:.08em">${h(pay.anydesk_id)}</span>
-                    <button onclick="navigator.clipboard.writeText('${pay.anydesk_id}').then(()=>this.textContent='✓').catch(()=>{})"
-                        style="background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px">copiar</button>
-                </span></div>`:''}
-            ${pay.teamviewer_id?`<div class="row"><span class="rl">TeamViewer ID</span>
-                <span class="rv" style="display:flex;align-items:center;gap:8px">
-                    <span style="font-family:var(--mono);font-size:15px;font-weight:800;color:#e8eef8;letter-spacing:.08em">${h(pay.teamviewer_id)}</span>
-                    <button onclick="navigator.clipboard.writeText('${pay.teamviewer_id}').then(()=>this.textContent='✓').catch(()=>{})"
-                        style="background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px">copiar</button>
-                </span></div>`:''}
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+                ${pay.anydesk_id ? `
+                <div style="flex:1;min-width:200px">
+                    <div style="font-size:10px;color:#8096b8;margin-bottom:5px">AnyDesk ID</div>
+                    <div style="display:flex;gap:6px;align-items:center">
+                        <span style="font-family:var(--mono);font-size:16px;font-weight:800;color:#e8eef8;letter-spacing:.1em">${h(pay.anydesk_id)}</span>
+                        <button onclick="navigator.clipboard.writeText('${pay.anydesk_id}').then(()=>this.textContent='✓ copiado').catch(()=>{})"
+                            style="background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px">copiar</button>
+                    </div>
+                    <button onclick="window.open('anydesk:${pay.anydesk_id}','_blank');this.textContent='Abrindo...';setTimeout(()=>this.textContent='🖥 Abrir AnyDesk',2000)"
+                        style="margin-top:8px;width:100%;background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
+                        🖥 Abrir AnyDesk
+                    </button>
+                </div>` : ''}
+            ${pay.teamviewer_id ? `
+                <div style="flex:1;min-width:200px">
+                    <div style="font-size:10px;color:#8096b8;margin-bottom:5px">TeamViewer ID</div>
+                    <div style="display:flex;gap:6px;align-items:center">
+                        <span style="font-family:var(--mono);font-size:16px;font-weight:800;color:#e8eef8;letter-spacing:.1em">${h(pay.teamviewer_id)}</span>
+                        <button onclick="navigator.clipboard.writeText('${pay.teamviewer_id}').then(()=>this.textContent='✓ copiado').catch(()=>{})"
+                            style="background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px">copiar</button>
+                    </div>
+                    <button onclick="window.open('teamviewer10://control?device=${pay.teamviewer_id}','_blank');this.textContent='Abrindo...';setTimeout(()=>this.textContent='🔗 Abrir TeamViewer',2000)"
+                        style="margin-top:8px;width:100%;background:rgba(0,114,186,.15);border:1px solid rgba(0,114,186,.4);color:#60a5fa;padding:8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
+                        🔗 Abrir TeamViewer
+                    </button>
+                </div>` : ''}
+            </div>
             `:''}
             <div class="row"><span class="rl">Pedidos hoje</span><span class="rv">${pay.pedidos_hoje||0}</span></div>
             <div class="row"><span class="rl">Retry expirados (ERP)</span><span class="rv" style="color:${l.retry_expirados>0?'var(--red)':'var(--green)'}">${l.retry_expirados||0}</span></div>
@@ -1594,6 +1612,69 @@ async function abrirLoja(token, abaInicial) {
         diagHtml += renderCorr(corrCrit,  'corr-crit',  'var(--red)',   '🔴 O que está causando problemas');
         diagHtml += renderCorr(corrAviso, 'corr-aviso', 'var(--amber)', '🟡 Pontos de atenção');
         diagHtml += renderCorr(corrInfo,  'corr-info',  'var(--blue-l)','ℹ Informativo');
+    }
+
+    // ── Correlações: volume + erros + rede ──────────────────────
+    const volHora = pay.volume_por_hora;
+    const pedUltHora = pay.pedidos_ultima_hora || 0;
+    const horaAtualLocal = new Date(l.criado_em || new Date()).getHours();
+
+    if (volHora && Object.keys(volHora).length > 0) {
+        diagHtml += `<div style="margin-top:16px">
+        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">📊 Volume de Pedidos × Saúde do Sistema</div>`;
+
+        // Gráfico de barras de volume por hora
+        const horas = Array.from({length:24},(_,i)=>i);
+        const maxVol = Math.max(...Object.values(volHora).map(Number), 1);
+        const erroERP = pay.erros_erp || 0;
+        const temLatencia = pay.latencia > 300;
+
+        // Detectar hora de pico
+        const horaPico = Object.entries(volHora).sort((a,b)=>b[1]-a[1])[0];
+        const qtdPico  = horaPico ? parseInt(horaPico[1]) : 0;
+        const hPico    = horaPico ? parseInt(horaPico[0]) : 0;
+
+        diagHtml += `<div style="display:flex;align-items:flex-end;gap:3px;height:60px;margin-bottom:6px;padding:0 2px">`;
+        horas.forEach(h2 => {
+            const qtd = parseInt(volHora[h2] || 0);
+            const pct = qtd / maxVol;
+            const isAtual = h2 === horaAtualLocal;
+            const isPico  = h2 === hPico && qtdPico > 0;
+            const corBarra = isPico ? '#ff4455' : isAtual ? '#3b82f6' : '#1e3050';
+            diagHtml += `<div title="${h2}h: ${qtd} pedidos"
+                style="flex:1;background:${corBarra};height:${Math.max(pct*100,2)}%;border-radius:2px 2px 0 0;min-width:3px;transition:.2s"></div>`;
+        });
+        diagHtml += `</div>`;
+
+        // Legenda do eixo X
+        diagHtml += `<div style="display:flex;justify-content:space-between;font-size:9px;color:#606880;margin-bottom:8px">
+            <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span>
+        </div>`;
+
+        // Insights de correlação
+        const corrs = [];
+        if (qtdPico > 50 && erroERP > 0)
+            corrs.push({ cor:'#ff4455', ico:'⚠️', txt: `Pico de ${qtdPico} pedidos às ${hPico}h coincide com ${erroERP} erro(s) de ERP — carga alta pode estar causando falhas de integração.` });
+        if (pedUltHora > 30 && temLatencia)
+            corrs.push({ cor:'#ffb830', ico:'🐢', txt: `Alta demanda na última hora (${pedUltHora} pedidos) com latência elevada (${pay.latencia}ms) — rede pode estar sobrecarregada no pico de movimento.` });
+        if (qtdPico > 30 && parseInt(pay.maquina?.ram_pct||0) > 80)
+            corrs.push({ cor:'#ffb830', ico:'💾', txt: `Volume de pico (${qtdPico} pedidos/hora) com RAM em ${pay.maquina?.ram_pct}% — risco de lentidão sistêmica no horário de movimento.` });
+        if (corrs.length === 0 && qtdPico > 0)
+            corrs.push({ cor:'#00d68f', ico:'✅', txt: `Pico de ${qtdPico} pedidos às ${hPico}h sem impacto detectado na saúde do sistema.` });
+
+        corrs.forEach(c => {
+            diagHtml += `<div style="background:${c.cor}10;border-left:3px solid ${c.cor};border-radius:4px;padding:7px 10px;margin-bottom:6px;font-size:11px;color:#e8eef8;display:flex;gap:8px">
+                <span>${c.ico}</span><span>${c.txt}</span>
+            </div>`;
+        });
+
+        diagHtml += `<div style="font-size:10px;color:#8096b8;margin-top:4px">
+            Total hoje: <b style="color:#e8eef8">${pay.pedidos_hoje||0} pedidos</b> ·
+            Última hora: <b style="color:#3b82f6">${pedUltHora} pedidos</b> ·
+            Pico: <b style="color:#ff4455">${qtdPico} pedidos às ${hPico}h</b>
+        </div>
+
+        </div>`;
     }
 
     // Nota sobre o snapshot
@@ -3530,6 +3611,127 @@ function renderDashboardGestao() {
     }, 80);
 }
 
+// ════════════════════════════════════════════════════════════════
+// VISÃO DE REDE / FRANQUIA
+// ════════════════════════════════════════════════════════════════
+
+function abrirVisaoRede() {
+    if (_tags.length === 0) {
+        alert('Nenhuma tag criada. Crie tags para segmentar lojas por rede ou franquia.');
+        return;
+    }
+    document.getElementById('modal-rede').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    renderVisaoRede();
+}
+
+function fecharVisaoRede() {
+    document.getElementById('modal-rede').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+function renderVisaoRede() {
+    const el = document.getElementById('rede-conteudo');
+    if (!el) return;
+
+    // Para cada tag, consolidar lojas vinculadas
+    const redesData = _tags.map(tag => {
+        const tokens = Object.entries(_lojasTags)
+            .filter(([,ids]) => ids.includes(tag.id))
+            .map(([token]) => token);
+
+        const lojas = _dados.filter(l => tokens.includes(l.token_loja));
+        if (lojas.length === 0) return null;
+
+        const scores  = lojas.map(l => l.score || 0);
+        const scoreMedia = Math.round(scores.reduce((a,b)=>a+b,0)/scores.length);
+        const online  = lojas.filter(l => l.servidor_goomer === 'online' || l.payload?.servidor_goomer === 'online').length;
+        const criticas = lojas.filter(l => (l.score||0) < 60).length;
+        const atencao  = lojas.filter(l => (l.score||0) >= 60 && (l.score||0) < 85).length;
+        const saudaveis = lojas.filter(l => (l.score||0) >= 85).length;
+        const lojasOrdenadas = [...lojas].sort((a,b)=>(a.score||0)-(b.score||0));
+
+        return { tag, lojas, scores, scoreMedia, online, criticas, atencao, saudaveis, lojasOrdenadas };
+    }).filter(Boolean);
+
+    if (redesData.length === 0) {
+        el.innerHTML = '<div style="text-align:center;padding:40px;color:#8096b8">Nenhuma loja vinculada às tags criadas.</div>';
+        return;
+    }
+
+    const corScore = s => s>=85?'#00d68f':s>=60?'#ffb830':'#ff4455';
+
+    let html = '';
+    redesData.forEach(r => {
+        const cor = r.tag.cor;
+        html += `
+        <div style="background:#111827;border:1px solid ${cor}33;border-radius:12px;margin-bottom:20px;overflow:hidden">
+          <!-- Header da rede -->
+          <div style="background:${cor}12;border-bottom:1px solid ${cor}33;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="background:${cor}22;border:1px solid ${cor}55;color:${cor};padding:3px 12px;border-radius:12px;font-size:11px;font-weight:700">${h(r.tag.nome)}</span>
+              <span style="font-size:13px;font-weight:700;color:#e8eef8">${r.lojas.length} loja${r.lojas.length>1?'s':''}</span>
+            </div>
+            <!-- Mini KPIs da rede -->
+            <div style="display:flex;gap:16px;flex-wrap:wrap">
+              <div style="text-align:center">
+                <div style="font-size:20px;font-weight:800;color:${corScore(r.scoreMedia)}">${r.scoreMedia}%</div>
+                <div style="font-size:9px;color:#8096b8;text-transform:uppercase">Score médio</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:20px;font-weight:800;color:${r.online===r.lojas.length?'#00d68f':'#ff4455'}">${r.online}/${r.lojas.length}</div>
+                <div style="font-size:9px;color:#8096b8;text-transform:uppercase">Online</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:20px;font-weight:800;color:${r.criticas>0?'#ff4455':'#00d68f'}">${r.criticas}</div>
+                <div style="font-size:9px;color:#8096b8;text-transform:uppercase">Críticas</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:20px;font-weight:800;color:#00d68f">${r.saudaveis}</div>
+                <div style="font-size:9px;color:#8096b8;text-transform:uppercase">Saudáveis</div>
+              </div>
+            </div>
+          </div>
+          <!-- Barra de distribuição de score -->
+          <div style="padding:10px 20px;background:rgba(0,0,0,.2);display:flex;gap:2px;align-items:center">
+            <span style="font-size:10px;color:#8096b8;min-width:80px">Distribuição:</span>
+            <div style="flex:1;display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden">
+              ${r.criticas > 0 ? `<div style="flex:${r.criticas};background:#ff4455" title="${r.criticas} críticas"></div>` : ''}
+              ${r.atencao  > 0 ? `<div style="flex:${r.atencao};background:#ffb830"  title="${r.atencao} em atenção"></div>` : ''}
+              ${r.saudaveis> 0 ? `<div style="flex:${r.saudaveis};background:#00d68f" title="${r.saudaveis} saudáveis"></div>` : ''}
+            </div>
+            <span style="font-size:10px;color:#606880;margin-left:8px">
+              ${r.criticas>0?`<span style="color:#ff4455">${r.criticas} crit.</span> `:''} ${r.atencao>0?`<span style="color:#ffb830">${r.atencao} aten.</span> `:''} <span style="color:#00d68f">${r.saudaveis} ok</span>
+            </span>
+          </div>
+          <!-- Ranking de lojas -->
+          <div style="padding:12px 20px">
+            <div style="font-size:10px;font-weight:700;color:#8096b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Ranking por score</div>
+            ${r.lojasOrdenadas.map((l, i) => {
+                const sc = l.score || 0;
+                const cor2 = corScore(sc);
+                const srv = l.servidor_goomer === 'online' || l.payload?.servidor_goomer === 'online';
+                return `<div onclick="fecharVisaoRede();setTimeout(()=>abrirLoja(${JSON.stringify(l).replace(/"/g,'\"')}),100)"
+                    style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:7px;cursor:pointer;transition:.15s;margin-bottom:3px"
+                    onmouseover="this.style.background='rgba(255,255,255,.04)'" onmouseout="this.style.background='none'">
+                    <span style="font-size:11px;color:#606880;min-width:20px;text-align:right">${i+1}º</span>
+                    <span style="width:8px;height:8px;border-radius:50%;background:${srv?'#00d68f':'#ff4455'};flex-shrink:0"></span>
+                    <span style="flex:1;font-size:12px;color:#e8eef8;font-weight:${sc<60?'700':'400'}">${h(l.nome_loja||l.token_loja)}</span>
+                    <div style="display:flex;align-items:center;gap:6px">
+                        <div style="background:rgba(255,255,255,.06);border-radius:4px;height:5px;width:60px">
+                            <div style="background:${cor2};width:${sc}%;height:5px;border-radius:4px"></div>
+                        </div>
+                        <span style="font-size:12px;font-weight:700;color:${cor2};min-width:36px;text-align:right">${sc}%</span>
+                    </div>
+                </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+    });
+
+    el.innerHTML = html;
+}
+
 function fecharDashboard() {
     document.getElementById('modal-dashboard').style.display = 'none';
     document.body.style.overflow = '';
@@ -3709,6 +3911,21 @@ function exportarRelatorioHTML() {
   </div>
 
 </div>
+  <!-- Modal Visão de Rede/Franquia -->
+  <div id="modal-rede" onclick="if(event.target===this)fecharVisaoRede()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9998;overflow-y:auto;padding:20px">
+    <div style="background:#0d1117;border:1px solid #1e3050;border-radius:14px;max-width:1100px;margin:0 auto;padding:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #1e3050">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:#e8eef8">🏢 Visão de Redes e Franquias</div>
+          <div style="font-size:12px;color:#8096b8;margin-top:2px">Análise consolidada por tag de segmentação</div>
+        </div>
+        <button onclick="fecharVisaoRede()" style="background:none;border:none;color:#8096b8;font-size:20px;cursor:pointer">✕</button>
+      </div>
+      <div id="rede-conteudo" style="padding:20px"></div>
+    </div>
+  </div>
+
 </body>
 </html>`;
 
@@ -4285,6 +4502,21 @@ async function exportarDesatualizados() {
       </div>
       <!-- Conteúdo renderizado dinamicamente -->
       <div id="db-conteudo"></div>
+    </div>
+  </div>
+
+  <!-- Modal Visão de Rede/Franquia -->
+  <div id="modal-rede" onclick="if(event.target===this)fecharVisaoRede()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9998;overflow-y:auto;padding:20px">
+    <div style="background:#0d1117;border:1px solid #1e3050;border-radius:14px;max-width:1100px;margin:0 auto;padding:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #1e3050">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:#e8eef8">🏢 Visão de Redes e Franquias</div>
+          <div style="font-size:12px;color:#8096b8;margin-top:2px">Análise consolidada por tag de segmentação</div>
+        </div>
+        <button onclick="fecharVisaoRede()" style="background:none;border:none;color:#8096b8;font-size:20px;cursor:pointer">✕</button>
+      </div>
+      <div id="rede-conteudo" style="padding:20px"></div>
     </div>
   </div>
 
