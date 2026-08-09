@@ -277,8 +277,8 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
     <button class="filter-btn"       id="f-desatualizado" onclick="setFiltro('desatualizado')">🔄 Desatualizado</button>
     <button class="filter-btn"       id="f-inativas"      onclick="setFiltro('inativas')">⊘ Inativas</button>
     <button class="filter-btn" id="btn-order" onclick="toggleOrder()" style="margin-left:auto" title="Ordenar por score">↑ score</button>
-    <button class="filter-btn" onclick="document.getElementById('gerenciar-tags-panel').style.display=document.getElementById('gerenciar-tags-panel').style.display==='block'?'none':'block'"
-      title="Gerenciar tags de segmentação" style="background:rgba(168,85,247,.1);border-color:rgba(168,85,247,.3);color:#c084fc">🏷 Tags</button>
+    <button class="filter-btn" onclick="abrirConfiguracoes()"
+      title="Configurações globais do NOC" style="background:rgba(168,85,247,.1);border-color:rgba(168,85,247,.3);color:#c084fc">⚙ Config</button>
     <button class="filter-btn" onclick="abrirVisaoRede()"
       title="Visão consolidada por rede/franquia" style="background:rgba(6,182,212,.1);border-color:rgba(6,182,212,.3);color:#22d3ee">🏢 Redes</button>
     <button class="filter-btn" onclick="exportarDesatualizados()"  title="Exportar lojas desatualizadas" style="background:rgba(14,92,254,.1);border-color:rgba(14,92,254,.3);color:#7ab3ff">↓ exportar desatualizados</button>
@@ -287,8 +287,8 @@ body{background:var(--bg);color:#e8eef8;font-family:var(--sans);min-height:100vh
   <!-- Linha de tags de filtro (aparece quando há tags criadas) -->
   <div id="tags-filter-row"></div>
 
-  <!-- Painel de gerenciamento de tags (abre/fecha) -->
-  <div id="gerenciar-tags-panel">
+  <!-- Painel de tags movido para Configurações Globais -->
+  <div id="gerenciar-tags-panel" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <span style="font-size:12px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em">Gerenciar Tags</span>
       <button onclick="document.getElementById('gerenciar-tags-panel').style.display='none'"
@@ -400,6 +400,25 @@ const BAR_COR = (v,lo,hi) => v>=hi?'#ff4455':v>=lo?'#ffb830':'#00d68f';
 let _cfgLojaAtual = {}; // espelho local do cfgLoja do modal aberto
 let _dados = [], _filtro = 'todos', _order = 'asc'; // asc = piores primeiro
 let _filtroTag  = null;   // id da tag ativa no filtro (null = sem filtro de tag)
+
+// ── Configurações Globais ──────────────────────────────────────
+let _cfg = {
+    slack_webhook:        '',
+    slack_mensagem:       'Alerta NOC — Loja com problema persistente que requer atenção.',
+    versao_minima:        '',
+    silencio_inicio:      '',   // ex: '01:00'
+    silencio_fim:         '',   // ex: '07:00'
+    alerta_score:         true,
+    alerta_score_limiar:  55,
+    alerta_score_ciclos:  4,
+    alerta_servidor:      true,
+    alerta_servidor_ciclos: 6,
+    alerta_tablets:       true,
+    alerta_tablets_ciclos: 3,
+    alerta_mysql:         true,
+    alerta_mysql_ciclos:  4,
+};
+let _alertasDisparados = {}; // { token_loja: { tipo: timestamp } } — evita re-disparar
 let _tags       = [];     // [ { id, nome, cor } ] — carregadas do Supabase
 let _lojasTags  = {};     // { token_loja: [id_tag, ...] } — vínculo loja↔tags
 let _corTagSel  = '#00d68f'; // cor selecionada no painel de criar tag
@@ -626,6 +645,8 @@ function filtrar() {
     });
     lista.sort((a,b) => _order==='asc' ? a.score-b.score : b.score-a.score);
     renderGrid(lista);
+    // Verificar alertas após cada atualização dos dados
+    if (_cfg.slack_webhook) verificarAlertas(_dados);
 }
 
 function renderGrid(lista) {
@@ -2573,6 +2594,7 @@ function closeOverlay(e){
         document.getElementById('overlay').classList.remove('on');
 }
 
+carregarConfiguracoes();
 carregarTags();
 carregar();
 setInterval(carregar, 5*60*1000);
@@ -3623,6 +3645,228 @@ function abrirVisaoRede() {
     renderVisaoRede();
 }
 
+// ════════════════════════════════════════════════════════════════
+// CONFIGURAÇÕES GLOBAIS
+// ════════════════════════════════════════════════════════════════
+
+const CFG_KEY = 'goomer_noc_config'; // localStorage key
+
+function carregarConfiguracoes() {
+    try {
+        const salvo = localStorage.getItem(CFG_KEY);
+        if (salvo) Object.assign(_cfg, JSON.parse(salvo));
+    } catch(e) {}
+    sincronizarFormConfig();
+}
+
+function sincronizarFormConfig() {
+    // Preencher campos com valores de _cfg
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
+    const chk = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+    set('cfg-webhook',        _cfg.slack_webhook);
+    set('cfg-mensagem',       _cfg.slack_mensagem);
+    set('cfg-silencio-ini',   _cfg.silencio_inicio);
+    set('cfg-silencio-fim',   _cfg.silencio_fim);
+    set('cfg-versao-minima',  _cfg.versao_minima);
+    set('cfg-score-limiar',   _cfg.alerta_score_limiar);
+    set('cfg-score-ciclos',   _cfg.alerta_score_ciclos);
+    set('cfg-servidor-ciclos',_cfg.alerta_servidor_ciclos);
+    set('cfg-tablets-ciclos', _cfg.alerta_tablets_ciclos);
+    set('cfg-mysql-ciclos',   _cfg.alerta_mysql_ciclos);
+    chk('cfg-alerta-score',   _cfg.alerta_score);
+    chk('cfg-alerta-servidor',_cfg.alerta_servidor);
+    chk('cfg-alerta-tablets', _cfg.alerta_tablets);
+    chk('cfg-alerta-mysql',   _cfg.alerta_mysql);
+    atualizarMinutos();
+}
+
+function atualizarMinutos() {
+    const calc = (idCiclos, idMin) => {
+        const el = document.getElementById(idCiclos);
+        const elMin = document.getElementById(idMin);
+        if (el && elMin) elMin.textContent = parseInt(el.value || 1) * 5;
+    };
+    calc('cfg-score-ciclos',   'cfg-score-min');
+    calc('cfg-servidor-ciclos','cfg-servidor-min');
+    calc('cfg-tablets-ciclos', 'cfg-tablets-min');
+    calc('cfg-mysql-ciclos',   'cfg-mysql-min');
+}
+
+// Atualizar minutos ao digitar
+document.addEventListener('input', e => {
+    if (['cfg-score-ciclos','cfg-servidor-ciclos','cfg-tablets-ciclos','cfg-mysql-ciclos'].includes(e.target?.id)) {
+        atualizarMinutos();
+    }
+});
+
+function salvarConfiguracoes() {
+    const get = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    const chk = id => { const el = document.getElementById(id); return el ? el.checked : false; };
+
+    _cfg.slack_webhook          = get('cfg-webhook');
+    _cfg.slack_mensagem         = get('cfg-mensagem');
+    _cfg.silencio_inicio        = get('cfg-silencio-ini');
+    _cfg.silencio_fim           = get('cfg-silencio-fim');
+    _cfg.versao_minima          = get('cfg-versao-minima');
+    _cfg.alerta_score           = chk('cfg-alerta-score');
+    _cfg.alerta_score_limiar    = parseInt(get('cfg-score-limiar'))   || 55;
+    _cfg.alerta_score_ciclos    = parseInt(get('cfg-score-ciclos'))   || 4;
+    _cfg.alerta_servidor        = chk('cfg-alerta-servidor');
+    _cfg.alerta_servidor_ciclos = parseInt(get('cfg-servidor-ciclos'))|| 6;
+    _cfg.alerta_tablets         = chk('cfg-alerta-tablets');
+    _cfg.alerta_tablets_ciclos  = parseInt(get('cfg-tablets-ciclos')) || 3;
+    _cfg.alerta_mysql           = chk('cfg-alerta-mysql');
+    _cfg.alerta_mysql_ciclos    = parseInt(get('cfg-mysql-ciclos'))   || 4;
+
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(_cfg)); } catch(e) {}
+
+    const btn = event?.target;
+    if (btn) { const orig = btn.textContent; btn.textContent = '✅ Salvo!'; setTimeout(() => btn.textContent = orig, 2000); }
+}
+
+async function testarSlack() {
+    const webhook = document.getElementById('cfg-webhook')?.value?.trim();
+    if (!webhook) { alert('Informe a URL do webhook primeiro.'); return; }
+    const btn = document.getElementById('cfg-webhook')?.nextElementSibling?.children[1];
+    if (btn) btn.textContent = 'Enviando...';
+    const ok = await dispararAlertaSlack({
+        emoji: '🧪', titulo: 'Teste de Alerta — Goomer NOC',
+        loja: 'Loja de Teste', token: 'teste',
+        linhas: ['Este é um alerta de teste do Goomer NOC.', 'Se você recebeu esta mensagem, a integração está funcionando! ✅'],
+        score: 100, webhook
+    });
+    if (btn) btn.textContent = '🧪 Testar';
+    alert(ok ? '✅ Mensagem enviada com sucesso!' : '❌ Falha ao enviar. Verifique a URL do webhook.');
+}
+
+function abrirConfiguracoes() {
+    carregarConfiguracoes();
+    renderListaTagsAdmin();
+    document.getElementById('modal-config').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    showCfgTab('alertas', document.getElementById('cfgtab-alertas'));
+}
+
+function fecharConfiguracoes() {
+    document.getElementById('modal-config').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+function showCfgTab(nome, btn) {
+    ['alertas','tags','sistema'].forEach(t => {
+        document.getElementById('cfgpanel-'+t).style.display = t === nome ? 'block' : 'none';
+        const b = document.getElementById('cfgtab-'+t);
+        if (b) { b.style.borderBottomColor = t===nome?'#c084fc':'transparent'; b.style.color = t===nome?'#c084fc':'#8096b8'; }
+    });
+}
+
+// ── Motor de alertas — chamado a cada carregamento ────────────────
+function verificarAlertas(lojas) {
+    if (!_cfg.slack_webhook) return;
+
+    // Verificar horário de silêncio
+    if (_cfg.silencio_inicio && _cfg.silencio_fim) {
+        const agora = new Date();
+        const [hI, mI] = _cfg.silencio_inicio.split(':').map(Number);
+        const [hF, mF] = _cfg.silencio_fim.split(':').map(Number);
+        const minAtual = agora.getHours() * 60 + agora.getMinutes();
+        const minIni   = hI * 60 + mI;
+        const minFim   = hF * 60 + mF;
+        const emSilencio = minIni <= minFim
+            ? (minAtual >= minIni && minAtual <= minFim)
+            : (minAtual >= minIni || minAtual <= minFim);
+        if (emSilencio) return;
+    }
+
+    const agora = Date.now();
+    const COOLDOWN = 30 * 60 * 1000; // 30min entre alertas da mesma loja+tipo
+
+    lojas.forEach(l => {
+        const tk    = l.token_loja;
+        const nome  = l.nome_loja || tk;
+        const score = l.score || 0;
+        const pay   = l.payload || {};
+        const srvOk = pay.servidor_goomer === 'online';
+        const tabs  = pay.tablets_ativos || 0;
+
+        if (!_alertasDisparados[tk]) _alertasDisparados[tk] = {};
+
+        // Contar ciclos consecutivos por tipo usando histórico dos dados
+        const ciclosScore   = contarCiclosConsecutivos(l, s => (s.score||0) < _cfg.alerta_score_limiar);
+        const ciclosServidor = contarCiclosConsecutivos(l, s => s.payload?.servidor_goomer !== 'online');
+        const ciclosTablets  = contarCiclosConsecutivos(l, s => (s.payload?.tablets_ativos||0) === 0 && s.payload?.servidor_goomer === 'online');
+        const ciclosMySQL    = contarCiclosConsecutivos(l, s => s.payload?.mysql_status === 'offline');
+
+        const disparar = async (tipo, ciclos, limiar, linhas, emoji) => {
+            if (ciclos < limiar) return;
+            const ult = _alertasDisparados[tk][tipo] || 0;
+            if (agora - ult < COOLDOWN) return;
+            _alertasDisparados[tk][tipo] = agora;
+            await dispararAlertaSlack({ emoji, titulo: 'Alerta NOC — ' + nome, loja: nome, token: tk, linhas, score });
+        };
+
+        if (_cfg.alerta_score)
+            disparar('score', ciclosScore, _cfg.alerta_score_ciclos,
+                [`Score: *${score}%* (abaixo de ${_cfg.alerta_score_limiar}% por ${ciclosScore} ciclos consecutivos)`,
+                 `Servidor: ${srvOk?'online':'*OFFLINE*'} · Tablets ativos: ${tabs}`,
+                 _cfg.slack_mensagem].filter(Boolean), '🔴');
+
+        if (_cfg.alerta_servidor)
+            disparar('servidor', ciclosServidor, _cfg.alerta_servidor_ciclos,
+                [`Servidor Goomer *OFFLINE* por ${ciclosServidor} ciclos consecutivos (~${ciclosServidor*5}min)`,
+                 `Agente transmitindo normalmente — autocorreção não resolveu`,
+                 _cfg.slack_mensagem].filter(Boolean), '🖥');
+
+        if (_cfg.alerta_tablets)
+            disparar('tablets', ciclosTablets, _cfg.alerta_tablets_ciclos,
+                [`*Nenhum tablet conectado* por ${ciclosTablets} ciclos (~${ciclosTablets*5}min)`,
+                 `Servidor online — possível falha de rede ou roteador`,
+                 _cfg.slack_mensagem].filter(Boolean), '📱');
+
+        if (_cfg.alerta_mysql)
+            disparar('mysql', ciclosMySQL, _cfg.alerta_mysql_ciclos,
+                [`MySQL *offline* por ${ciclosMySQL} ciclos consecutivos (~${ciclosMySQL*5}min)`,
+                 `Autocorreção não conseguiu recuperar o banco de dados`,
+                 _cfg.slack_mensagem].filter(Boolean), '🗄');
+    });
+}
+
+function contarCiclosConsecutivos(loja, condicao) {
+    // Usa o histórico de snapshots do _dados se disponível
+    // Para o ciclo atual, verifica o snapshot atual
+    // Sem histórico detalhado no _dados, usa snapshots do payload.correlacoes
+    const hist = loja.payload?.historico_snapshots || [];
+    if (hist.length === 0) return condicao(loja) ? 1 : 0;
+    let count = 0;
+    for (let i = hist.length - 1; i >= 0; i--) {
+        if (condicao(hist[i])) count++;
+        else break;
+    }
+    return count;
+}
+
+async function dispararAlertaSlack({ emoji, titulo, loja, token, linhas, score, webhook }) {
+    const url = webhook || _cfg.slack_webhook;
+    if (!url) return false;
+    const horaAtual = new Date().toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    const blocks = [
+        { type:'header', text:{ type:'plain_text', text: emoji + ' ' + titulo, emoji:true } },
+        { type:'section', fields: linhas.map(l => ({ type:'mrkdwn', text: l })) },
+        { type:'context', elements:[{ type:'mrkdwn', text: `⏰ ${horaAtual} · Score atual: ${score}%` }] }
+    ];
+    try {
+        await fetch(url, {
+            method:'POST',
+            headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({ blocks })
+        });
+        return true;
+    } catch(e) {
+        console.error('[ALERTA] Erro ao enviar Slack:', e.message);
+        return false;
+    }
+}
+
 function fecharVisaoRede() {
     document.getElementById('modal-rede').style.display = 'none';
     document.body.style.overflow = '';
@@ -3909,6 +4153,206 @@ function exportarRelatorioHTML() {
   </div>
 
 </div>
+  <!-- Botão fixo de configurações -->
+  <button onclick="abrirConfiguracoes()" title="Configurações Globais"
+    style="position:fixed;bottom:20px;right:20px;z-index:8000;width:44px;height:44px;border-radius:50%;background:#1e3050;border:1px solid rgba(168,85,247,.4);color:#c084fc;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.4);transition:.2s"
+    onmouseover="this.style.background='rgba(168,85,247,.2)'" onmouseout="this.style.background='#1e3050'">⚙</button>
+
+  <!-- Modal Configurações Globais -->
+  <div id="modal-config" onclick="if(event.target===this)fecharConfiguracoes()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9997;overflow-y:auto;padding:20px">
+    <div style="background:#0d1117;border:1px solid #1e3050;border-radius:14px;max-width:720px;margin:0 auto;padding:0">
+
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #1e3050">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:#e8eef8">⚙ Configurações Globais</div>
+          <div style="font-size:12px;color:#8096b8;margin-top:2px">Alertas, tags, versão mínima e preferências do NOC</div>
+        </div>
+        <button onclick="fecharConfiguracoes()" style="background:none;border:none;color:#8096b8;font-size:20px;cursor:pointer">✕</button>
+      </div>
+
+      <!-- Abas internas -->
+      <div style="display:flex;border-bottom:1px solid #1e3050;padding:0 24px">
+        <button onclick="showCfgTab('alertas',this)"  id="cfgtab-alertas"
+          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid #c084fc;color:#c084fc;cursor:pointer;font-size:12px;font-weight:700">🔔 Alertas Slack</button>
+        <button onclick="showCfgTab('tags',this)"     id="cfgtab-tags"
+          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">🏷 Tags</button>
+        <button onclick="showCfgTab('sistema',this)"  id="cfgtab-sistema"
+          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">🖥 Sistema</button>
+      </div>
+
+      <!-- Painel Alertas -->
+      <div id="cfgpanel-alertas" style="padding:20px 24px">
+
+        <!-- Webhook -->
+        <div style="margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Webhook do Slack</div>
+          <input id="cfg-webhook" placeholder="https://hooks.slack.com/services/..." maxlength="200"
+            style="width:100%;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:8px 12px;border-radius:8px;font-size:12px;font-family:var(--mono)">
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button onclick="salvarConfiguracoes()" style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">💾 Salvar</button>
+            <button onclick="testarSlack()" style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">🧪 Testar</button>
+          </div>
+        </div>
+
+        <!-- Mensagem personalizada -->
+        <div style="margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Mensagem de contexto (opcional)</div>
+          <input id="cfg-mensagem" placeholder="Ex: Verificar com o analista de plantão." maxlength="200"
+            style="width:100%;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:8px 12px;border-radius:8px;font-size:12px">
+        </div>
+
+        <!-- Horário de silêncio -->
+        <div style="margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Horário de silêncio (sem alertas)</div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <label style="font-size:12px;color:#8096b8">Das
+              <input type="time" id="cfg-silencio-ini"
+                style="margin-left:6px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
+            </label>
+            <label style="font-size:12px;color:#8096b8">às
+              <input type="time" id="cfg-silencio-fim"
+                style="margin-left:6px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
+            </label>
+            <span style="font-size:11px;color:#606880">Deixe em branco para alertar sempre</span>
+          </div>
+        </div>
+
+        <!-- Critérios -->
+        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Critérios de alerta</div>
+
+        <div style="display:flex;flex-direction:column;gap:10px" id="cfg-criterios">
+          <!-- Score crítico -->
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div>
+                <span style="font-size:12px;font-weight:700;color:#e8eef8">🔴 Score crítico persistente</span>
+                <div style="font-size:11px;color:#8096b8;margin-top:2px">Alerta quando o score fica abaixo do limiar por vários ciclos consecutivos</div>
+              </div>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="cfg-alerta-score" style="width:16px;height:16px;cursor:pointer">
+                <span style="font-size:11px;color:#8096b8">Ativo</span>
+              </label>
+            </div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap">
+              <label style="font-size:11px;color:#8096b8">Limiar
+                <input type="number" id="cfg-score-limiar" min="20" max="80" style="width:56px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">%
+              </label>
+              <label style="font-size:11px;color:#8096b8">Por
+                <input type="number" id="cfg-score-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
+                ciclos consecutivos (~<span id="cfg-score-min">20</span>min)
+              </label>
+            </div>
+          </div>
+
+          <!-- Servidor offline -->
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div>
+                <span style="font-size:12px;font-weight:700;color:#e8eef8">🖥 Servidor offline persistente</span>
+                <div style="font-size:11px;color:#8096b8;margin-top:2px">Agente transmitindo mas servidor não volta — autocorreção não resolveu</div>
+              </div>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="cfg-alerta-servidor" style="width:16px;height:16px;cursor:pointer">
+                <span style="font-size:11px;color:#8096b8">Ativo</span>
+              </label>
+            </div>
+            <label style="font-size:11px;color:#8096b8">Por
+              <input type="number" id="cfg-servidor-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
+              ciclos consecutivos (~<span id="cfg-servidor-min">30</span>min)
+            </label>
+          </div>
+
+          <!-- Tablets offline -->
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div>
+                <span style="font-size:12px;font-weight:700;color:#e8eef8">📱 Nenhum tablet conectado</span>
+                <div style="font-size:11px;color:#8096b8;margin-top:2px">Servidor online mas zero tablets ativos — problema de rede/roteador</div>
+              </div>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="cfg-alerta-tablets" style="width:16px;height:16px;cursor:pointer">
+                <span style="font-size:11px;color:#8096b8">Ativo</span>
+              </label>
+            </div>
+            <label style="font-size:11px;color:#8096b8">Por
+              <input type="number" id="cfg-tablets-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
+              ciclos consecutivos (~<span id="cfg-tablets-min">15</span>min)
+            </label>
+          </div>
+
+          <!-- MySQL -->
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div>
+                <span style="font-size:12px;font-weight:700;color:#e8eef8">🗄 MySQL offline persistente</span>
+                <div style="font-size:11px;color:#8096b8;margin-top:2px">Banco não responde após tentativas de autocorreção</div>
+              </div>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="cfg-alerta-mysql" style="width:16px;height:16px;cursor:pointer">
+                <span style="font-size:11px;color:#8096b8">Ativo</span>
+              </label>
+            </div>
+            <label style="font-size:11px;color:#8096b8">Por
+              <input type="number" id="cfg-mysql-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
+              ciclos consecutivos (~<span id="cfg-mysql-min">20</span>min)
+            </label>
+          </div>
+        </div>
+
+        <button onclick="salvarConfiguracoes()"
+          style="width:100%;margin-top:16px;background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:10px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">
+          💾 Salvar Configurações
+        </button>
+      </div>
+
+      <!-- Painel Tags -->
+      <div id="cfgpanel-tags" style="padding:20px 24px;display:none">
+        <div style="margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Criar nova tag</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="nova-tag-nome" placeholder="Nome da tag..." maxlength="24"
+              style="background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px;flex:1;min-width:120px">
+            <div style="display:flex;gap:6px;flex-wrap:wrap" id="cores-tag">
+              <span data-cor="#00d68f" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#00d68f;cursor:pointer;border:2px solid white"></span>
+              <span data-cor="#3b82f6" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#3b82f6;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#ffb830" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#ffb830;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#ff4455" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#ff4455;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#a855f7" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#a855f7;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#06b6d4" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#06b6d4;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#f97316" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#f97316;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#ec4899" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#ec4899;cursor:pointer;border:2px solid transparent"></span>
+            </div>
+            <button onclick="criarTag()"
+              style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">
+              + Criar Tag
+            </button>
+          </div>
+        </div>
+        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Tags existentes</div>
+        <div id="lista-tags-admin" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+
+      <!-- Painel Sistema -->
+      <div id="cfgpanel-sistema" style="padding:20px 24px;display:none">
+        <div style="margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Versão mínima do agente</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="cfg-versao-minima" placeholder="Ex: 1.0.20" maxlength="20"
+              style="width:140px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:8px 12px;border-radius:8px;font-size:13px;font-family:var(--mono)">
+            <span style="font-size:12px;color:#8096b8">Lojas com versão inferior serão destacadas no painel</span>
+          </div>
+        </div>
+        <button onclick="salvarConfiguracoes()"
+          style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">
+          💾 Salvar
+        </button>
+      </div>
+
+    </div>
+  </div>
+
   <!-- Modal Visão de Rede/Franquia -->
   <div id="modal-rede" onclick="if(event.target===this)fecharVisaoRede()"
     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9998;overflow-y:auto;padding:20px">
@@ -4500,6 +4944,206 @@ async function exportarDesatualizados() {
       </div>
       <!-- Conteúdo renderizado dinamicamente -->
       <div id="db-conteudo"></div>
+    </div>
+  </div>
+
+  <!-- Botão fixo de configurações -->
+  <button onclick="abrirConfiguracoes()" title="Configurações Globais"
+    style="position:fixed;bottom:20px;right:20px;z-index:8000;width:44px;height:44px;border-radius:50%;background:#1e3050;border:1px solid rgba(168,85,247,.4);color:#c084fc;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.4);transition:.2s"
+    onmouseover="this.style.background='rgba(168,85,247,.2)'" onmouseout="this.style.background='#1e3050'">⚙</button>
+
+  <!-- Modal Configurações Globais -->
+  <div id="modal-config" onclick="if(event.target===this)fecharConfiguracoes()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9997;overflow-y:auto;padding:20px">
+    <div style="background:#0d1117;border:1px solid #1e3050;border-radius:14px;max-width:720px;margin:0 auto;padding:0">
+
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #1e3050">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:#e8eef8">⚙ Configurações Globais</div>
+          <div style="font-size:12px;color:#8096b8;margin-top:2px">Alertas, tags, versão mínima e preferências do NOC</div>
+        </div>
+        <button onclick="fecharConfiguracoes()" style="background:none;border:none;color:#8096b8;font-size:20px;cursor:pointer">✕</button>
+      </div>
+
+      <!-- Abas internas -->
+      <div style="display:flex;border-bottom:1px solid #1e3050;padding:0 24px">
+        <button onclick="showCfgTab('alertas',this)"  id="cfgtab-alertas"
+          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid #c084fc;color:#c084fc;cursor:pointer;font-size:12px;font-weight:700">🔔 Alertas Slack</button>
+        <button onclick="showCfgTab('tags',this)"     id="cfgtab-tags"
+          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">🏷 Tags</button>
+        <button onclick="showCfgTab('sistema',this)"  id="cfgtab-sistema"
+          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">🖥 Sistema</button>
+      </div>
+
+      <!-- Painel Alertas -->
+      <div id="cfgpanel-alertas" style="padding:20px 24px">
+
+        <!-- Webhook -->
+        <div style="margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Webhook do Slack</div>
+          <input id="cfg-webhook" placeholder="https://hooks.slack.com/services/..." maxlength="200"
+            style="width:100%;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:8px 12px;border-radius:8px;font-size:12px;font-family:var(--mono)">
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button onclick="salvarConfiguracoes()" style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">💾 Salvar</button>
+            <button onclick="testarSlack()" style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">🧪 Testar</button>
+          </div>
+        </div>
+
+        <!-- Mensagem personalizada -->
+        <div style="margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Mensagem de contexto (opcional)</div>
+          <input id="cfg-mensagem" placeholder="Ex: Verificar com o analista de plantão." maxlength="200"
+            style="width:100%;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:8px 12px;border-radius:8px;font-size:12px">
+        </div>
+
+        <!-- Horário de silêncio -->
+        <div style="margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Horário de silêncio (sem alertas)</div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <label style="font-size:12px;color:#8096b8">Das
+              <input type="time" id="cfg-silencio-ini"
+                style="margin-left:6px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
+            </label>
+            <label style="font-size:12px;color:#8096b8">às
+              <input type="time" id="cfg-silencio-fim"
+                style="margin-left:6px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
+            </label>
+            <span style="font-size:11px;color:#606880">Deixe em branco para alertar sempre</span>
+          </div>
+        </div>
+
+        <!-- Critérios -->
+        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Critérios de alerta</div>
+
+        <div style="display:flex;flex-direction:column;gap:10px" id="cfg-criterios">
+          <!-- Score crítico -->
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div>
+                <span style="font-size:12px;font-weight:700;color:#e8eef8">🔴 Score crítico persistente</span>
+                <div style="font-size:11px;color:#8096b8;margin-top:2px">Alerta quando o score fica abaixo do limiar por vários ciclos consecutivos</div>
+              </div>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="cfg-alerta-score" style="width:16px;height:16px;cursor:pointer">
+                <span style="font-size:11px;color:#8096b8">Ativo</span>
+              </label>
+            </div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap">
+              <label style="font-size:11px;color:#8096b8">Limiar
+                <input type="number" id="cfg-score-limiar" min="20" max="80" style="width:56px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">%
+              </label>
+              <label style="font-size:11px;color:#8096b8">Por
+                <input type="number" id="cfg-score-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
+                ciclos consecutivos (~<span id="cfg-score-min">20</span>min)
+              </label>
+            </div>
+          </div>
+
+          <!-- Servidor offline -->
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div>
+                <span style="font-size:12px;font-weight:700;color:#e8eef8">🖥 Servidor offline persistente</span>
+                <div style="font-size:11px;color:#8096b8;margin-top:2px">Agente transmitindo mas servidor não volta — autocorreção não resolveu</div>
+              </div>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="cfg-alerta-servidor" style="width:16px;height:16px;cursor:pointer">
+                <span style="font-size:11px;color:#8096b8">Ativo</span>
+              </label>
+            </div>
+            <label style="font-size:11px;color:#8096b8">Por
+              <input type="number" id="cfg-servidor-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
+              ciclos consecutivos (~<span id="cfg-servidor-min">30</span>min)
+            </label>
+          </div>
+
+          <!-- Tablets offline -->
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div>
+                <span style="font-size:12px;font-weight:700;color:#e8eef8">📱 Nenhum tablet conectado</span>
+                <div style="font-size:11px;color:#8096b8;margin-top:2px">Servidor online mas zero tablets ativos — problema de rede/roteador</div>
+              </div>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="cfg-alerta-tablets" style="width:16px;height:16px;cursor:pointer">
+                <span style="font-size:11px;color:#8096b8">Ativo</span>
+              </label>
+            </div>
+            <label style="font-size:11px;color:#8096b8">Por
+              <input type="number" id="cfg-tablets-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
+              ciclos consecutivos (~<span id="cfg-tablets-min">15</span>min)
+            </label>
+          </div>
+
+          <!-- MySQL -->
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div>
+                <span style="font-size:12px;font-weight:700;color:#e8eef8">🗄 MySQL offline persistente</span>
+                <div style="font-size:11px;color:#8096b8;margin-top:2px">Banco não responde após tentativas de autocorreção</div>
+              </div>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="cfg-alerta-mysql" style="width:16px;height:16px;cursor:pointer">
+                <span style="font-size:11px;color:#8096b8">Ativo</span>
+              </label>
+            </div>
+            <label style="font-size:11px;color:#8096b8">Por
+              <input type="number" id="cfg-mysql-ciclos" min="2" max="12" style="width:44px;margin-left:6px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:4px 6px;border-radius:5px;font-size:12px">
+              ciclos consecutivos (~<span id="cfg-mysql-min">20</span>min)
+            </label>
+          </div>
+        </div>
+
+        <button onclick="salvarConfiguracoes()"
+          style="width:100%;margin-top:16px;background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:10px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">
+          💾 Salvar Configurações
+        </button>
+      </div>
+
+      <!-- Painel Tags -->
+      <div id="cfgpanel-tags" style="padding:20px 24px;display:none">
+        <div style="margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Criar nova tag</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="nova-tag-nome" placeholder="Nome da tag..." maxlength="24"
+              style="background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px;flex:1;min-width:120px">
+            <div style="display:flex;gap:6px;flex-wrap:wrap" id="cores-tag">
+              <span data-cor="#00d68f" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#00d68f;cursor:pointer;border:2px solid white"></span>
+              <span data-cor="#3b82f6" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#3b82f6;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#ffb830" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#ffb830;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#ff4455" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#ff4455;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#a855f7" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#a855f7;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#06b6d4" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#06b6d4;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#f97316" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#f97316;cursor:pointer;border:2px solid transparent"></span>
+              <span data-cor="#ec4899" onclick="selecionarCorTag(this)" style="width:20px;height:20px;border-radius:50%;background:#ec4899;cursor:pointer;border:2px solid transparent"></span>
+            </div>
+            <button onclick="criarTag()"
+              style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">
+              + Criar Tag
+            </button>
+          </div>
+        </div>
+        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Tags existentes</div>
+        <div id="lista-tags-admin" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+
+      <!-- Painel Sistema -->
+      <div id="cfgpanel-sistema" style="padding:20px 24px;display:none">
+        <div style="margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Versão mínima do agente</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="cfg-versao-minima" placeholder="Ex: 1.0.20" maxlength="20"
+              style="width:140px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:8px 12px;border-radius:8px;font-size:13px;font-family:var(--mono)">
+            <span style="font-size:12px;color:#8096b8">Lojas com versão inferior serão destacadas no painel</span>
+          </div>
+        </div>
+        <button onclick="salvarConfiguracoes()"
+          style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">
+          💾 Salvar
+        </button>
+      </div>
+
     </div>
   </div>
 
