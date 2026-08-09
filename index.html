@@ -1319,31 +1319,53 @@ async function abrirLoja(token, abaInicial) {
     (function() {
         const el = document.getElementById('tab-relatorio');
         if (!el) return;
+        window._periodoSelecionado = 7;
+        window._tipoRelatorio = 'cliente';
+
         el.innerHTML = `
         <div style="padding:4px 0 20px">
-            <div style="font-size:13px;color:#a0b8d0;margin-bottom:16px">
-                Selecione o período para gerar o relatório e dashboard desta loja.
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
-                <button class="period-btn ativo" id="pbtn-7"  onclick="setPeriodo(7,  this)">Última semana</button>
-                <button class="period-btn"        id="pbtn-30" onclick="setPeriodo(30, this)">Último mês</button>
-                <button class="period-btn"        id="pbtn-0"  onclick="setPeriodo(0,  this)">Personalizado</button>
-            </div>
-            <div id="periodo-custom" style="display:none;margin-bottom:16px;display:none;gap:10px;align-items:center;flex-wrap:wrap">
-                <label style="font-size:12px;color:#8096b8">De:
-                    <input type="date" id="periodo-ini" style="margin-left:6px;background:var(--bg3);border:1px solid var(--border);color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
-                </label>
-                <label style="font-size:12px;color:#8096b8">Até:
-                    <input type="date" id="periodo-fim" style="margin-left:6px;background:var(--bg3);border:1px solid var(--border);color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
-                </label>
-            </div>
-            <button onclick="gerarDashboard('${l.token_loja}','${h(l.nome_loja||'')}')"
-                style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;width:100%">
-                📊 Gerar Dashboard
-            </button>
-        </div>`;
 
-        window._periodoSelecionado = 7; // padrão: 7 dias
+          <!-- Período -->
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Período</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+            <button class="period-btn ativo" id="pbtn-7"  onclick="setPeriodo(7,  this)">Última semana</button>
+            <button class="period-btn"       id="pbtn-30" onclick="setPeriodo(30, this)">Último mês</button>
+            <button class="period-btn"       id="pbtn-0"  onclick="setPeriodo(0,  this)">Personalizado</button>
+          </div>
+          <div id="periodo-custom" style="display:none;margin-bottom:16px;gap:10px;align-items:center;flex-wrap:wrap">
+            <label style="font-size:12px;color:#8096b8">De:
+              <input type="date" id="periodo-ini" style="margin-left:6px;background:var(--bg3);border:1px solid var(--border);color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
+            </label>
+            <label style="font-size:12px;color:#8096b8">Até:
+              <input type="date" id="periodo-fim" style="margin-left:6px;background:var(--bg3);border:1px solid var(--border);color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
+            </label>
+          </div>
+
+          <!-- Tipo de relatório -->
+          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Tipo de relatório</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px">
+            <button id="tipo-cliente" onclick="setTipoRel('cliente',this)"
+              style="padding:12px 8px;border-radius:10px;border:2px solid #00d68f;background:rgba(0,214,143,.1);color:#00d68f;cursor:pointer;font-size:11px;font-weight:700;text-align:center">
+              👤<br><span style="font-size:12px;display:block;margin-top:4px">Cliente</span>
+              <span style="font-size:10px;font-weight:400;color:#8096b8;display:block;margin-top:2px">Resumo executivo</span>
+            </button>
+            <button id="tipo-suporte" onclick="setTipoRel('suporte',this)"
+              style="padding:12px 8px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:#a0b8d0;cursor:pointer;font-size:11px;font-weight:700;text-align:center">
+              🔧<br><span style="font-size:12px;display:block;margin-top:4px">Suporte</span>
+              <span style="font-size:10px;font-weight:400;color:#8096b8;display:block;margin-top:2px">Análise técnica</span>
+            </button>
+            <button id="tipo-gestao" onclick="setTipoRel('gestao',this)"
+              style="padding:12px 8px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:#a0b8d0;cursor:pointer;font-size:11px;font-weight:700;text-align:center">
+              📈<br><span style="font-size:12px;display:block;margin-top:4px">Gestão</span>
+              <span style="font-size:10px;font-weight:400;color:#8096b8;display:block;margin-top:2px">Impacto de negócio</span>
+            </button>
+          </div>
+
+          <button onclick="gerarDashboard('${l.token_loja}','${h(l.nome_loja||'')}')"
+            style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:12px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;width:100%">
+            📊 Gerar Relatório
+          </button>
+        </div>`;
 
         window.setPeriodo = function(dias, btn) {
             window._periodoSelecionado = dias;
@@ -1351,6 +1373,23 @@ async function abrirLoja(token, abaInicial) {
             btn.classList.add('ativo');
             const custom = document.getElementById('periodo-custom');
             if (custom) custom.style.display = dias === 0 ? 'flex' : 'none';
+        };
+        window.setTipoRel = function(tipo, btn) {
+            window._tipoRelatorio = tipo;
+            ['tipo-cliente','tipo-suporte','tipo-gestao'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (id === 'tipo-'+tipo) {
+                    const cor = tipo==='cliente'?'#00d68f':tipo==='suporte'?'#ffb830':'#a855f7';
+                    el.style.border = '2px solid '+cor;
+                    el.style.background = cor+'18';
+                    el.style.color = cor;
+                } else {
+                    el.style.border = '1px solid var(--border)';
+                    el.style.background = 'var(--bg3)';
+                    el.style.color = '#a0b8d0';
+                }
+            });
         };
     })();
 
@@ -2823,10 +2862,68 @@ async function gerarDashboard(token, nome) {
         return;
     }
 
-    renderDashboardConteudo();
+    const tipo = window._tipoRelatorio || 'cliente';
+    if      (tipo === 'suporte') renderDashboardSuporte();
+    else if (tipo === 'gestao')  renderDashboardGestao();
+    else                         renderDashboardConteudo(); // cliente
+}
+
+// Dados compartilhados entre as versões do relatório
+function calcularDadosRelatorio(snaps) {
+    const total = snaps.length;
+    const scores    = snaps.map(s => s.score || 0);
+    const scoreMedia = Math.round(scores.reduce((a,b)=>a+b,0)/total);
+    const scoreMin  = Math.min(...scores);
+    const scoreMax  = Math.max(...scores);
+    const srvOnline = snaps.filter(s => s.payload?.servidor_goomer === 'online').length;
+    const srvDisp   = Math.round((srvOnline/total)*100);
+    const ipDiverg  = snaps.filter(s => s.payload?.ip_divergente === true).length;
+    const todasAC   = snaps.flatMap(s => s.payload?.autocorrecoes||[]);
+    const acPorTipo = {};
+    todasAC.forEach(ac => { const t=ac.tipo||'outro'; acPorTipo[t]=(acPorTipo[t]||0)+1; });
+    const totalAC   = todasAC.length;
+    const retryTotal = snaps.reduce((a,s)=>a+(s.payload?.retry_expirados||0),0);
+    const errosLog   = snaps.reduce((a,s)=>a+(s.payload?.erros_log||0),0);
+    const semTablets = snaps.filter(s=>(s.payload?.tablets_ativos||0)===0).length;
+    const cpuVals = snaps.map(s=>parseInt(s.payload?.maquina?.cpu||0)).filter(v=>v>0);
+    const ramVals = snaps.map(s=>parseInt(s.payload?.maquina?.ram_pct||0)).filter(v=>v>0);
+    const cpuMedia = cpuVals.length ? Math.round(cpuVals.reduce((a,b)=>a+b,0)/cpuVals.length) : 0;
+    const ramMedia = ramVals.length ? Math.round(ramVals.reduce((a,b)=>a+b,0)/ramVals.length) : 0;
+    const snapsCpuAlto  = snaps.filter(s=>parseInt(s.payload?.maquina?.cpu||0)>=70).length;
+    const snapsRamAlto  = snaps.filter(s=>parseInt(s.payload?.maquina?.ram_pct||0)>=80).length;
+    const snapsCpuCrit  = snaps.filter(s=>parseInt(s.payload?.maquina?.cpu||0)>=90).length;
+    const snapsRamCrit  = snaps.filter(s=>parseInt(s.payload?.maquina?.ram_pct||0)>=90).length;
+    const snapsDiskoCrit = snaps.filter(s=>(s.payload?.maquina?.discos||[]).some(d=>parseInt(d.pct)>90)).length;
+    // Tempo evitado: cada autocorreção evita em média 15min de parada manual
+    const minEvitados = totalAC * 15;
+    // Chamados evitados: cada 3 autocorreções = 1 chamado evitado (estimativa conservadora)
+    const chamadosEvitados = Math.floor(totalAC / 3);
+    // Dados por dia
+    const porDia = {}, dispPorDia = {};
+    snaps.forEach(s => {
+        const dia = s.criado_em?.slice(0,10); if(!dia) return;
+        if(!porDia[dia]) porDia[dia]=[];
+        porDia[dia].push(s.score||0);
+        if(!dispPorDia[dia]) dispPorDia[dia]={on:0,tot:0};
+        dispPorDia[dia].tot++;
+        if(s.payload?.servidor_goomer==='online') dispPorDia[dia].on++;
+    });
+    const dias = Object.keys(porDia).sort();
+    const scorePorDia = dias.map(d=>Math.round(porDia[d].reduce((a,b)=>a+b,0)/porDia[d].length));
+    const dispDias = Object.keys(dispPorDia).sort();
+    const dispValues = dispDias.map(d=>Math.round((dispPorDia[d].on/dispPorDia[d].tot)*100));
+    return { total,scores,scoreMedia,scoreMin,scoreMax,srvOnline,srvDisp,ipDiverg,
+             todasAC,acPorTipo,totalAC,retryTotal,errosLog,semTablets,
+             cpuMedia,ramMedia,cpuVals,ramVals,snapsCpuAlto,snapsRamAlto,
+             snapsCpuCrit,snapsRamCrit,snapsDiskoCrit,
+             minEvitados,chamadosEvitados,dias,scorePorDia,dispDias,dispValues };
 }
 
 function renderDashboardConteudo() {
+    // Badge
+    const badge = document.getElementById('db-tipo-badge');
+    if (badge) { badge.textContent='👤 Cliente'; badge.style.cssText='padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;background:rgba(0,214,143,.15);color:#00d68f;border:1px solid rgba(0,214,143,.3)'; }
+
     const snaps = _relSnaps;
     const total = snaps.length;
 
@@ -3251,9 +3348,377 @@ function desenharPizzaAC(cv, acPorTipo) {
     });
 }
 
+// ════════════════════════════════════════════════════════════════
+// VERSÃO SUPORTE — análise técnica completa
+// ════════════════════════════════════════════════════════════════
+function renderDashboardSuporte() {
+    const badge = document.getElementById('db-tipo-badge');
+    if (badge) { badge.textContent='🔧 Suporte'; badge.style.cssText='padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;background:rgba(255,184,48,.15);color:#ffb830;border:1px solid rgba(255,184,48,.3)'; }
+
+    const d = calcularDadosRelatorio(_relSnaps);
+    const corScore = s => s>=85?'#00d68f':s>=65?'#ffb830':'#ff4455';
+    const fmtDia   = s => { const[,m,dd]=s.split('-'); return dd+'/'+m; };
+    const tipoLbl  = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado', mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado' };
+    const tipoIco  = { ip_sincronizado:'🌐', spooler_reiniciado:'🖨️', mysql_reiniciado:'🗄️', servidor_iniciado:'🖥️' };
+    const tipoCol  = { ip_sincronizado:'#3b82f6', spooler_reiniciado:'#ffb830', mysql_reiniciado:'#00d68f', servidor_iniciado:'#a855f7' };
+
+    let html = '';
+
+    // KPIs técnicos
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px">
+        ${[
+            ['Score médio',        d.scoreMedia+'%', corScore(d.scoreMedia)],
+            ['Score mín / máx',    d.scoreMin+'% / '+d.scoreMax+'%', '#e8eef8'],
+            ['Disponibilidade',    d.srvDisp+'%',  d.srvDisp>=95?'#00d68f':d.srvDisp>=80?'#ffb830':'#ff4455'],
+            ['Divergências IP',    d.ipDiverg+'x', d.ipDiverg>5?'#ff4455':d.ipDiverg>0?'#ffb830':'#00d68f'],
+            ['Autocorreções',      d.totalAC+'x',  d.totalAC>0?'#ffb830':'#00d68f'],
+            ['CPU média',          d.cpuMedia?d.cpuMedia+'%':'—', d.cpuMedia>85?'#ff4455':d.cpuMedia>70?'#ffb830':'#00d68f'],
+            ['RAM média',          d.ramMedia?d.ramMedia+'%':'—', d.ramMedia>85?'#ff4455':d.ramMedia>80?'#ffb830':'#00d68f'],
+            ['Retry ERP',          d.retryTotal+'x', d.retryTotal>0?'#ff4455':'#00d68f'],
+            ['Snaps s/ tablets',   d.semTablets+'x', d.semTablets>5?'#ffb830':'#8096b8'],
+            ['Total snapshots',    d.total+'', '#8096b8'],
+        ].map(([lbl,val,cor])=>`
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${cor};font-size:20px">${val}</div>
+            <div class="db-stat-lbl">${lbl}</div>
+        </div>`).join('')}
+    </div>`;
+
+    // Componentes do score
+    html += `<div class="db-section"><div class="db-section-title">Componentes do score (média do período)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">`;
+    const compMedia = [
+        { nome:'Servidor (40pts)', pct: Math.round(d.srvDisp*0.4), max:40, cor:'#3b82f6' },
+        { nome:'ERP (25pts)',      pct: d.retryTotal>0 ? Math.round((1-Math.min(d.retryTotal/d.total,1))*25) : 25, max:25, cor:'#00d68f' },
+        { nome:'Logs (20pts)',     pct: d.errosLog > 200*d.total ? 5 : d.errosLog > 50*d.total ? 10 : d.errosLog > 0 ? 16 : 20, max:20, cor:'#ffb830' },
+        { nome:'Máquina (15pts)',  pct: d.snapsCpuCrit>d.total*.1||d.snapsRamCrit>d.total*.1 ? 5 : d.snapsCpuAlto>d.total*.2||d.snapsRamAlto>d.total*.2 ? 10 : 15, max:15, cor:'#a855f7' },
+    ];
+    compMedia.forEach(c => {
+        const pct = Math.round(c.pct/c.max*100);
+        html += `<div style="background:var(--bg3);border-radius:8px;padding:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:11px;color:#a0b8d0">${c.nome}</span>
+                <span style="font-size:12px;font-weight:700;color:${c.cor}">${c.pct}/${c.max}pts</span>
+            </div>
+            <div style="background:rgba(255,255,255,.06);border-radius:4px;height:6px">
+                <div style="background:${c.cor};width:${pct}%;height:6px;border-radius:4px;transition:.3s"></div>
+            </div>
+        </div>`;
+    });
+    html += '</div></div>';
+
+    // Gráficos
+    html += `<div class="db-section"><div class="db-section-title">Score por dia</div>
+        <canvas id="db-chart-score" style="width:100%;height:160px;display:block"></canvas></div>`;
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="db-section" style="margin-bottom:0"><div class="db-section-title">Disponibilidade (%)</div>
+            <canvas id="db-chart-disp" style="width:100%;height:140px;display:block"></canvas></div>
+        <div class="db-section" style="margin-bottom:0"><div class="db-section-title">Autocorreções por tipo</div>
+            <canvas id="db-chart-ac" style="width:100%;height:140px;display:block"></canvas></div>
+    </div>`;
+
+    // Linha do tempo completa
+    html += `<div class="db-section"><div class="db-section-title">Linha do tempo — ${d.todasAC.length} autocorreções</div>
+        <div style="max-height:260px;overflow-y:auto">`;
+    if (d.todasAC.length === 0) {
+        html += '<div style="color:#8096b8;font-size:12px;padding:8px">Nenhuma autocorreção no período.</div>';
+    } else {
+        [...d.todasAC].reverse().slice(0,80).forEach(ac => {
+            const cor = tipoCol[ac.tipo]||'#8096b8', ico = tipoIco[ac.tipo]||'⚡', lbl = tipoLbl[ac.tipo]||ac.tipo;
+            const ok  = ac.resultado==='sucesso';
+            const hora = ac.horario ? new Date(ac.horario).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+            html += `<div class="db-timeline-row">
+                <span style="width:18px">${ico}</span>
+                <span style="color:${cor};min-width:140px;font-weight:600">${lbl}</span>
+                <span style="color:${ok?'#00d68f':'#ff4455'};min-width:55px;font-weight:700">${ok?'✓':'✗'}</span>
+                <span style="color:#606880;flex:1;font-size:10px">${ac.obs||''}</span>
+                <span style="color:#8096b8;white-space:nowrap">${hora}</span>
+            </div>`;
+        });
+    }
+    html += '</div></div>';
+
+    document.getElementById('db-conteudo').innerHTML = html;
+    setTimeout(() => {
+        const cv1 = document.getElementById('db-chart-score');
+        if (cv1) { cv1.width=cv1.offsetWidth||800; cv1.height=160; desenharLinhaScore(cv1,d.dias,d.scorePorDia,fmtDia,corScore); }
+        const cv2 = document.getElementById('db-chart-disp');
+        if (cv2) { cv2.width=cv2.offsetWidth||400; cv2.height=140; desenharBarrasDisp(cv2,d.dispDias,d.dispValues,fmtDia); }
+        const cv3 = document.getElementById('db-chart-ac');
+        if (cv3) { cv3.width=cv3.offsetWidth||400; cv3.height=140; desenharPizzaAC(cv3,d.acPorTipo); }
+    }, 80);
+}
+
+// ════════════════════════════════════════════════════════════════
+// VERSÃO GESTÃO — impacto de negócio
+// ════════════════════════════════════════════════════════════════
+function renderDashboardGestao() {
+    const badge = document.getElementById('db-tipo-badge');
+    if (badge) { badge.textContent='📈 Gestão'; badge.style.cssText='padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.3)'; }
+
+    const d = calcularDadosRelatorio(_relSnaps);
+    const corScore = s => s>=85?'#00d68f':s>=65?'#ffb830':'#ff4455';
+    const fmtDia   = s => { const[,m,dd]=s.split('-'); return dd+'/'+m; };
+
+    // Nota de saúde geral
+    const notaGeral = d.scoreMedia >= 90 ? 'Excelente' : d.scoreMedia >= 80 ? 'Bom' : d.scoreMedia >= 65 ? 'Regular' : 'Crítico';
+    const corNota   = d.scoreMedia >= 90 ? '#00d68f'   : d.scoreMedia >= 80 ? '#3b82f6' : d.scoreMedia >= 65 ? '#ffb830' : '#ff4455';
+
+    let html = '';
+
+    // Resumo de negócio
+    html += `<div style="background:linear-gradient(135deg,rgba(14,92,254,.12),rgba(0,214,143,.08));border:1px solid rgba(14,92,254,.3);border-radius:14px;padding:24px;margin-bottom:18px">
+        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center">
+            <div>
+                <div style="font-size:13px;color:#8096b8;margin-bottom:4px">Saúde geral do sistema no período</div>
+                <div style="font-size:36px;font-weight:800;color:${corNota}">${notaGeral}</div>
+                <div style="font-size:13px;color:#a0b8d0;margin-top:6px">Score médio de <strong style="color:${corNota}">${d.scoreMedia}%</strong> · ${d.total} medições realizadas</div>
+            </div>
+            <div style="text-align:center">
+                <div style="width:80px;height:80px;border-radius:50%;border:4px solid ${corNota};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:${corNota}">${d.scoreMedia}%</div>
+            </div>
+        </div>
+    </div>`;
+
+    // Métricas de impacto
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px">
+        <div class="db-stat-card" style="border-left:3px solid #00d68f">
+            <div class="db-stat-val" style="color:#00d68f">${d.srvDisp}%</div>
+            <div class="db-stat-lbl">Disponibilidade do sistema</div>
+            <div style="font-size:10px;color:#8096b8;margin-top:6px">Sistema online ${Math.round(d.srvOnline*5/60)}h de ${Math.round(d.total*5/60)}h monitoradas</div>
+        </div>
+        <div class="db-stat-card" style="border-left:3px solid #3b82f6">
+            <div class="db-stat-val" style="color:#3b82f6">${d.totalAC}</div>
+            <div class="db-stat-lbl">Correções automáticas</div>
+            <div style="font-size:10px;color:#8096b8;margin-top:6px">Problemas resolvidos sem intervenção humana</div>
+        </div>
+        <div class="db-stat-card" style="border-left:3px solid #a855f7">
+            <div class="db-stat-val" style="color:#a855f7">~${d.minEvitados}min</div>
+            <div class="db-stat-lbl">Tempo de parada evitado</div>
+            <div style="font-size:10px;color:#8096b8;margin-top:6px">Estimativa: 15min por correção automática</div>
+        </div>
+        <div class="db-stat-card" style="border-left:3px solid #ffb830">
+            <div class="db-stat-val" style="color:#ffb830">${d.chamadosEvitados}</div>
+            <div class="db-stat-lbl">Chamados evitados</div>
+            <div style="font-size:10px;color:#8096b8;margin-top:6px">Estimativa: 1 chamado a cada 3 correções</div>
+        </div>
+    </div>`;
+
+    // Gráfico de score
+    html += `<div class="db-section"><div class="db-section-title">Evolução da saúde do sistema</div>
+        <canvas id="db-chart-score" style="width:100%;height:160px;display:block"></canvas></div>`;
+
+    // Pontos de atenção executivos
+    const atencoes = [];
+    if (d.srvDisp < 95) atencoes.push(`Sistema ficou offline em ${100-d.srvDisp}% do tempo — requer investigação técnica.`);
+    if (d.snapsRamCrit > d.total*0.1) atencoes.push(`Memória RAM saturada (>90%) em ${Math.round(d.snapsRamCrit/d.total*100)}% das medições — hardware pode precisar de upgrade.`);
+    if (d.ipDiverg > d.total*0.1) atencoes.push(`Configuração de rede instável — IP divergiu em ${d.ipDiverg} ocasiões.`);
+    if (d.retryTotal > 0) atencoes.push(`${d.retryTotal} pedidos com falha de integração ERP no período.`);
+
+    if (atencoes.length > 0) {
+        html += `<div class="db-section"><div class="db-section-title">⚠️ Pontos de atenção</div>
+        ${atencoes.map(a=>`<div style="padding:8px 12px;background:rgba(255,184,48,.07);border-left:3px solid #ffb830;border-radius:4px;font-size:12px;color:#e8eef8;margin-bottom:6px">${a}</div>`).join('')}
+        </div>`;
+    } else {
+        html += `<div class="db-section"><div style="color:#00d68f;font-size:13px">✅ Nenhum ponto crítico de atenção no período.</div></div>`;
+    }
+
+    document.getElementById('db-conteudo').innerHTML = html;
+    setTimeout(() => {
+        const cv = document.getElementById('db-chart-score');
+        if (cv) { cv.width=cv.offsetWidth||800; cv.height=160; desenharLinhaScore(cv,d.dias,d.scorePorDia,fmtDia,corScore); }
+    }, 80);
+}
+
 function fecharDashboard() {
     document.getElementById('modal-dashboard').style.display = 'none';
     document.body.style.overflow = '';
+}
+
+function exportarRelatorioHTML() {
+    if (!_relSnaps.length) return;
+    const d    = calcularDadosRelatorio(_relSnaps);
+    const tipo = window._tipoRelatorio || 'cliente';
+    const tipoLbl = { cliente:'Cliente', suporte:'Suporte Técnico', gestao:'Gestão' };
+    const corScore = s => s>=85?'#00d68f':s>=65?'#ffb830':'#ff4455';
+    const tipoAC = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado', mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado' };
+    const notaGeral = d.scoreMedia>=90?'Excelente':d.scoreMedia>=80?'Bom':d.scoreMedia>=65?'Regular':'Crítico';
+    const corNota = corScore(d.scoreMedia);
+
+    const ini = _relSnaps[0]?.criado_em?.slice(0,10);
+    const fim = _relSnaps[_relSnaps.length-1]?.criado_em?.slice(0,10);
+    const fmtPeriodo = `${new Date(ini+'T12:00:00').toLocaleDateString('pt-BR')} a ${new Date(fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
+
+    // Gerar insights em texto
+    const insightsTxt = [];
+    if (d.srvDisp < 95) insightsTxt.push(`O servidor ficou indisponível em ${100-d.srvDisp}% do período monitorado.`);
+    if (d.snapsRamCrit > d.total*.1) insightsTxt.push(`A memória RAM do servidor esteve acima de 90% em ${Math.round(d.snapsRamCrit/d.total*100)}% das medições — recomendamos avaliação de hardware.`);
+    if (d.snapsRamAlto > d.total*.2 && d.snapsRamCrit <= d.total*.1) insightsTxt.push(`A memória RAM operou entre 80-90% em ${Math.round(d.snapsRamAlto/d.total*100)}% das medições — ponto de atenção.`);
+    if (d.ipDiverg > d.total*.1) insightsTxt.push(`O endereço de rede ficou incorreto em ${d.ipDiverg} ocasiões — recomendamos fixar o IP no roteador.`);
+    if (d.retryTotal > 0) insightsTxt.push(`Foram registrados ${d.retryTotal} pedidos com falha de integração com o sistema de gestão.`);
+    if (insightsTxt.length === 0) insightsTxt.push('O sistema operou dentro dos parâmetros normais. Nenhum ofensor significativo identificado.');
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relatório Goomer — ${_relNome}</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0 }
+  body { font-family:'Segoe UI',Arial,sans-serif; background:#f8fafc; color:#1e293b; font-size:13px; }
+  .page { max-width:860px; margin:0 auto; padding:40px 36px; background:#fff; min-height:100vh }
+  .header { display:flex; justify-content:space-between; align-items:flex-start; padding-bottom:24px; border-bottom:2px solid #e2e8f0; margin-bottom:32px }
+  .logo-area h1 { font-size:22px; font-weight:800; color:#0e5cfe; margin-bottom:2px }
+  .logo-area p  { font-size:12px; color:#64748b }
+  .meta { text-align:right; font-size:12px; color:#64748b; line-height:1.8 }
+  .resumo-box { background:linear-gradient(135deg,#f0f7ff,#e8fdf5); border:1px solid #bfdbfe; border-radius:12px; padding:24px; margin-bottom:28px }
+  .resumo-box h2 { font-size:14px; font-weight:700; color:#1e40af; margin-bottom:10px; text-transform:uppercase; letter-spacing:.05em }
+  .resumo-box p  { font-size:14px; color:#334155; line-height:1.7 }
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:28px }
+  .kpi  { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:16px; text-align:center }
+  .kpi-val { font-size:26px; font-weight:800; margin-bottom:3px }
+  .kpi-lbl { font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:.06em }
+  .kpi-sub { font-size:10px; color:#94a3b8; margin-top:4px }
+  .section { margin-bottom:28px }
+  .section h3 { font-size:12px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:.07em; margin-bottom:14px; padding-bottom:6px; border-bottom:1px solid #e2e8f0 }
+  .ac-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid #f1f5f9; font-size:12px }
+  .ac-row:last-child { border:none }
+  .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:700 }
+  .insight { padding:10px 14px; border-radius:8px; font-size:12px; line-height:1.6; margin-bottom:8px; border-left:3px solid }
+  .insight.ok      { background:#f0fdf4; border-color:#22c55e; color:#15803d }
+  .insight.atencao { background:#fffbeb; border-color:#f59e0b; color:#92400e }
+  .insight.critico { background:#fef2f2; border-color:#ef4444; color:#991b1b }
+  .footer { margin-top:40px; padding-top:16px; border-top:1px solid #e2e8f0; text-align:center; font-size:10px; color:#94a3b8 }
+  .barra-container { background:#e2e8f0; border-radius:4px; height:8px; margin-top:4px }
+  .barra-fill { height:8px; border-radius:4px }
+  .comp-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px }
+  .comp-item { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px }
+  .comp-nome { font-size:11px; color:#64748b; margin-bottom:6px }
+  .comp-pts  { font-size:13px; font-weight:700 }
+  @media print { body{background:#fff} .page{padding:20px} }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo-area">
+      <h1>Goomer</h1>
+      <p>Relatório de Saúde do Sistema · ${tipoLbl[tipo]||'Relatório'}</p>
+    </div>
+    <div class="meta">
+      <strong>${_relNome}</strong><br>
+      Período: ${fmtPeriodo}<br>
+      Gerado em: ${new Date().toLocaleString('pt-BR')}<br>
+      ${d.total} medições analisadas
+    </div>
+  </div>
+
+  ${tipo !== 'suporte' ? `
+  <!-- Resumo executivo -->
+  <div class="resumo-box">
+    <h2>Resumo do período</h2>
+    <p>O sistema operou com <strong>${notaGeral.toLowerCase()} desempenho</strong> no período analisado,
+    atingindo <strong>${d.scoreMedia}% de score médio de saúde</strong> e <strong>${d.srvDisp}% de disponibilidade</strong>.
+    ${d.totalAC > 0
+      ? `Foram realizadas <strong>${d.totalAC} correções automáticas</strong> pelo sistema de monitoramento,
+         evitando aproximadamente <strong>${d.minEvitados} minutos</strong> de parada operacional
+         sem necessidade de contato com o suporte.`
+      : 'Nenhuma intervenção automática foi necessária — o sistema operou de forma estável.'
+    }
+    ${d.chamadosEvitados > 0 ? `Estimamos que <strong>${d.chamadosEvitados} chamado(s) ao suporte foram evitados</strong> no período.` : ''}</p>
+  </div>` : ''}
+
+  <!-- KPIs -->
+  <div class="kpis">
+    <div class="kpi">
+      <div class="kpi-val" style="color:${corNota}">${d.scoreMedia}%</div>
+      <div class="kpi-lbl">Score médio</div>
+      <div class="kpi-sub">${notaGeral}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-val" style="color:${d.srvDisp>=95?'#16a34a':d.srvDisp>=80?'#d97706':'#dc2626'}">${d.srvDisp}%</div>
+      <div class="kpi-lbl">Disponibilidade</div>
+      <div class="kpi-sub">${Math.round(d.srvOnline*5/60)}h online</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-val" style="color:${d.totalAC>0?'#d97706':'#16a34a'}">${d.totalAC}</div>
+      <div class="kpi-lbl">Correções automáticas</div>
+      <div class="kpi-sub">~${d.minEvitados}min evitados</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-val" style="color:${d.ipDiverg>5?'#dc2626':d.ipDiverg>0?'#d97706':'#16a34a'}">${d.ipDiverg}</div>
+      <div class="kpi-lbl">Divergências de IP</div>
+      <div class="kpi-sub">${d.ipDiverg===0?'Rede estável':'Requer atenção'}</div>
+    </div>
+  </div>
+
+  ${tipo === 'suporte' ? `
+  <!-- Componentes do score -->
+  <div class="section">
+    <h3>Componentes do score</h3>
+    <div class="comp-grid">
+      ${[
+        ['Servidor (40pts)', Math.round(d.srvDisp*0.4), 40, d.srvDisp>=95?'#16a34a':'#dc2626'],
+        ['ERP / Integração (25pts)', d.retryTotal>0 ? Math.round((1-Math.min(d.retryTotal/d.total,1))*25) : 25, 25, d.retryTotal>0?'#d97706':'#16a34a'],
+        ['Logs do sistema (20pts)', d.errosLog>200*d.total?5:d.errosLog>50*d.total?10:d.errosLog>0?16:20, 20, '#475569'],
+        ['Saúde da máquina (15pts)', d.snapsCpuCrit>d.total*.1||d.snapsRamCrit>d.total*.1?5:d.snapsCpuAlto>d.total*.2||d.snapsRamAlto>d.total*.2?10:15, 15, d.snapsRamAlto>d.total*.2?'#d97706':'#16a34a'],
+      ].map(([n,pts,max,cor])=>`
+      <div class="comp-item">
+        <div class="comp-nome">${n}</div>
+        <div class="comp-pts" style="color:${cor}">${pts}/${max}pts (${Math.round(pts/max*100)}%)</div>
+        <div class="barra-container"><div class="barra-fill" style="width:${Math.round(pts/max*100)}%;background:${cor}"></div></div>
+      </div>`).join('')}
+    </div>
+  </div>` : ''}
+
+  <!-- Correções automáticas -->
+  ${d.totalAC > 0 ? `
+  <div class="section">
+    <h3>Correções automáticas realizadas</h3>
+    ${Object.entries(d.acPorTipo).map(([tipo,qtd])=>`
+    <div class="ac-row">
+      <span style="font-size:16px">${{ip_sincronizado:'🌐',spooler_reiniciado:'🖨️',mysql_reiniciado:'🗄️',servidor_iniciado:'🖥️'}[tipo]||'⚡'}</span>
+      <span style="flex:1;font-weight:600">${tipoAC[tipo]||tipo}</span>
+      <span class="pill" style="background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd">${qtd}x</span>
+    </div>`).join('')}
+  </div>` : ''}
+
+  <!-- Máquina (suporte) -->
+  ${tipo === 'suporte' && (d.cpuMedia||d.ramMedia) ? `
+  <div class="section">
+    <h3>Performance da máquina servidora</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div class="kpi"><div class="kpi-val" style="font-size:20px;color:${d.cpuMedia>85?'#dc2626':d.cpuMedia>70?'#d97706':'#16a34a'}">${d.cpuMedia||'—'}%</div><div class="kpi-lbl">CPU média</div></div>
+      <div class="kpi"><div class="kpi-val" style="font-size:20px;color:${d.ramMedia>85?'#dc2626':d.ramMedia>80?'#d97706':'#16a34a'}">${d.ramMedia||'—'}%</div><div class="kpi-lbl">RAM média</div></div>
+      <div class="kpi"><div class="kpi-val" style="font-size:20px;color:${d.snapsDiskoCrit>0?'#dc2626':'#16a34a'}">${d.snapsDiskoCrit>0?'Alerta':'OK'}</div><div class="kpi-lbl">Disco</div></div>
+    </div>
+  </div>` : ''}
+
+  <!-- Insights -->
+  <div class="section">
+    <h3>${tipo==='cliente'?'Recomendações e observações':'Análise e recomendações'}</h3>
+    ${insightsTxt.map(t=>`<div class="insight ${t.includes('recomendamos')||t.includes('atenção')||t.includes('falha')?'atencao':t.includes('crítico')||t.includes('saturada')?'critico':'ok'}">${t}</div>`).join('')}
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    Relatório gerado automaticamente pelo Goomer NOC · ${new Date().toLocaleDateString('pt-BR')} · ${_relNome}
+  </div>
+
+</div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type:'text/html;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const nomeLoja = (_relNome||'loja').replace(/[^a-zA-Z0-9]/g,'_');
+    a.href = url; a.download = 'relatorio_' + nomeLoja + '_' + tipo + '_' + new Date().toISOString().slice(0,10) + '.html';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
 }
 
 function exportarRelatorioExcel() {
@@ -3799,10 +4264,17 @@ async function exportarDesatualizados() {
       <!-- Header dashboard -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px">
         <div>
-          <div id="db-titulo" style="font-size:20px;font-weight:800;color:#e8eef8"></div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div id="db-titulo" style="font-size:20px;font-weight:800;color:#e8eef8"></div>
+            <span id="db-tipo-badge" style="padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em"></span>
+          </div>
           <div id="db-subtitulo" style="font-size:12px;color:#8096b8;margin-top:3px"></div>
         </div>
-        <div style="display:flex;gap:8px;align-items:center">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button onclick="exportarRelatorioHTML()"
+            style="background:rgba(168,85,247,.15);border:1px solid rgba(168,85,247,.4);color:#c084fc;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">
+            ↓ Exportar HTML
+          </button>
           <button onclick="exportarRelatorioExcel()"
             style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">
             ↓ Exportar Excel
