@@ -401,6 +401,21 @@ let _cfg = {
     alerta_mysql_ciclos:  4,
 };
 let _alertasDisparados = {}; // { token_loja: { tipo: timestamp } } — evita re-disparar
+
+// ── Perfis de Score ────────────────────────────────────────────
+let _perfis = [];        // [ { id, nome, descricao, componentes, padrao } ]
+let _tagPerfil = {};     // { tag_id: perfil_id } — qual perfil cada tag usa
+
+// Perfil padrão embutido (sempre disponível como fallback)
+const PERFIL_DEFAULT = {
+    id: 'default', nome: 'Padrão (com ERP)', descricao: 'Todos os componentes ativos', padrao: true,
+    componentes: {
+        servidor: { ativo: true,  peso: 40, label: 'Servidor Goomer' },
+        erp:      { ativo: true,  peso: 25, label: 'Integração ERP' },
+        logs:     { ativo: true,  peso: 20, label: 'Logs do sistema' },
+        maquina:  { ativo: true,  peso: 15, label: 'Saúde da máquina' },
+    }
+};
 let _tags       = [];     // [ { id, nome, cor } ] — carregadas do Supabase
 let _lojasTags  = {};     // { token_loja: [id_tag, ...] } — vínculo loja↔tags
 let _corTagSel  = '#00d68f'; // cor selecionada no painel de criar tag
@@ -742,7 +757,7 @@ function renderGrid(lista) {
         return `<div class="loja" onclick="abrirLoja('${h(l.token_loja)}')">
             <div class="loja-head" style="background:${mins>60?'rgba(255,68,85,.05)':mins>15?'rgba(255,184,48,.04)':'var(--bg3)'}">
                 <div style="position:relative;display:inline-block">
-                    <div class="score-circle" style="color:${mins>60?'#505068':cor};border-color:${mins>60?'#505068':cor};opacity:${mins>60?.5:1}">${l.score||0}%</div>
+                    <div class="score-circle" style="color:${mins>60?'#505068':cor};border-color:${mins>60?'#505068':cor};opacity:${mins>60?.5:1}">${_scoreCard}%${_temPerfilCustom?'<span title="Score recalculado pelo perfil '+h(_perfilLoja.nome)+'" style="font-size:8px;opacity:.6;margin-left:1px">✦</span>':''}</div>
                     ${(()=>{const t=_tendencias[l.token_loja];return t&&t.seta!=='→'?`<span style="position:absolute;top:-6px;right:-8px;font-size:13px;font-weight:900;color:${t.cor};text-shadow:0 1px 3px rgba(0,0,0,.5)" title="${t.seta==='↑'?'Melhorando':'Piorando'}: ${Math.abs(t.delta||0)}pts vs média">${t.seta}</span>`:'';})()}
                 </div>
                 <div class="loja-info">
@@ -2577,6 +2592,7 @@ function closeOverlay(e){
 }
 
 carregarConfiguracoes();
+carregarPerfis();
 carregarTags();
 carregar();
 setInterval(carregar, 5*60*1000);
@@ -3775,6 +3791,272 @@ async function salvarVersoesSistema() {
     }
 }
 
+// ════════════════════════════════════════════════════════════════
+// PERFIS DE SCORE
+// ════════════════════════════════════════════════════════════════
+
+const COMPONENTES_INFO = {
+    servidor: { label: 'Servidor Goomer', desc: 'Processo principal online' },
+    erp:      { label: 'Integração ERP',  desc: 'Pedidos enviados ao ERP' },
+    logs:     { label: 'Logs do sistema', desc: 'Erros sistêmicos' },
+    maquina:  { label: 'Saúde da máquina', desc: 'CPU, RAM, disco' },
+};
+
+const PERFIS_KEY = 'goomer_noc_perfis';
+const TAG_PERFIL_KEY = 'goomer_noc_tag_perfil';
+
+function carregarPerfis() {
+    try {
+        const p = localStorage.getItem(PERFIS_KEY);
+        if (p) _perfis = JSON.parse(p);
+        const tp = localStorage.getItem(TAG_PERFIL_KEY);
+        if (tp) _tagPerfil = JSON.parse(tp);
+    } catch(e) {}
+    if (_perfis.length === 0) {
+        // Criar perfil padrão se não existir
+        _perfis = [{ ...PERFIL_DEFAULT }];
+        salvarPerfisLocal();
+    }
+}
+
+function salvarPerfisLocal() {
+    try {
+        localStorage.setItem(PERFIS_KEY, JSON.stringify(_perfis));
+        localStorage.setItem(TAG_PERFIL_KEY, JSON.stringify(_tagPerfil));
+    } catch(e) {}
+}
+
+function renderPainelPerfis() {
+    // Inicializar inputs dos componentes
+    const cont = document.getElementById('perfil-componentes');
+    if (cont) {
+        cont.innerHTML = Object.entries(COMPONENTES_INFO).map(([key, info]) => `
+        <div style="background:#0d1117;border:1px solid #1e3050;border-radius:8px;padding:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:12px;color:#e8eef8;font-weight:600">${info.label}</span>
+                <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+                    <input type="checkbox" id="pc-ativo-${key}" checked onchange="atualizarTotalPerfil()"
+                        style="cursor:pointer;width:14px;height:14px">
+                    <span style="font-size:10px;color:#8096b8">Ativo</span>
+                </label>
+            </div>
+            <div style="font-size:10px;color:#606880;margin-bottom:6px">${info.desc}</div>
+            <div style="display:flex;align-items:center;gap:6px">
+                <input type="range" id="pc-peso-${key}" min="0" max="70" value="${PERFIL_DEFAULT.componentes[key].peso}"
+                    oninput="atualizarTotalPerfil()" style="flex:1;cursor:pointer">
+                <span id="pc-val-${key}" style="font-size:12px;font-weight:700;color:#7ab3ff;min-width:32px;text-align:right">
+                    ${PERFIL_DEFAULT.componentes[key].peso}pts
+                </span>
+            </div>
+        </div>`).join('');
+        atualizarTotalPerfil();
+    }
+
+    // Lista de perfis existentes
+    renderListaPerfis();
+
+    // Vincular tag a perfil
+    renderTagPerfil();
+}
+
+function atualizarTotalPerfil() {
+    let total = 0;
+    Object.keys(COMPONENTES_INFO).forEach(key => {
+        const ativo = document.getElementById(`pc-ativo-${key}`)?.checked;
+        const peso  = parseInt(document.getElementById(`pc-peso-${key}`)?.value || 0);
+        const val   = document.getElementById(`pc-val-${key}`);
+        if (val) val.textContent = ativo ? peso + 'pts' : '—';
+        if (ativo) total += peso;
+    });
+    const el = document.getElementById('perfil-total-pts');
+    if (el) {
+        el.textContent = `Total: ${total}pts`;
+        el.style.color = total === 100 ? '#00d68f' : total > 100 ? '#ff4455' : '#ffb830';
+    }
+}
+
+function criarPerfil() {
+    const nome = document.getElementById('perfil-nome')?.value.trim();
+    const desc = document.getElementById('perfil-desc')?.value.trim();
+    if (!nome) { alert('Informe o nome do perfil.'); return; }
+
+    // Coletar componentes
+    const componentes = {};
+    let total = 0;
+    Object.keys(COMPONENTES_INFO).forEach(key => {
+        const ativo = document.getElementById(`pc-ativo-${key}`)?.checked ?? true;
+        const peso  = parseInt(document.getElementById(`pc-peso-${key}`)?.value || 0);
+        componentes[key] = { ativo, peso, label: COMPONENTES_INFO[key].label };
+        if (ativo) total += peso;
+    });
+
+    if (total !== 100) {
+        alert(`Os pesos dos componentes ativos somam ${total}pts. O total deve ser exatamente 100pts.`);
+        return;
+    }
+
+    const padrao = document.getElementById('perfil-padrao')?.checked;
+    const id     = 'perfil_' + Date.now();
+
+    // Se marcado como padrão, desmarcar o anterior
+    if (padrao) _perfis.forEach(p => p.padrao = false);
+
+    _perfis.push({ id, nome, descricao: desc, componentes, padrao });
+    salvarPerfisLocal();
+
+    // Limpar formulário
+    document.getElementById('perfil-nome').value = '';
+    document.getElementById('perfil-desc').value = '';
+    document.getElementById('perfil-padrao').checked = false;
+
+    renderListaPerfis();
+    renderTagPerfil();
+    console.log('[PERFIS] Criado:', nome);
+}
+
+function excluirPerfil(id) {
+    const p = _perfis.find(p => p.id === id);
+    if (!p) return;
+    if (p.padrao) { alert('Não é possível excluir o perfil padrão. Defina outro como padrão primeiro.'); return; }
+    if (!confirm(`Excluir o perfil "${p.nome}"?`)) return;
+    _perfis = _perfis.filter(p => p.id !== id);
+    // Remover vínculos de tags com este perfil
+    Object.keys(_tagPerfil).forEach(tagId => {
+        if (_tagPerfil[tagId] === id) delete _tagPerfil[tagId];
+    });
+    salvarPerfisLocal();
+    renderListaPerfis();
+    renderTagPerfil();
+}
+
+function setPadrao(id) {
+    _perfis.forEach(p => p.padrao = p.id === id);
+    salvarPerfisLocal();
+    renderListaPerfis();
+}
+
+function renderListaPerfis() {
+    const el = document.getElementById('lista-perfis');
+    if (!el) return;
+    const todos = [{ ...PERFIL_DEFAULT }, ..._perfis.filter(p => p.id !== 'default')];
+    el.innerHTML = todos.map(p => {
+        const comps = Object.entries(p.componentes).filter(([,c]) => c.ativo);
+        return `<div style="background:#111827;border:1px solid ${p.padrao?'#00d68f44':'#1e3050'};border-radius:10px;padding:12px 14px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:13px;font-weight:700;color:#e8eef8">${h(p.nome)}</span>
+                    ${p.padrao ? '<span style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.3);color:#00d68f;font-size:9px;font-weight:700;padding:2px 8px;border-radius:8px">PADRÃO</span>' : ''}
+                </div>
+                <div style="display:flex;gap:6px">
+                    ${!p.padrao ? `<button onclick="setPadrao('${p.id}')" style="background:var(--bg3);border:1px solid var(--border);color:#8096b8;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px">Definir padrão</button>` : ''}
+                    ${p.id !== 'default' ? `<button onclick="excluirPerfil('${p.id}')" style="background:rgba(255,68,85,.1);border:1px solid rgba(255,68,85,.3);color:#ff4455;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px">Excluir</button>` : ''}
+                </div>
+            </div>
+            ${p.descricao ? `<div style="font-size:11px;color:#8096b8;margin-bottom:8px">${h(p.descricao)}</div>` : ''}
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+                ${comps.map(([key, c]) => `
+                <div style="background:#0d1117;border:1px solid #1e3050;border-radius:6px;padding:5px 10px;font-size:11px">
+                    <span style="color:#a0b8d0">${c.label}</span>
+                    <span style="color:#7ab3ff;font-weight:700;margin-left:6px">${c.peso}pts</span>
+                </div>`).join('')}
+                ${Object.entries(p.componentes).filter(([,c])=>!c.ativo).map(([,c])=>`
+                <div style="background:#0d1117;border:1px solid #1e3050;border-radius:6px;padding:5px 10px;font-size:11px;opacity:.4">
+                    <span style="color:#606880;text-decoration:line-through">${c.label}</span>
+                </div>`).join('')}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function renderTagPerfil() {
+    const el = document.getElementById('lista-tag-perfil');
+    if (!el) return;
+    if (_tags.length === 0) {
+        el.innerHTML = '<div style="font-size:12px;color:#8096b8">Crie tags primeiro na aba 🏷 Tags.</div>';
+        return;
+    }
+    const todosPerfis = [{ ...PERFIL_DEFAULT }, ..._perfis.filter(p => p.id !== 'default')];
+    el.innerHTML = _tags.map(tag => {
+        const perfilAtual = _tagPerfil[tag.id] || 'default';
+        return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#0d1117;border-radius:8px">
+            <span class="tag-pill" style="background:${tag.cor}22;border-color:${tag.cor}55;color:${tag.cor};font-size:11px">${h(tag.nome)}</span>
+            <span style="font-size:12px;color:#8096b8;flex:1">usa o perfil:</span>
+            <select onchange="vincularTagPerfil('${tag.id}',this.value)"
+                style="background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:5px 10px;border-radius:7px;font-size:12px;cursor:pointer">
+                ${todosPerfis.map(p => `<option value="${p.id}" ${p.id===perfilAtual?'selected':''}>${h(p.nome)}${p.padrao?' (padrão)':''}</option>`).join('')}
+            </select>
+        </div>`;
+    }).join('');
+}
+
+function vincularTagPerfil(tagId, perfilId) {
+    if (perfilId === 'default') delete _tagPerfil[tagId];
+    else _tagPerfil[tagId] = perfilId;
+    salvarPerfisLocal();
+    console.log('[PERFIS] Tag', tagId, '→ perfil', perfilId);
+}
+
+// Retorna o perfil ativo para uma loja baseado em suas tags
+function getPerfilLoja(tokenLoja) {
+    const lojaTagIds = _lojasTags[tokenLoja] || [];
+    // Procurar tag com perfil vinculado (primeira encontrada tem prioridade)
+    for (const tagId of lojaTagIds) {
+        if (_tagPerfil[tagId]) {
+            const perfil = _perfis.find(p => p.id === _tagPerfil[tagId]);
+            if (perfil) return perfil;
+        }
+    }
+    // Fallback: perfil padrão
+    return _perfis.find(p => p.padrao) || PERFIL_DEFAULT;
+}
+
+// Recalcular score visual com o perfil da loja
+function calcularScoreComPerfil(payload, perfil) {
+    if (!payload) return null;
+    const comp = perfil.componentes;
+    let pontos = 0;
+
+    // Servidor
+    if (comp.servidor?.ativo) {
+        if (payload.servidor_goomer === 'online') pontos += comp.servidor.peso;
+    }
+
+    // ERP
+    if (comp.erp?.ativo) {
+        const retries = payload.retry_expirados || 0;
+        const maxPts  = comp.erp.peso;
+        if (retries === 0) pontos += maxPts;
+        else if (retries <= 2) pontos += Math.round(maxPts * 0.8);
+        else if (retries <= 5) pontos += Math.round(maxPts * 0.5);
+        else pontos += Math.round(maxPts * 0.2);
+    }
+
+    // Logs
+    if (comp.logs?.ativo) {
+        const erros  = payload.erros_log || 0;
+        const maxPts = comp.logs.peso;
+        if (erros === 0) pontos += maxPts;
+        else if (erros < 50)  pontos += Math.round(maxPts * 0.8);
+        else if (erros < 200) pontos += Math.round(maxPts * 0.5);
+        else pontos += Math.round(maxPts * 0.2);
+    }
+
+    // Máquina
+    if (comp.maquina?.ativo) {
+        const cpu  = parseInt(payload.maquina?.cpu || 0);
+        const ram  = parseInt(payload.maquina?.ram_pct || 0);
+        const maxPts = comp.maquina.peso;
+        const cpuOk  = cpu < 70 ? 1 : cpu < 85 ? 0.7 : cpu < 95 ? 0.4 : 0.1;
+        const ramOk  = ram < 75 ? 1 : ram < 85 ? 0.7 : ram < 92 ? 0.4 : 0.1;
+        pontos += Math.round(maxPts * Math.min(cpuOk, ramOk));
+    }
+
+    // Penalidade IP divergente (mantém independente do perfil)
+    if (payload.ip_divergente) pontos = Math.max(0, pontos - 20);
+
+    return Math.min(100, Math.max(0, pontos));
+}
+
 function fecharConfiguracoes() {
     document.getElementById('modal-config').style.display = 'none';
     document.body.style.overflow = '';
@@ -3788,6 +4070,7 @@ function showCfgTab(nome, btn) {
     });
     if (nome === 'sistema') carregarVersoesSistema();
     if (nome === 'tags')    renderListaTagsAdmin();
+    if (nome === 'perfis')  renderPainelPerfis();
 }
 
 // ── Motor de alertas — chamado a cada carregamento ────────────────
@@ -3935,6 +4218,11 @@ function renderVisaoRede() {
     }
 
     const corScore = s => s>=85?'#00d68f':s>=60?'#ffb830':'#ff4455';
+        // Score recalculado pelo perfil da loja
+        const perfil = getPerfilLoja(l.token_loja);
+        const scoreRecalc = (perfil && perfil.id !== 'default') ? calcularScoreComPerfil(l.payload, perfil) : null;
+        const scoreExibido = scoreRecalc !== null ? scoreRecalc : (l.score || 0);
+        const temPerfil = scoreRecalc !== null;
 
     let html = '';
     redesData.forEach(r => {
@@ -4213,6 +4501,8 @@ function exportarRelatorioHTML() {
           style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">🏷 Tags</button>
         <button onclick="showCfgTab('sistema',this)"  id="cfgtab-sistema"
           style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">🖥 Sistema</button>
+        <button onclick="showCfgTab('perfis',this)"   id="cfgtab-perfis"
+          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">📊 Perfis de Score</button>
       </div>
 
       <!-- Painel Alertas -->
@@ -4398,6 +4688,43 @@ function exportarRelatorioHTML() {
           💾 Salvar Versões
         </button>
         <div id="cfg-versoes-status" style="font-size:12px;margin-top:10px;color:#8096b8"></div>
+      </div>
+
+      <!-- Painel Perfis de Score -->
+      <div id="cfgpanel-perfis" style="padding:20px 24px;display:none">
+
+        <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:16px;margin-bottom:16px">
+          <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:12px">+ Criar novo perfil</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+            <input id="perfil-nome" placeholder="Nome do perfil (ex: Sem ERP)" maxlength="40"
+              style="flex:1;min-width:160px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px">
+            <input id="perfil-desc" placeholder="Descricao (opcional)" maxlength="80"
+              style="flex:2;min-width:200px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px">
+          </div>
+          <div style="font-size:11px;color:#a0b8d0;margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Componentes e pesos (total deve ser 100)</div>
+          <div id="perfil-componentes" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px"></div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span id="perfil-total-pts" style="font-size:12px;color:#8096b8">Total: 0pts</span>
+            <label style="font-size:12px;color:#8096b8;display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="perfil-padrao" style="cursor:pointer">
+              Definir como padrao
+            </label>
+            <button onclick="criarPerfil()"
+              style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto">
+              + Criar Perfil
+            </button>
+          </div>
+        </div>
+
+        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Perfis disponíveis</div>
+        <div id="lista-perfis" style="margin-bottom:16px"></div>
+
+        <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:16px">
+          <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:8px">Vincular tag a perfil</div>
+          <div style="font-size:12px;color:#8096b8;margin-bottom:12px">Todas as lojas com uma tag usam o perfil vinculado. Lojas sem tag usam o perfil padrao.</div>
+          <div id="lista-tag-perfil" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+
       </div>
 
     </div>
@@ -5023,6 +5350,8 @@ async function exportarDesatualizados() {
           style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">🏷 Tags</button>
         <button onclick="showCfgTab('sistema',this)"  id="cfgtab-sistema"
           style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">🖥 Sistema</button>
+        <button onclick="showCfgTab('perfis',this)"   id="cfgtab-perfis"
+          style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#8096b8;cursor:pointer;font-size:12px;font-weight:700">📊 Perfis de Score</button>
       </div>
 
       <!-- Painel Alertas -->
@@ -5208,6 +5537,43 @@ async function exportarDesatualizados() {
           💾 Salvar Versões
         </button>
         <div id="cfg-versoes-status" style="font-size:12px;margin-top:10px;color:#8096b8"></div>
+      </div>
+
+      <!-- Painel Perfis de Score -->
+      <div id="cfgpanel-perfis" style="padding:20px 24px;display:none">
+
+        <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:16px;margin-bottom:16px">
+          <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:12px">+ Criar novo perfil</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+            <input id="perfil-nome" placeholder="Nome do perfil (ex: Sem ERP)" maxlength="40"
+              style="flex:1;min-width:160px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px">
+            <input id="perfil-desc" placeholder="Descricao (opcional)" maxlength="80"
+              style="flex:2;min-width:200px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:7px 10px;border-radius:7px;font-size:12px">
+          </div>
+          <div style="font-size:11px;color:#a0b8d0;margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Componentes e pesos (total deve ser 100)</div>
+          <div id="perfil-componentes" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px"></div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span id="perfil-total-pts" style="font-size:12px;color:#8096b8">Total: 0pts</span>
+            <label style="font-size:12px;color:#8096b8;display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="perfil-padrao" style="cursor:pointer">
+              Definir como padrao
+            </label>
+            <button onclick="criarPerfil()"
+              style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto">
+              + Criar Perfil
+            </button>
+          </div>
+        </div>
+
+        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Perfis disponíveis</div>
+        <div id="lista-perfis" style="margin-bottom:16px"></div>
+
+        <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:16px">
+          <div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:8px">Vincular tag a perfil</div>
+          <div style="font-size:12px;color:#8096b8;margin-bottom:12px">Todas as lojas com uma tag usam o perfil vinculado. Lojas sem tag usam o perfil padrao.</div>
+          <div id="lista-tag-perfil" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+
       </div>
 
     </div>
