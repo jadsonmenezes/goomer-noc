@@ -4068,8 +4068,9 @@ function fecharConfiguracoes() {
 }
 
 function showCfgTab(nome, btn) {
-    ['alertas','tags','sistema'].forEach(t => {
-        document.getElementById('cfgpanel-'+t).style.display = t === nome ? 'block' : 'none';
+    ['alertas','tags','sistema','perfis'].forEach(t => {
+        const panel = document.getElementById('cfgpanel-'+t);
+        if (panel) panel.style.display = t === nome ? 'block' : 'none';
         const b = document.getElementById('cfgtab-'+t);
         if (b) { b.style.borderBottomColor = t===nome?'#c084fc':'transparent'; b.style.color = t===nome?'#c084fc':'#8096b8'; }
     });
