@@ -603,7 +603,12 @@ function filtrar() {
         }
         return true;
     });
-    lista.sort((a,b) => _order==='asc' ? a.score-b.score : b.score-a.score);
+    // Ordenar usando score do perfil quando disponível
+    lista.sort((a,b) => {
+        const sa = calcularScoreComPerfil(a.payload||{}, getPerfilLoja(a.token_loja));
+        const sb2 = calcularScoreComPerfil(b.payload||{}, getPerfilLoja(b.token_loja));
+        return _order==='asc' ? sa-sb2 : sb2-sa;
+    });
     renderGrid(lista);
     // Verificar alertas após cada atualização dos dados
     if (_cfg.slack_webhook) verificarAlertas(_dados);
@@ -638,11 +643,10 @@ function renderGrid(lista) {
         const cor   = corLoja(l);
         const pay   = l.payload||{};
         const agora = new Date();
-        // Score recalculado pelo perfil do segmento
-        const _perfilLoja    = getPerfilLoja(l.token_loja);
-        const _scoreRecalc   = (_perfilLoja && _perfilLoja.id !== 'default') ? calcularScoreComPerfil(pay, _perfilLoja) : null;
-        const _scoreCard     = _scoreRecalc !== null ? _scoreRecalc : (l.score || 0);
-        const _temPerfilCustom = _scoreRecalc !== null;
+        // Score recalculado pelo perfil do segmento — sempre aplica o perfil
+        const _perfilLoja      = getPerfilLoja(l.token_loja);
+        const _scoreCard       = calcularScoreComPerfil(pay, _perfilLoja);
+        const _temPerfilCustom = _perfilLoja && _perfilLoja.id !== 'default';
         const mins  = Math.round((agora-new Date(l.criado_em))/60000);
         const tempoLabel = mins<60?`${mins}min atrás`:`${Math.round(mins/60)}h atrás`;
         const desatual = mins>15;
@@ -813,6 +817,10 @@ async function abrirLoja(token, abaInicial) {
     const l   = rows[0];
     const pay = l.payload||{};
     const cor = corLoja(l);
+    // Score recalculado pelo perfil do segmento
+    const _modalPerfil     = getPerfilLoja(l.token_loja);
+    const _modalScore      = calcularScoreComPerfil(pay, _modalPerfil);
+    const _modalTemCustom  = _modalPerfil && _modalPerfil.id !== 'default';
     const ip  = l.ip_servidor||pay.ip_servidor||'—';
 
     document.getElementById('m-titulo').textContent = l.nome_loja||'Loja';
@@ -849,7 +857,7 @@ async function abrirLoja(token, abaInicial) {
 
     document.getElementById('tab-resumo').innerHTML = `
         <div style="display:flex;align-items:center;gap:14px;padding:14px;background:var(--bg3);border-radius:10px;border:1px solid ${cor}40;margin-bottom:16px">
-            <div class="score-circle" style="color:${cor};border-color:${cor};width:56px;height:56px;font-size:15px">${l.score}%</div>
+            <div class="score-circle" style="color:${cor};border-color:${cor};width:56px;height:56px;font-size:15px">${_modalScore}%${_modalTemCustom?'<span title="Perfil: '+_modalPerfil.nome+'" style="font-size:8px;display:block;opacity:.6">✦</span>':''}</div>
             <div style="flex:1">
                 <div style="font-size:18px;font-weight:800;color:${cor}">${statusLabel(l)}</div>
                 <div style="font-size:10px;color:#8096b8;margin-top:5px;font-family:var(--mono);display:flex;gap:6px;flex-wrap:wrap">
@@ -863,13 +871,29 @@ async function abrirLoja(token, abaInicial) {
                         const maqVal=!maq?'?/15':cpu<70&&ram<75&&!dc?'15/15':cpu<85&&ram<85&&!dc?'10/15':cpu<95&&ram<95&&!dc?'5/15':'0/15';
                         const maqOk=!maq||cpu<70&&ram<75&&!dc;
                         const g=(ok,txt)=>`<span style="background:${ok?'rgba(0,214,143,.1)':'rgba(255,68,85,.1)'};color:${ok?'var(--green)':'var(--red)'};padding:2px 7px;border-radius:4px">${txt}</span>`;
-                        return [
-                            g(l.servidor_online, l.servidor_online?'servidor 40/40':'servidor 0/40'),
-                            (()=>{ const _th2=Math.round(((l.retry_expirados||0)/5)*60); const _ep=(l.retry_expirados||0)===0?25:_th2<=3?22:_th2<=10?14:0; return g(_ep===25,`ERP ${_ep}/25`); })(),
-                            g(logsOk, 'logs '+logsVal),
-                            g(maqOk, 'máquina '+maqVal),
-                            p.ip_divergente?g(false,'IP −20'):'',
-                        ].filter(Boolean).join('');
+                        const _comp = _modalPerfil?.componentes || {};
+                        const _items = [];
+                        if (_comp.servidor?.ativo !== false) {
+                            const pts = _comp.servidor?.peso ?? 40;
+                            _items.push(g(l.servidor_online, l.servidor_online?'servidor '+pts+'/'+pts:'servidor 0/'+pts));
+                        }
+                        if (_comp.erp?.ativo !== false) {
+                            const pts = _comp.erp?.peso ?? 25;
+                            const _th2=Math.round(((l.retry_expirados||0)/5)*60);
+                            const _ep=(l.retry_expirados||0)===0?pts:_th2<=3?Math.round(pts*.88):_th2<=10?Math.round(pts*.56):0;
+                            _items.push(g(_ep===pts,`ERP ${_ep}/${pts}`));
+                        }
+                        if (_comp.logs?.ativo !== false) {
+                            const pts = _comp.logs?.peso ?? 20;
+                            const ratio = el>=500?0:el>=200?.25:el>=50?.5:el>=1?.8:1;
+                            _items.push(g(logsOk,'logs '+Math.round(pts*ratio)+'/'+pts));
+                        }
+                        if (_comp.maquina?.ativo !== false) {
+                            const pts = _comp.maquina?.peso ?? 15;
+                            _items.push(g(maqOk,'máquina '+maqVal.replace(/\/15/g,'/'+pts)));
+                        }
+                        if (p.ip_divergente) _items.push(g(false,'IP −20'));
+                        return _items.filter(Boolean).join('');
                     })()}
                 </div>
                 <div style="font-size:12px;margin-top:6px">
@@ -4058,7 +4082,7 @@ function getPerfilLoja(tokenLoja) {
 
 // Recalcular score visual com o perfil da loja
 function calcularScoreComPerfil(payload, perfil) {
-    if (!payload) return null;
+    if (!payload || !perfil) return 0;
     const comp = perfil.componentes;
     let pontos = 0;
 
