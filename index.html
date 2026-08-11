@@ -514,9 +514,12 @@ function normStatus(l) {
 
 // Status descritivo para exibição (considera forçamentos)
 function statusLabel(l) {
+    // Verificar se dados são obsoletos
+    const minsL = l.criado_em ? Math.round((Date.now() - new Date(l.criado_em).getTime()) / 60000) : 9999;
+    if (minsL > 60) return 'Desconectado';
     if (!l.servidor_online) return 'Crítico';
     const pay = l.payload||{};
-    if (pay.inadimplente)          return 'Crítico';
+    if (pay.inadimplente) return 'Crítico';
     return l.status||l.nota||'?';
 }
 
@@ -742,11 +745,11 @@ function renderGrid(lista) {
             <div class="loja-body" style="padding:10px 14px">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
                     <div style="text-align:center;flex:1">
-                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${l.servidor_online?'var(--green)':'var(--red)'}">${l.servidor_online?'ON':'OFF'}</div>
+                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${mins>60?'#505068':l.servidor_online?'var(--green)':'var(--red)'}">${mins>60?'—':l.servidor_online?'ON':'OFF'}</div>
                         <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">servidor</div>
                     </div>
                     <div style="text-align:center;flex:1">
-                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:#e8eef8">${l.tablets_ativos||0}<span style="font-size:12px;color:#8096b8">/${l.tablets_total||0}</span></div>
+                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${mins>60?'#505068':'#e8eef8'}">${mins>60?'—':(l.tablets_ativos||0)+'<span style="font-size:12px;color:#8096b8">/'+(l.tablets_total||0)+'</span>'}</div>
                         <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">tablets</div>
                     </div>
                     <div style="text-align:center;flex:1">
@@ -858,7 +861,7 @@ async function abrirLoja(token, abaInicial) {
 
     document.getElementById('tab-resumo').innerHTML = `
         <div style="display:flex;align-items:center;gap:14px;padding:14px;background:var(--bg3);border-radius:10px;border:1px solid ${cor}40;margin-bottom:16px">
-            <div class="score-circle" style="color:${cor};border-color:${cor};width:56px;height:56px;font-size:15px">${_modalScore}%${_modalTemCustom?'<span title="Perfil: '+_modalPerfil.nome+'" style="font-size:8px;display:block;opacity:.6">✦</span>':''}</div>
+            <div class="score-circle" style="color:${_modalDesconect?'#505068':cor};border-color:${_modalDesconect?'#505068':cor};width:56px;height:56px;font-size:15px;opacity:${_modalDesconect?.5:1}">${_modalDesconect?'—':_modalScore+'%'}${(!_modalDesconect&&_modalTemCustom)?'<span title="Perfil: '+_modalPerfil.nome+'" style="font-size:8px;display:block;opacity:.6">✦</span>':''}</div>
             <div style="flex:1">
                 <div style="font-size:18px;font-weight:800;color:${cor}">${statusLabel(l)}</div>
                 <div style="font-size:10px;color:#8096b8;margin-top:5px;font-family:var(--mono);display:flex;gap:6px;flex-wrap:wrap">
@@ -911,7 +914,7 @@ async function abrirLoja(token, abaInicial) {
                 </div>
             </div>
             <div style="text-align:right">
-                <div class="badge ${l.servidor_online?'bg':'br'}" style="font-size:11px">${l.servidor_online?'● Servidor online':'○ Servidor Goomer offline'}</div>
+                <div class="badge ${_modalDesconect?'ba':l.servidor_online?'bg':'br'}" style="font-size:11px">${_modalDesconect?'⊘ Sem dados há '+(_modalMins>1440?Math.round(_modalMins/1440)+'d':_modalMins>60?Math.round(_modalMins/60)+'h':_modalMins+'min'):l.servidor_online?'● Servidor online':'○ Servidor Goomer offline'}</div>
             </div>
         </div>
 
