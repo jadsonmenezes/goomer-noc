@@ -364,6 +364,7 @@ let _cfg = {
     alerta_mysql_ciclos:  4,
 };
 let _alertasDisparados = {}; // { token_loja: { tipo: timestamp } } — evita re-disparar
+let _ciclosConsecutivos = {}; // { token_loja: { tipo: count } } — contador em memória por ciclo de carregar()
 
 // ── Perfis de Score ────────────────────────────────────────────
 let _perfis = [];        // [ { id, nome, descricao, componentes, padrao } ]
@@ -864,12 +865,15 @@ async function abrirLoja(token, abaInicial) {
                     ${(()=>{
                         const p=l.payload||{};
                         const el=l.erros_log||0;
-                        const logsVal=el>=500?'0/20':el>=200?'5/20':el>=50?'10/20':el>=1?'16/20':'20/20';
+                        const _ptsLog=_modalPerfil?.componentes?.logs?.peso??20;
+                        const logsVal=el>=500?'0/'+_ptsLog:el>=200?Math.round(_ptsLog*.25)+'/'+_ptsLog:el>=50?Math.round(_ptsLog*.5)+'/'+_ptsLog:el>=1?Math.round(_ptsLog*.8)+'/'+_ptsLog:_ptsLog+'/'+_ptsLog;
                         const logsOk=el<50;
                         const maq=p.maquina;
                         const cpu=parseInt(maq?.cpu||0),ram=parseInt(maq?.ram_pct||0),dc=(maq?.discos||[]).some(d=>parseInt(d.pct)>90);
-                        const maqVal=!maq?'?/15':cpu<70&&ram<75&&!dc?'15/15':cpu<85&&ram<85&&!dc?'10/15':cpu<95&&ram<95&&!dc?'5/15':'0/15';
-                        const maqOk=!maq||cpu<70&&ram<75&&!dc;
+                        // thresholds espelho do agente (ram<80 para máximo, não 75)
+                        const pts=_modalPerfil?.componentes?.maquina?.peso??15;
+                        const maqVal=!maq?'?/'+pts:cpu<70&&ram<80&&!dc?pts+'/'+pts:cpu<85&&ram<90&&!dc?Math.round(pts*.67)+'/'+pts:cpu<95&&ram<95&&!dc?Math.round(pts*.33)+'/'+pts:'0/'+pts;
+                        const maqOk=!maq||cpu<70&&ram<80&&!dc;
                         const g=(ok,txt)=>`<span style="background:${ok?'rgba(0,214,143,.1)':'rgba(255,68,85,.1)'};color:${ok?'var(--green)':'var(--red)'};padding:2px 7px;border-radius:4px">${txt}</span>`;
                         const _comp = _modalPerfil?.componentes || {};
                         const _items = [];
@@ -3648,6 +3652,49 @@ function carregarConfiguracoes() {
     sincronizarFormConfig();
 }
 
+function limparSilencio() {
+    const ini = document.getElementById('cfg-silencio-ini');
+    const fim = document.getElementById('cfg-silencio-fim');
+    if (ini) ini.value = '';
+    if (fim) fim.value = '';
+    atualizarPreviewSilencio();
+}
+
+function atualizarPreviewSilencio() {
+    const ini = document.getElementById('cfg-silencio-ini')?.value;
+    const fim = document.getElementById('cfg-silencio-fim')?.value;
+    const el  = document.getElementById('silencio-preview');
+    if (!el) return;
+
+    if (!ini || !fim) {
+        el.innerHTML = '<span style="color:#606880">Sem horário de silêncio configurado — alertas enviados a qualquer hora.</span>';
+        return;
+    }
+
+    const [hI, mI] = ini.split(':').map(Number);
+    const [hF, mF] = fim.split(':').map(Number);
+    const minIni   = hI * 60 + mI;
+    const minFim   = hF * 60 + mF;
+    const cruzaMeia = minIni > minFim;
+
+    const fmt = (h, m) => `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+
+    if (cruzaMeia) {
+        el.innerHTML = `<span style="color:#ffb830">🌙 Silêncio noturno: das <b>${fmt(hI,mI)}</b> até <b>${fmt(hF,mF)}</b> do dia seguinte</span><br>
+            <span style="color:#8096b8">Alertas ativos das <b>${fmt(hF,mF)}</b> às <b>${fmt(hI,mI)}</b></span>`;
+    } else {
+        el.innerHTML = `<span style="color:#00d68f">☀️ Silêncio diurno: das <b>${fmt(hI,mI)}</b> às <b>${fmt(hF,mF)}</b></span><br>
+            <span style="color:#8096b8">Alertas ativos antes das <b>${fmt(hI,mI)}</b> e após as <b>${fmt(hF,mF)}</b></span>`;
+    }
+}
+
+// Atualizar preview ao digitar
+document.addEventListener('change', e => {
+    if (e.target?.id === 'cfg-silencio-ini' || e.target?.id === 'cfg-silencio-fim') {
+        atualizarPreviewSilencio();
+    }
+});
+
 function sincronizarFormConfig() {
     // Preencher campos com valores de _cfg
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
@@ -3731,6 +3778,7 @@ async function testarSlack() {
 function abrirConfiguracoes() {
     carregarConfiguracoes();
     renderListaTagsAdmin();
+    setTimeout(atualizarPreviewSilencio, 50);
     document.getElementById('modal-config').style.display = 'block';
     document.body.style.overflow = 'hidden';
     showCfgTab('alertas', document.getElementById('cfgtab-alertas'));
@@ -4111,14 +4159,19 @@ function calcularScoreComPerfil(payload, perfil) {
         else pontos += Math.round(maxPts * 0.2);
     }
 
-    // Máquina
+    // Máquina — thresholds idênticos ao agente para consistência
     if (comp.maquina?.ativo) {
-        const cpu  = parseInt(payload.maquina?.cpu || 0);
-        const ram  = parseInt(payload.maquina?.ram_pct || 0);
-        const maxPts = comp.maquina.peso;
-        const cpuOk  = cpu < 70 ? 1 : cpu < 85 ? 0.7 : cpu < 95 ? 0.4 : 0.1;
-        const ramOk  = ram < 75 ? 1 : ram < 85 ? 0.7 : ram < 92 ? 0.4 : 0.1;
-        pontos += Math.round(maxPts * Math.min(cpuOk, ramOk));
+        const cpu      = parseInt(payload.maquina?.cpu || 0);
+        const ram      = parseInt(payload.maquina?.ram_pct || 0);
+        const discos   = payload.maquina?.discos || [];
+        const discoCrit   = discos.some(d => parseInt(d.pct) > 90);
+        const discoAlerta = discos.some(d => parseInt(d.pct) > 75);
+        const maxPts   = comp.maquina.peso;
+        // Espelho exato do cálculo do agente (cpu<70, ram<80 → 100%)
+        if      (cpu < 70 && ram < 80 && !discoAlerta) pontos += maxPts;
+        else if (cpu < 85 && ram < 90 && !discoCrit)   pontos += Math.round(maxPts * 0.67);
+        else if (cpu < 95 && ram < 95 && !discoCrit)   pontos += Math.round(maxPts * 0.33);
+        // crítico = 0pts
     }
 
     // Penalidade IP divergente (mantém independente do perfil)
@@ -4145,89 +4198,114 @@ function showCfgTab(nome, btn) {
 }
 
 // ── Motor de alertas — chamado a cada carregamento ────────────────
+// ── Verificar horário de silêncio ────────────────────────────
+function emHorarioDeSilencio() {
+    const ini = _cfg.silencio_inicio;
+    const fim = _cfg.silencio_fim;
+    if (!ini || !fim) return false;
+
+    const agora   = new Date();
+    const minAtual = agora.getHours() * 60 + agora.getMinutes();
+    const [hI, mI] = ini.split(':').map(Number);
+    const [hF, mF] = fim.split(':').map(Number);
+    const minIni   = hI * 60 + mI;
+    const minFim   = hF * 60 + mF;
+
+    // Intervalo normal (ex: 08:00 às 22:00)
+    if (minIni <= minFim) return minAtual >= minIni && minAtual <= minFim;
+
+    // Intervalo que cruza meia-noite (ex: 23:00 às 07:00)
+    // Silêncio ativo se: após 23:00 OU antes de 07:00
+    return minAtual >= minIni || minAtual <= minFim;
+}
+
 function verificarAlertas(lojas) {
     if (!_cfg.slack_webhook) return;
+    if (emHorarioDeSilencio()) return;
 
-    // Verificar horário de silêncio
-    if (_cfg.silencio_inicio && _cfg.silencio_fim) {
-        const agora = new Date();
-        const [hI, mI] = _cfg.silencio_inicio.split(':').map(Number);
-        const [hF, mF] = _cfg.silencio_fim.split(':').map(Number);
-        const minAtual = agora.getHours() * 60 + agora.getMinutes();
-        const minIni   = hI * 60 + mI;
-        const minFim   = hF * 60 + mF;
-        const emSilencio = minIni <= minFim
-            ? (minAtual >= minIni && minAtual <= minFim)
-            : (minAtual >= minIni || minAtual <= minFim);
-        if (emSilencio) return;
-    }
-
-    const agora = Date.now();
+    const agora    = Date.now();
     const COOLDOWN = 30 * 60 * 1000; // 30min entre alertas da mesma loja+tipo
 
     lojas.forEach(l => {
         const tk    = l.token_loja;
         const nome  = l.nome_loja || tk;
-        const score = l.score || 0;
         const pay   = l.payload || {};
         const srvOk = pay.servidor_goomer === 'online';
         const tabs  = pay.tablets_ativos || 0;
+        const score = calcularScoreComPerfil(pay, getPerfilLoja(tk));
 
-        if (!_alertasDisparados[tk]) _alertasDisparados[tk] = {};
+        if (!_alertasDisparados[tk])    _alertasDisparados[tk]    = {};
+        if (!_ciclosConsecutivos[tk])   _ciclosConsecutivos[tk]   = {};
 
-        // Contar ciclos consecutivos por tipo usando histórico dos dados
-        const ciclosScore   = contarCiclosConsecutivos(l, s => (s.score||0) < _cfg.alerta_score_limiar);
-        const ciclosServidor = contarCiclosConsecutivos(l, s => s.payload?.servidor_goomer !== 'online');
-        const ciclosTablets  = contarCiclosConsecutivos(l, s => (s.payload?.tablets_ativos||0) === 0 && s.payload?.servidor_goomer === 'online');
-        const ciclosMySQL    = contarCiclosConsecutivos(l, s => s.payload?.mysql_status === 'offline');
+        // ── Avaliar condição atual de cada tipo ───────────────
+        const condicoes = {
+            score:    _cfg.alerta_score    && score < _cfg.alerta_score_limiar,
+            servidor: _cfg.alerta_servidor && !srvOk,
+            tablets:  _cfg.alerta_tablets  && tabs === 0 && srvOk,
+            mysql:    _cfg.alerta_mysql    && pay.mysql_status === 'offline',
+        };
 
-        const disparar = async (tipo, ciclos, limiar, linhas, emoji) => {
-            if (ciclos < limiar) return;
+        // ── Atualizar contadores em memória ───────────────────
+        Object.keys(condicoes).forEach(tipo => {
+            if (condicoes[tipo]) {
+                _ciclosConsecutivos[tk][tipo] = (_ciclosConsecutivos[tk][tipo] || 0) + 1;
+            } else {
+                // Condição resolvida — zerar contador
+                _ciclosConsecutivos[tk][tipo] = 0;
+                // Limpar cooldown se resolveu — permite re-alertar se voltar a falhar
+                if (_alertasDisparados[tk][tipo]) {
+                    delete _alertasDisparados[tk][tipo];
+                }
+            }
+        });
+
+        const ciclos = tipo => _ciclosConsecutivos[tk][tipo] || 0;
+
+        // ── Disparar alertas quando limiar atingido ───────────
+        const disparar = async (tipo, limiar, linhas, emoji) => {
+            const c = ciclos(tipo);
+            if (c < limiar) return;
             const ult = _alertasDisparados[tk][tipo] || 0;
             if (agora - ult < COOLDOWN) return;
             _alertasDisparados[tk][tipo] = agora;
-            await dispararAlertaSlack({ emoji, titulo: 'Alerta NOC — ' + nome, loja: nome, token: tk, linhas, score });
+            const mins = c * 5;
+            await dispararAlertaSlack({
+                emoji, titulo: 'Alerta NOC — ' + nome,
+                loja: nome, token: tk, score, linhas: [
+                    ...linhas,
+                    `_Persistente por ~${mins} min (${c} ciclos)_`,
+                    _cfg.slack_mensagem
+                ].filter(Boolean)
+            });
         };
 
         if (_cfg.alerta_score)
-            disparar('score', ciclosScore, _cfg.alerta_score_ciclos,
-                [`Score: *${score}%* (abaixo de ${_cfg.alerta_score_limiar}% por ${ciclosScore} ciclos consecutivos)`,
-                 `Servidor: ${srvOk?'online':'*OFFLINE*'} · Tablets ativos: ${tabs}`,
-                 _cfg.slack_mensagem].filter(Boolean), '🔴');
+            disparar('score', _cfg.alerta_score_ciclos, [
+                `Score: *${score}%* — abaixo do limiar de ${_cfg.alerta_score_limiar}%`,
+                `Servidor: ${srvOk?'online':'*OFFLINE*'} · Tablets: ${tabs}`,
+            ], '🔴');
 
         if (_cfg.alerta_servidor)
-            disparar('servidor', ciclosServidor, _cfg.alerta_servidor_ciclos,
-                [`Servidor Goomer *OFFLINE* por ${ciclosServidor} ciclos consecutivos (~${ciclosServidor*5}min)`,
-                 `Agente transmitindo normalmente — autocorreção não resolveu`,
-                 _cfg.slack_mensagem].filter(Boolean), '🖥');
+            disparar('servidor', _cfg.alerta_servidor_ciclos, [
+                `Servidor Goomer *OFFLINE* — agente transmitindo normalmente`,
+                `Autocorreção tentou e não resolveu`,
+            ], '🖥');
 
         if (_cfg.alerta_tablets)
-            disparar('tablets', ciclosTablets, _cfg.alerta_tablets_ciclos,
-                [`*Nenhum tablet conectado* por ${ciclosTablets} ciclos (~${ciclosTablets*5}min)`,
-                 `Servidor online — possível falha de rede ou roteador`,
-                 _cfg.slack_mensagem].filter(Boolean), '📱');
+            disparar('tablets', _cfg.alerta_tablets_ciclos, [
+                `*Nenhum tablet conectado* — servidor Goomer está online`,
+                `Possível falha de rede local ou roteador`,
+            ], '📱');
 
         if (_cfg.alerta_mysql)
-            disparar('mysql', ciclosMySQL, _cfg.alerta_mysql_ciclos,
-                [`MySQL *offline* por ${ciclosMySQL} ciclos consecutivos (~${ciclosMySQL*5}min)`,
-                 `Autocorreção não conseguiu recuperar o banco de dados`,
-                 _cfg.slack_mensagem].filter(Boolean), '🗄');
+            disparar('mysql', _cfg.alerta_mysql_ciclos, [
+                `MySQL *offline* — autocorreção não resolveu`,
+                `Verificar processo MySQL e memória disponível`,
+            ], '🗄');
     });
 }
 
-function contarCiclosConsecutivos(loja, condicao) {
-    // Usa o histórico de snapshots do _dados se disponível
-    // Para o ciclo atual, verifica o snapshot atual
-    // Sem histórico detalhado no _dados, usa snapshots do payload.correlacoes
-    const hist = loja.payload?.historico_snapshots || [];
-    if (hist.length === 0) return condicao(loja) ? 1 : 0;
-    let count = 0;
-    for (let i = hist.length - 1; i >= 0; i--) {
-        if (condicao(hist[i])) count++;
-        else break;
-    }
-    return count;
-}
+// contarCiclosConsecutivos removida — substituída por _ciclosConsecutivos em memória
 
 async function dispararAlertaSlack({ emoji, titulo, loja, token, linhas, score, webhook }) {
     const url = webhook || _cfg.slack_webhook;
@@ -5086,9 +5164,23 @@ async function exportarDesatualizados() {
         </div>
         <div style="margin-bottom:20px">
           <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Horário de silêncio (sem alertas)</div>
-          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-            <label style="font-size:12px;color:#8096b8">Das <input type="time" id="cfg-silencio-ini" style="margin-left:6px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px"></label>
-            <label style="font-size:12px;color:#8096b8">às <input type="time" id="cfg-silencio-fim" style="margin-left:6px;background:#111827;border:1px solid #1e3050;color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px"></label>
+          <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
+            <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+              <label style="font-size:12px;color:#8096b8">Início
+                <input type="time" id="cfg-silencio-ini"
+                  style="margin-left:8px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:6px 10px;border-radius:6px;font-size:13px;font-family:var(--mono)">
+              </label>
+              <span style="color:#606880;font-size:18px">→</span>
+              <label style="font-size:12px;color:#8096b8">Fim
+                <input type="time" id="cfg-silencio-fim"
+                  style="margin-left:8px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:6px 10px;border-radius:6px;font-size:13px;font-family:var(--mono)">
+              </label>
+              <button onclick="limparSilencio()" style="background:none;border:1px solid #1e3050;color:#8096b8;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:11px">limpar</button>
+            </div>
+            <div id="silencio-preview" style="font-size:11px;color:#8096b8;line-height:1.6"></div>
+            <div style="font-size:10px;color:#606880;margin-top:6px">
+              💡 Para silêncio noturno (ex: 23:00 às 07:00), basta colocar 23:00 → 07:00 — o sistema detecta automaticamente que cruza a meia-noite.
+            </div>
           </div>
         </div>
         <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Critérios de alerta</div>
