@@ -825,6 +825,8 @@ async function abrirLoja(token, abaInicial) {
     const _modalPerfil     = getPerfilLoja(l.token_loja);
     const _modalScore      = calcularScoreComPerfil(pay, _modalPerfil);
     const _modalTemCustom  = _modalPerfil && _modalPerfil.id !== 'default';
+    const _modalMins      = l.criado_em ? Math.round((Date.now() - new Date(l.criado_em).getTime()) / 60000) : 9999;
+    const _modalDesconect = _modalMins > 60;
     const ip  = l.ip_servidor||pay.ip_servidor||'—';
 
     document.getElementById('m-titulo').textContent = l.nome_loja||'Loja';
