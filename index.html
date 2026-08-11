@@ -730,7 +730,7 @@ function renderGrid(lista) {
         return `<div class="loja" onclick="abrirLoja('${h(l.token_loja)}')">
             <div class="loja-head" style="background:${mins>60?'rgba(255,68,85,.05)':mins>15?'rgba(255,184,48,.04)':'var(--bg3)'}">
                 <div style="position:relative;display:inline-block">
-                    <div class="score-circle" style="color:${mins>60?'#505068':cor};border-color:${mins>60?'#505068':cor};opacity:${mins>60?.5:1}">${_scoreCard}%${_temPerfilCustom?'<span title="Score recalculado pelo perfil '+h(_perfilLoja.nome)+'" style="font-size:8px;opacity:.6;margin-left:1px">✦</span>':''}</div>
+                    <div class="score-circle" style="color:${mins>60?'#505068':cor};border-color:${mins>60?'#505068':cor};opacity:${mins>60?.5:1}">${mins>60?'—':_scoreCard+'%'}${(!mins>60&&_temPerfilCustom)?'<span title="Score recalculado pelo perfil '+h(_perfilLoja.nome)+'" style="font-size:8px;opacity:.6;margin-left:1px">✦</span>':''}</div>
                     ${(()=>{const t=_tendencias[l.token_loja];return t&&t.seta!=='→'?`<span style="position:absolute;top:-6px;right:-8px;font-size:13px;font-weight:900;color:${t.cor};text-shadow:0 1px 3px rgba(0,0,0,.5)" title="${t.seta==='↑'?'Melhorando':'Piorando'}: ${Math.abs(t.delta||0)}pts vs média">${t.seta}</span>`:'';})()}
                 </div>
                 <div class="loja-info">
@@ -4230,6 +4230,18 @@ function verificarAlertas(lojas) {
         const tk    = l.token_loja;
         const nome  = l.nome_loja || tk;
         const pay   = l.payload || {};
+
+        // ── Guard: ignorar lojas que não transmitem há mais de 30min ─────
+        // Dados antigos não refletem estado atual — alertas seriam falsos positivos
+        const minsDesdeSnap = l.criado_em
+            ? Math.round((Date.now() - new Date(l.criado_em).getTime()) / 60000)
+            : 9999;
+        if (minsDesdeSnap > 30) {
+            // Zerar contadores para não acumular quando voltar
+            if (_ciclosConsecutivos[tk]) _ciclosConsecutivos[tk] = {};
+            return; // pular esta loja
+        }
+
         const srvOk = pay.servidor_goomer === 'online';
         const tabs  = pay.tablets_ativos || 0;
         const score = calcularScoreComPerfil(pay, getPerfilLoja(tk));
@@ -5376,10 +5388,6 @@ async function exportarDesatualizados() {
 
 
 
-  <!-- Botão fixo de configurações -->
-  <button onclick="abrirConfiguracoes()" title="Configurações Globais"
-    style="position:fixed;bottom:20px;right:20px;z-index:8000;width:44px;height:44px;border-radius:50%;background:#1e3050;border:1px solid rgba(168,85,247,.4);color:#c084fc;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.4);transition:.2s"
-    onmouseover="this.style.background='rgba(168,85,247,.2)'" onmouseout="this.style.background='#1e3050'">⚙</button>
 
 </body>
 </html>
