@@ -1355,12 +1355,9 @@ async function abrirLoja(token, abaInicial) {
         const el = document.getElementById('tab-relatorio');
         if (!el) return;
         window._periodoSelecionado = 7;
-        window._tipoRelatorio = 'cliente';
 
         el.innerHTML = `
         <div style="padding:4px 0 20px">
-
-          <!-- Período -->
           <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Período</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
             <button class="period-btn ativo" id="pbtn-7"  onclick="setPeriodo(7,  this)">Última semana</button>
@@ -1375,27 +1372,6 @@ async function abrirLoja(token, abaInicial) {
               <input type="date" id="periodo-fim" style="margin-left:6px;background:var(--bg3);border:1px solid var(--border);color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
             </label>
           </div>
-
-          <!-- Tipo de relatório -->
-          <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Tipo de relatório</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px">
-            <button id="tipo-cliente" onclick="setTipoRel('cliente',this)"
-              style="padding:12px 8px;border-radius:10px;border:2px solid #00d68f;background:rgba(0,214,143,.1);color:#00d68f;cursor:pointer;font-size:11px;font-weight:700;text-align:center">
-              👤<br><span style="font-size:12px;display:block;margin-top:4px">Cliente</span>
-              <span style="font-size:10px;font-weight:400;color:#8096b8;display:block;margin-top:2px">Resumo executivo</span>
-            </button>
-            <button id="tipo-suporte" onclick="setTipoRel('suporte',this)"
-              style="padding:12px 8px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:#a0b8d0;cursor:pointer;font-size:11px;font-weight:700;text-align:center">
-              🔧<br><span style="font-size:12px;display:block;margin-top:4px">Suporte</span>
-              <span style="font-size:10px;font-weight:400;color:#8096b8;display:block;margin-top:2px">Análise técnica</span>
-            </button>
-            <button id="tipo-gestao" onclick="setTipoRel('gestao',this)"
-              style="padding:12px 8px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:#a0b8d0;cursor:pointer;font-size:11px;font-weight:700;text-align:center">
-              📈<br><span style="font-size:12px;display:block;margin-top:4px">Gestão</span>
-              <span style="font-size:10px;font-weight:400;color:#8096b8;display:block;margin-top:2px">Impacto de negócio</span>
-            </button>
-          </div>
-
           <button onclick="gerarDashboard('${l.token_loja}','${h(l.nome_loja||'')}')"
             style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:12px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;width:100%">
             📊 Gerar Relatório
@@ -1408,23 +1384,6 @@ async function abrirLoja(token, abaInicial) {
             btn.classList.add('ativo');
             const custom = document.getElementById('periodo-custom');
             if (custom) custom.style.display = dias === 0 ? 'flex' : 'none';
-        };
-        window.setTipoRel = function(tipo, btn) {
-            window._tipoRelatorio = tipo;
-            ['tipo-cliente','tipo-suporte','tipo-gestao'].forEach(id => {
-                const el = document.getElementById(id);
-                if (!el) return;
-                if (id === 'tipo-'+tipo) {
-                    const cor = tipo==='cliente'?'#00d68f':tipo==='suporte'?'#ffb830':'#a855f7';
-                    el.style.border = '2px solid '+cor;
-                    el.style.background = cor+'18';
-                    el.style.color = cor;
-                } else {
-                    el.style.border = '1px solid var(--border)';
-                    el.style.background = 'var(--bg3)';
-                    el.style.color = '#a0b8d0';
-                }
-            });
         };
     })();
 
@@ -2961,10 +2920,7 @@ async function gerarDashboard(token, nome) {
         return;
     }
 
-    const tipo = window._tipoRelatorio || 'cliente';
-    if      (tipo === 'suporte') renderDashboardSuporte();
-    else if (tipo === 'gestao')  renderDashboardGestao();
-    else                         renderDashboardConteudo(); // cliente
+    renderDashboardConsolidado();
 }
 
 // Dados compartilhados entre as versões do relatório
@@ -3011,17 +2967,205 @@ function calcularDadosRelatorio(snaps) {
     const scorePorDia = dias.map(d=>Math.round(porDia[d].reduce((a,b)=>a+b,0)/porDia[d].length));
     const dispDias = Object.keys(dispPorDia).sort();
     const dispValues = dispDias.map(d=>Math.round((dispPorDia[d].on/dispPorDia[d].tot)*100));
+    // Pedidos por dia — agregar volume_por_hora de cada snapshot
+    const pedidosPorDia = {};
+    snaps.forEach(s => {
+        const dia = s.criado_em?.slice(0,10); if (!dia) return;
+        const vol = s.payload?.volume_por_hora || {};
+        const totalDia = Object.values(vol).reduce((a,b) => a + (parseInt(b)||0), 0);
+        if (!pedidosPorDia[dia]) pedidosPorDia[dia] = { max: 0, snapshots: 0 };
+        // Usar o maior total visto no dia (snapshot mais completo)
+        if (totalDia > pedidosPorDia[dia].max) pedidosPorDia[dia].max = totalDia;
+        pedidosPorDia[dia].snapshots++;
+    });
+    const diasPedidos = Object.keys(pedidosPorDia).sort();
+    const pedidosPorDiaVals = diasPedidos.map(d => pedidosPorDia[d].max);
+    const totalPedidosPeriodo = pedidosPorDiaVals.reduce((a,b)=>a+b,0);
+    const diaMaisMovimentado = diasPedidos.length
+        ? diasPedidos[pedidosPorDiaVals.indexOf(Math.max(...pedidosPorDiaVals))]
+        : null;
+    const maxPedidosDia = Math.max(...pedidosPorDiaVals, 1);
+
     return { total,scores,scoreMedia,scoreMin,scoreMax,srvOnline,srvDisp,ipDiverg,
              todasAC,acPorTipo,totalAC,retryTotal,errosLog,semTablets,
              cpuMedia,ramMedia,cpuVals,ramVals,snapsCpuAlto,snapsRamAlto,
              snapsCpuCrit,snapsRamCrit,snapsDiskoCrit,
-             minEvitados,chamadosEvitados,dias,scorePorDia,dispDias,dispValues };
+             minEvitados,chamadosEvitados,dias,scorePorDia,dispDias,dispValues,
+             diasPedidos,pedidosPorDiaVals,totalPedidosPeriodo,diaMaisMovimentado,maxPedidosDia };
+}
+
+function renderDashboardConsolidado() {
+    // Remover badge de tipo (não há mais seleção)
+    const badge = document.getElementById('db-tipo-badge');
+    if (badge) badge.style.display = 'none';
+
+    const d = calcularDadosRelatorio(_relSnaps);
+    const corScore = s => s>=85?'#00d68f':s>=65?'#ffb830':'#ff4455';
+    const fmtDia   = s => { const [,m,dd]=s.split('-'); return dd+'/'+m; };
+    const tipoLbl  = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado', mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado' };
+    const tipoIco  = { ip_sincronizado:'🌐', spooler_reiniciado:'🖨️', mysql_reiniciado:'🗄️', servidor_iniciado:'🖥️' };
+    const tipoCol  = { ip_sincronizado:'#3b82f6', spooler_reiniciado:'#ffb830', mysql_reiniciado:'#00d68f', servidor_iniciado:'#a855f7' };
+
+    // Nota de saúde
+    const notaGeral = d.scoreMedia>=90?'Excelente':d.scoreMedia>=80?'Bom':d.scoreMedia>=65?'Regular':'Crítico';
+    const corNota   = corScore(d.scoreMedia);
+    const fmtDiaMov = d.diaMaisMovimentado ? (() => { const [,m,dd]=d.diaMaisMovimentado.split('-'); return dd+'/'+m; })() : '—';
+
+    let html = '';
+
+    // ── SEÇÃO EXECUTIVA ────────────────────────────────────────────────────────
+    html += `<div style="background:linear-gradient(135deg,rgba(14,92,254,.08),rgba(0,214,143,.05));border:1px solid rgba(14,92,254,.2);border-radius:14px;padding:20px 24px;margin-bottom:20px">
+        <div style="font-size:11px;font-weight:700;color:#8096b8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Resumo executivo</div>
+        <div style="font-size:14px;color:#c8d8e8;line-height:1.7">
+            ${_relNome} operou com <strong style="color:${corNota}">${notaGeral.toLowerCase()}</strong> saúde no período —
+            disponibilidade de <strong style="color:${d.srvDisp>=95?'#00d68f':d.srvDisp>=80?'#ffb830':'#ff4455'}">${d.srvDisp}%</strong>
+            e score médio de <strong style="color:${corNota}">${d.scoreMedia}%</strong>.
+            ${d.totalAC > 0 ? `O sistema realizou <strong style="color:#ffb830">${d.totalAC} correção(ões) automática(s)</strong>, prevenindo aproximadamente ${d.minEvitados} minutos de parada manual.` : 'Nenhuma correção automática necessária — operação estável.'}
+            ${d.totalPedidosPeriodo > 0 ? `No período foram processados <strong style="color:#e8eef8">~${d.totalPedidosPeriodo} pedidos</strong>${d.diaMaisMovimentado ? `, com maior movimento em <strong style="color:#a0b8d0">${fmtDiaMov}</strong>` : ''}.` : ''}
+        </div>
+    </div>`;
+
+    // ── KPIs ──────────────────────────────────────────────────────────────────
+    const kpis = [
+        { val: d.scoreMedia+'%',   lbl: 'Score médio',           cor: corScore(d.scoreMedia) },
+        { val: d.srvDisp+'%',      lbl: 'Disponibilidade',        cor: d.srvDisp>=95?'#00d68f':d.srvDisp>=80?'#ffb830':'#ff4455' },
+        { val: d.totalAC+'',       lbl: 'Autocorreções',          cor: d.totalAC>0?'#ffb830':'#00d68f' },
+        { val: '~'+d.minEvitados+'min', lbl: 'Paradas evitadas',  cor: '#a855f7' },
+        { val: d.totalPedidosPeriodo>0?'~'+d.totalPedidosPeriodo:'—', lbl: 'Pedidos no período', cor: '#e8eef8' },
+        { val: fmtDiaMov,          lbl: 'Dia mais movimentado',   cor: '#a0b8d0' },
+    ];
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px">
+        ${kpis.map(k=>`<div class="db-stat-card">
+            <div class="db-stat-val" style="color:${k.cor};font-size:22px">${k.val}</div>
+            <div class="db-stat-lbl">${k.lbl}</div>
+        </div>`).join('')}
+    </div>`;
+
+    // ── INSIGHTS ──────────────────────────────────────────────────────────────
+    const insights = [];
+    if (d.srvDisp < 85)   insights.push({n:'critico',i:'🖥️',t:`Servidor offline em ${100-d.srvDisp}% dos ciclos — principal ofensor do score. Verifique estabilidade do processo Goomer.`});
+    else if (d.srvDisp < 95) insights.push({n:'atencao',i:'🖥️',t:`Servidor ficou offline em ${100-d.srvDisp}% dos ciclos — impacta 40pts do score.`});
+    if (d.ipDiverg > d.total*0.2) insights.push({n:'critico',i:'🌐',t:`IP divergente em ${d.ipDiverg} ciclos (${Math.round(d.ipDiverg/d.total*100)}% do período) — penalidade -20pts. Fixe o IP no roteador.`});
+    else if (d.ipDiverg > 0) insights.push({n:'atencao',i:'🌐',t:`IP divergente ${d.ipDiverg} vez(es) — autocorreção aplicada. Considere fixar o IP no roteador.`});
+    if (d.snapsRamCrit > d.total*0.1) insights.push({n:'critico',i:'💾',t:`RAM acima de 90% em ${Math.round(d.snapsRamCrit/d.total*100)}% do tempo — média ${d.ramMedia}%. Risco de instabilidade.`});
+    else if (d.snapsRamAlto > d.total*0.2) insights.push({n:'atencao',i:'💾',t:`RAM entre 80-90% em ${d.snapsRamAlto} ciclos — afetando performance. Média ${d.ramMedia}%.`});
+    if (d.snapsCpuCrit > d.total*0.1) insights.push({n:'critico',i:'⚙️',t:`CPU acima de 90% em ${Math.round(d.snapsCpuCrit/d.total*100)}% do tempo — servidor sobrecarregado.`});
+    if (d.snapsDiskoCrit > 0) insights.push({n:'critico',i:'💿',t:`Disco acima de 90% em ${d.snapsDiskoCrit} ciclos — risco de falha. Libere espaço.`});
+    if (d.retryTotal > 0) insights.push({n:'atencao',i:'🔗',t:`${d.retryTotal} pedidos com falha ERP — verifique integração com o sistema de gestão.`});
+    if ((d.acPorTipo['mysql_reiniciado']||0) > 2) insights.push({n:'critico',i:'🗄️',t:`MySQL reiniciado ${d.acPorTipo['mysql_reiniciado']} vezes — banco instável. Verifique memória e logs.`});
+    if ((d.acPorTipo['servidor_iniciado']||0) > 3) insights.push({n:'critico',i:'🔄',t:`Servidor Goomer reiniciado ${d.acPorTipo['servidor_iniciado']} vezes — processo instável.`});
+    if ((d.acPorTipo['spooler_reiniciado']||0) > 3) insights.push({n:'atencao',i:'🖨️',t:`Spooler reiniciado ${d.acPorTipo['spooler_reiniciado']} vezes — problema recorrente de impressora.`});
+    if (d.semTablets > d.total*0.05) insights.push({n:'atencao',i:'📱',t:`${d.semTablets} ciclos sem tablets (${Math.round(d.semTablets/d.total*100)}% do período) — tablets desconectando. Verifique WiFi.`});
+    if (insights.length === 0) insights.push({n:'ok',i:'✅',t:`Score médio ${d.scoreMedia}% — loja operou dentro dos parâmetros normais. Servidor disponível ${d.srvDisp}% do tempo.`});
+
+    const corI = {critico:'#ff4455',atencao:'#ffb830',ok:'#00d68f'};
+    const bgI  = {critico:'rgba(255,68,85,.07)',atencao:'rgba(255,184,48,.07)',ok:'rgba(0,214,143,.07)'};
+    const bdI  = {critico:'rgba(255,68,85,.3)',atencao:'rgba(255,184,48,.3)',ok:'rgba(0,214,143,.3)'};
+    html += `<div class="db-section"><div class="db-section-title">💡 Insights do período</div>
+        ${insights.map(ins=>`<div style="background:${bgI[ins.n]};border:1px solid ${bdI[ins.n]};border-left:3px solid ${corI[ins.n]};border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start">
+            <span style="font-size:16px;flex-shrink:0">${ins.i}</span>
+            <span style="font-size:12px;color:#e8eef8;line-height:1.5">${ins.t}</span>
+        </div>`).join('')}
+    </div>`;
+
+    // ── GRÁFICOS LADO A LADO: Score × Pedidos ────────────────────────────────
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="db-section" style="margin-bottom:0">
+            <div class="db-section-title">📊 Score por dia</div>
+            <canvas id="db-chart-score" style="width:100%;height:180px;display:block"></canvas>
+        </div>
+        <div class="db-section" style="margin-bottom:0">
+            <div class="db-section-title">📦 Pedidos por dia</div>
+            <canvas id="db-chart-pedidos" style="width:100%;height:180px;display:block"></canvas>
+        </div>
+    </div>`;
+
+    // ── COMPONENTES DO SCORE ─────────────────────────────────────────────────
+    html += `<div class="db-section"><div class="db-section-title">🖥 Componentes do score (média do período)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">`;
+    const comps = [
+        { nome:'Servidor (40pts)', pct:Math.round(d.srvDisp*0.4), max:40, cor:'#3b82f6' },
+        { nome:'ERP (25pts)',      pct:d.retryTotal>0?Math.round((1-Math.min(d.retryTotal/d.total,1))*25):25, max:25, cor:'#00d68f' },
+        { nome:'Logs (20pts)',     pct:d.errosLog>200*d.total?5:d.errosLog>50*d.total?10:d.errosLog>0?16:20, max:20, cor:'#ffb830' },
+        { nome:'Máquina (15pts)',  pct:d.snapsCpuCrit>d.total*.1||d.snapsRamCrit>d.total*.1?5:d.snapsCpuAlto>d.total*.2||d.snapsRamAlto>d.total*.2?10:15, max:15, cor:'#a855f7' },
+    ];
+    comps.forEach(c => {
+        const pct = Math.round(c.pct/c.max*100);
+        html += `<div style="background:var(--bg3);border-radius:8px;padding:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:11px;color:#a0b8d0">${c.nome}</span>
+                <span style="font-size:12px;font-weight:700;color:${c.cor}">${c.pct}/${c.max}pts</span>
+            </div>
+            <div style="background:rgba(255,255,255,.06);border-radius:4px;height:6px">
+                <div style="background:${c.cor};width:${pct}%;height:6px;border-radius:4px"></div>
+            </div>
+        </div>`;
+    });
+    html += `</div></div>`;
+
+    // ── DISPONIBILIDADE × AUTOCORREÇÕES ──────────────────────────────────────
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="db-section" style="margin-bottom:0">
+            <div class="db-section-title">📅 Disponibilidade por dia (%)</div>
+            <canvas id="db-chart-disp" style="width:100%;height:150px;display:block"></canvas>
+        </div>
+        <div class="db-section" style="margin-bottom:0">
+            <div class="db-section-title">🔧 Autocorreções por tipo</div>
+            <canvas id="db-chart-ac" style="width:100%;height:150px;display:block"></canvas>
+        </div>
+    </div>`;
+
+    // ── LINHA DO TEMPO ────────────────────────────────────────────────────────
+    if (d.todasAC.length > 0) {
+        html += `<div class="db-section"><div class="db-section-title">🕐 Linha do tempo — ${d.todasAC.length} autocorreção(ões)</div>
+            <div style="max-height:240px;overflow-y:auto">`;
+        [...d.todasAC].reverse().slice(0,60).forEach(ac => {
+            const cor = tipoCol[ac.tipo]||'#8096b8', ico = tipoIco[ac.tipo]||'⚡', lbl = tipoLbl[ac.tipo]||ac.tipo;
+            const ok  = ac.resultado==='sucesso';
+            const hora = ac.horario ? new Date(ac.horario).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+            html += `<div class="db-timeline-row">
+                <span style="width:18px;font-size:13px">${ico}</span>
+                <span style="color:${cor};min-width:150px;font-weight:600;font-size:11px">${lbl}</span>
+                <span style="color:${ok?'#00d68f':'#ff4455'};min-width:50px;font-weight:700;font-size:11px">${ok?'✓':'✗'}</span>
+                <span style="color:#606880;flex:1;font-size:10px">${ac.obs||''}</span>
+                <span style="color:#8096b8;white-space:nowrap;font-size:10px">${hora}</span>
+            </div>`;
+        });
+        html += `</div></div>`;
+    }
+
+    document.getElementById('db-conteudo').innerHTML = html;
+
+    // ── Renderizar gráficos ───────────────────────────────────────────────────
+    setTimeout(() => {
+        const cv1 = document.getElementById('db-chart-score');
+        if (cv1 && d.dias.length > 0) {
+            cv1.width = cv1.offsetWidth || 400; cv1.height = 180;
+            desenharLinhaScore(cv1, d.dias, d.scorePorDia, fmtDia, corScore);
+        }
+        const cv2 = document.getElementById('db-chart-pedidos');
+        if (cv2 && d.diasPedidos.length > 0) {
+            cv2.width = cv2.offsetWidth || 400; cv2.height = 180;
+            desenharBarrasPedidos(cv2, d.diasPedidos, d.pedidosPorDiaVals, fmtDia, d.diaMaisMovimentado);
+        }
+        const cv3 = document.getElementById('db-chart-disp');
+        if (cv3 && d.dispDias.length > 0) {
+            cv3.width = cv3.offsetWidth || 400; cv3.height = 150;
+            desenharBarrasDisp(cv3, d.dispDias, d.dispValues, fmtDia);
+        }
+        const cv4 = document.getElementById('db-chart-ac');
+        if (cv4) {
+            cv4.width = cv4.offsetWidth || 400; cv4.height = 150;
+            desenharPizzaAC(cv4, d.acPorTipo);
+        }
+    }, 80);
 }
 
 function renderDashboardConteudo() {
     // Badge
     const badge = document.getElementById('db-tipo-badge');
     if (badge) { badge.textContent='👤 Cliente'; badge.style.cssText='padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;background:rgba(0,214,143,.15);color:#00d68f;border:1px solid rgba(0,214,143,.3)'; }
+
 
     const snaps = _relSnaps;
     const total = snaps.length;
@@ -3364,6 +3508,67 @@ function desenharLinhaScore(cv, dias, valores, fmtDia, corFn) {
     };
     cv.addEventListener('mousemove', cv._tooltipListener);
     cv.addEventListener('mouseleave', cv._leaveListener);
+}
+
+function desenharBarrasPedidos(cv, dias, valores, fmtDia, diaMaisMovimentado) {
+    const ctx = cv.getContext('2d');
+    const W=cv.width, H=cv.height, pL=40, pR=12, pT=12, pB=28;
+    const aW=W-pL-pR, aH=H-pT-pB;
+    const n=dias.length;
+    if (!n) { ctx.fillStyle='#111827'; ctx.fillRect(0,0,W,H); return; }
+    const maxV = Math.max(...valores, 1);
+    const bW = Math.max(4, aW/n*0.72), gap = aW/n;
+
+    ctx.fillStyle='#111827'; ctx.fillRect(0,0,W,H);
+
+    // Grade Y
+    ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
+    for (let v = 0; v <= maxV; v += maxV/4) {
+        const y = pT+aH-(v/maxV)*aH;
+        ctx.beginPath(); ctx.moveTo(pL,y); ctx.lineTo(W-pR,y); ctx.stroke();
+        ctx.fillStyle='#606880'; ctx.font='9px Segoe UI';
+        ctx.fillText(Math.round(v), 2, y+3);
+    }
+
+    // Barras
+    valores.forEach((v,i) => {
+        const x = pL+i*gap+(gap-bW)/2;
+        const bH = (v/maxV)*aH;
+        const isMov = dias[i] === diaMaisMovimentado;
+        ctx.fillStyle = isMov ? '#ff4455' : '#3b82f6';
+        ctx.globalAlpha = isMov ? 1 : 0.75;
+        ctx.fillRect(x, pT+aH-bH, bW, bH);
+        ctx.globalAlpha = 1;
+    });
+
+    // Labels de valor
+    ctx.font = 'bold 9px Segoe UI';
+    valores.forEach((v,i) => {
+        if (!v) return;
+        const x = pL+i*gap+(gap-bW)/2;
+        const bH = (v/maxV)*aH;
+        const lbl = v+'';
+        const tw = ctx.measureText(lbl).width;
+        const isMov = dias[i] === diaMaisMovimentado;
+        ctx.fillStyle = isMov ? '#ff4455' : '#3b82f6';
+        if (bH > 14) ctx.fillText(lbl, x+bW/2-tw/2, pT+aH-bH-3);
+    });
+
+    // Eixo X
+    ctx.fillStyle='#606880'; ctx.font='9px Segoe UI';
+    const step = Math.max(1, Math.floor(n/6));
+    dias.forEach((d,i) => {
+        if (i%step!==0 && i!==n-1) return;
+        ctx.fillText(fmtDia(d), pL+i*gap+gap/2-12, H-6);
+    });
+
+    // Legenda dia mais movimentado
+    if (diaMaisMovimentado) {
+        ctx.fillStyle='#ff4455';
+        ctx.fillRect(W-pR-60, 4, 10, 10);
+        ctx.fillStyle='#a0b8d0'; ctx.font='9px Segoe UI';
+        ctx.fillText('maior movimento', W-pR-48, 13);
+    }
 }
 
 function desenharBarrasDisp(cv, dias, valores, fmtDia) {
