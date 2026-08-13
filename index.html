@@ -757,8 +757,8 @@ function renderGrid(lista) {
                         <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">erros recentes</div>
                     </div>
                     <div style="text-align:center;flex:1">
-                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${(l.payload?.pedidos_hoje||0)>0?'#e8eef8':'#8096b8'}">${mins>60?'—':Object.values(l.payload?.volume_por_hora||{}).reduce((a,b)=>a+(parseInt(b)||0),0)||l.payload?.pedidos_hoje||0}</div>
-                        <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">pedidos 24h</div>
+                        <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${(l.payload?.pedidos_hoje||0)>0?'#e8eef8':'#8096b8'}">${mins>60?'—':l.payload?.pedidos_hoje||0}</div>
+                        <div style="font-size:9px;color:#a0b8d0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">pedidos hoje</div>
                     </div>
                 </div>
                 <div class="alertas">
@@ -1057,7 +1057,7 @@ async function abrirLoja(token, abaInicial) {
                 </div>` : ''}
             </div>
             `:''}
-            <div class="row"><span class="rl">Pedidos (24h)</span><span class="rv">${Object.values(pay.volume_por_hora||{}).reduce((a,b)=>a+(parseInt(b)||0),0)||pay.pedidos_hoje||0}</span></div>
+            <div class="row"><span class="rl">Pedidos hoje</span><span class="rv">${pay.pedidos_hoje||0}</span></div>
             <div class="row"><span class="rl">Retry expirados (ERP)</span><span class="rv" style="color:${l.retry_expirados>0?'var(--red)':'var(--green)'}">${l.retry_expirados||0}</span></div>
             ${(()=>{const ac=pay.acumulo_sale_order||0;if(!ac) return '';const cor=ac>5000?'var(--red)':ac>1000?'var(--amber)':'#8096b8';return `<div class="row"><span class="rl">Acúmulo sale_order</span><span class="rv" style="color:${cor}">${ac} pedidos antigos</span></div>`;})()}
             <div class="row"><span class="rl">Erros recentes</span><span class="rv" style="color:${l.erros_log>200?'var(--red)':l.erros_log>50?'var(--amber)':'var(--green)'}">${l.erros_log||0}</span></div>
@@ -2977,15 +2977,16 @@ function calcularDadosRelatorio(snaps) {
     const scorePorDia = dias.map(d=>Math.round(porDia[d].reduce((a,b)=>a+b,0)/porDia[d].length));
     const dispDias = Object.keys(dispPorDia).sort();
     const dispValues = dispDias.map(d=>Math.round((dispPorDia[d].on/dispPorDia[d].tot)*100));
-    // Pedidos por dia — agregar volume_por_hora de cada snapshot
+    // Pedidos por dia — usar pedidos_hoje (query CURDATE() do MySQL, dia calendário)
+    // Pegar o MAIOR valor do dia = snapshot do fim do dia (pedidos acumulados)
+    // Isso evita duplicação que ocorreria com volume_por_hora (janela 24h móvel)
     const pedidosPorDia = {};
     snaps.forEach(s => {
         const dia = diaLocal(s.criado_em); if (!dia) return;
-        const vol = s.payload?.volume_por_hora || {};
-        const totalDia = Object.values(vol).reduce((a,b) => a + (parseInt(b)||0), 0);
+        const total = parseInt(s.payload?.pedidos_hoje || 0);
         if (!pedidosPorDia[dia]) pedidosPorDia[dia] = { max: 0, snapshots: 0 };
-        // Usar o maior total visto no dia (snapshot mais completo)
-        if (totalDia > pedidosPorDia[dia].max) pedidosPorDia[dia].max = totalDia;
+        // Maior valor do dia = snapshot mais próximo da meia-noite
+        if (total > pedidosPorDia[dia].max) pedidosPorDia[dia].max = total;
         pedidosPorDia[dia].snapshots++;
     });
     const diasPedidos = Object.keys(pedidosPorDia).sort();
