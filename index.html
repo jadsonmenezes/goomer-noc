@@ -1408,9 +1408,9 @@ async function abrirLoja(token, abaInicial) {
             return;
         }
 
-        const corSR  = s => s==='excelente'?'#00d68f':s==='instavel'?'#ffb830':'#ff4455';
-        const bgSR   = s => s==='excelente'?'rgba(0,214,143,.07)':s==='instavel'?'rgba(255,184,48,.07)':'rgba(255,68,85,.07)';
-        const lblSR  = s => ({'excelente':'🟢 Excelente','instavel':'🟡 Instável','critico':'🔴 Crítico'}[s]||s);
+        const corSR  = s => s==='excelente'?'#00d68f':s==='instavel'?'#ffb830':s==='offline'?'#505068':'#ff4455';
+        const bgSR   = s => s==='excelente'?'rgba(0,214,143,.07)':s==='instavel'?'rgba(255,184,48,.07)':s==='offline'?'rgba(80,80,104,.07)':'rgba(255,68,85,.07)';
+        const lblSR  = s => ({'excelente':'🟢 Excelente','instavel':'🟡 Instável','critico':'🔴 Crítico','offline':'⬛ Offline durante o teste'}[s]||s);
         const minSR  = t => Math.round((t.ciclos||0) * 5);
         const latCor = v => v>=500?'var(--red)':v>=300?'var(--amber)':'var(--green)';
         const pctCor = v => v>=10?'var(--red)':v>=2?'var(--amber)':'var(--green)';
@@ -1432,6 +1432,8 @@ async function abrirLoja(token, abaInicial) {
         _diagRedeData.forEach((t, ti) => {
             const cor     = corSR(t.saude);
             const temHist = t.historico?.length > 0;
+            const lblOffline = (t.ciclos_offline > 0 && t.ciclos > 0)
+                ? ` <span style="color:#505068;font-size:9px">(offline em ${t.ciclos_offline}/${t.ciclos} ciclos)</span>` : '';
             html += '<div onclick="' + (temHist ? 'abrirModalTesteRede(' + ti + ')' : '') + '" '
                 + 'style="background:' + bgSR(t.saude) + ';border:1px solid ' + cor + '40;border-left:3px solid ' + cor + ';'
                 + 'border-radius:8px;padding:10px 12px;cursor:' + (temHist ? 'pointer' : 'default') + ';'
@@ -3190,9 +3192,12 @@ function renderDashboardConsolidado() {
         const fmtPct  = v => v==null?'—':v+'%';
 
         // Identificar mesas com problema
-        const mesasCriticas = mesasProcessadas.filter(m =>
+        // Tablets offline não entram nas categorias — não há dados de rede para classificar
+        const mesasOffline  = mesasProcessadas.filter(m => m.ping_med == null);
+        const mesasComDados = mesasProcessadas.filter(m => m.ping_med != null);
+        const mesasCriticas = mesasComDados.filter(m =>
             (m.ping_med>=300) || (m.perda_med>=10) || (m.wifi_med!=null&&m.wifi_med<50) || (m.jitter>=200));
-        const mesasAtencao  = mesasProcessadas.filter(m =>
+        const mesasAtencao  = mesasComDados.filter(m =>
             !mesasCriticas.includes(m) &&
             ((m.ping_med>=100) || (m.perda_med>=2) || (m.wifi_med!=null&&m.wifi_med<70) || (m.jitter>=80)));
 
@@ -3200,6 +3205,11 @@ function renderDashboardConsolidado() {
             <div class="db-section-title">📶 Qualidade de Rede por Mesa — ${mesasProcessadas.length} tablet(s) testado(s)</div>`;
 
         // Resumo geral
+        if (mesasOffline.length > 0) {
+            html += `<div style="background:rgba(80,80,104,.07);border:1px solid rgba(80,80,104,.3);border-radius:8px;padding:8px 14px;margin-bottom:8px;font-size:11px;color:#8096b8">
+                ⬛ <b>${mesasOffline.length} tablet(s) offline</b> durante o teste — sem dados de rede: ${mesasOffline.map(m=>m.label).join(', ')}
+            </div>`;
+        }
         if (mesasCriticas.length > 0 || mesasAtencao.length > 0) {
             html += `<div style="background:rgba(255,68,85,.07);border:1px solid rgba(255,68,85,.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#e8eef8">
                 ${mesasCriticas.length > 0 ? `<b style="color:#ff4455">🔴 ${mesasCriticas.length} mesa(s) crítica(s):</b> ${mesasCriticas.map(m=>m.label).join(', ')}` : ''}
@@ -3234,13 +3244,14 @@ function renderDashboardConsolidado() {
                         ${m.label}
                         ${m.ip ? '<br><span style="color:#606880;font-size:10px;font-weight:400">'+m.ip+'</span>' : ''}
                     </td>
+                    ${m.ping_med==null?`<td colspan="6" style="padding:8px 10px;text-align:center;color:#505068;font-style:italic">Tablet offline durante todos os ciclos testados${m.ciclos_offline>0?' ('+m.ciclos_offline+' ciclos)':''}</td>`:`
                     <td style="padding:8px 10px;text-align:right;color:${latCor(m.ping_med)};font-weight:700">${fmtMs(m.ping_med)}</td>
                     <td style="padding:8px 10px;text-align:right;color:${latCor(m.ping_max)}">${fmtMs(m.ping_max)}</td>
                     <td style="padding:8px 10px;text-align:right;color:${jitCor(m.jitter)}">${fmtMs(m.jitter)}</td>
                     <td style="padding:8px 10px;text-align:right;color:${perCor(m.perda_med)};font-weight:700">${fmtPct(m.perda_med)}</td>
                     <td style="padding:8px 10px;text-align:right;color:${perCor(m.perda_max)}">${fmtPct(m.perda_max)}</td>
-                    <td style="padding:8px 10px;text-align:right;color:${wifiCor(m.wifi_med)}">${m.wifi_med!=null?m.wifi_med+'%':'—'}</td>
-                    <td style="padding:8px 10px;text-align:right;color:#606880">${m.ciclos}</td>
+                    <td style="padding:8px 10px;text-align:right;color:${wifiCor(m.wifi_med)}">${m.wifi_med!=null?m.wifi_med+'%':'—'}</td>`}
+                    <td style="padding:8px 10px;text-align:right;color:#606880">${m.ciclos_online||0}/${m.ciclos}</td>
                 </tr>`).join('')}
             </tbody>
         </table></div>
