@@ -3145,6 +3145,126 @@ function renderDashboardConsolidado() {
         html += `</div></div>`;
     }
 
+    // ── SEÇÃO REDE: agregar diagnostico_rede de todos os snapshots do período ──
+    const _redeAgregado = {}; // { mesa_ip: { pings_med:[], pings_max:[], perdas:[], wifi:[], ciclos:0 } }
+    _relSnaps.forEach(s => {
+        const diags = s.payload?.diagnostico_rede || [];
+        diags.forEach(t => {
+            const key = (t.mesa ? 'Mesa '+t.mesa : t.ip || '?');
+            if (!_redeAgregado[key]) _redeAgregado[key] = { label:key, ip:t.ip||'', pings_med:[], pings_max:[], perdas_med:[], perdas_max:[], wifi_med:[], ciclos:0 };
+            const r = _redeAgregado[key];
+            if (t.ping_med    != null) r.pings_med.push(t.ping_med);
+            if (t.ping_max_abs!= null) r.pings_max.push(t.ping_max_abs);
+            if (t.perda_med_pct!=null) r.perdas_med.push(t.perda_med_pct);
+            if (t.perda_max_pct!=null) r.perdas_max.push(t.perda_max_pct);
+            if (t.wifi_med    != null) r.wifi_med.push(t.wifi_med);
+            r.ciclos++;
+        });
+    });
+
+    const _redeMesas = Object.values(_redeAgregado);
+    const avg = arr => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : null;
+    const max = arr => arr.length ? Math.max(...arr) : null;
+
+    if (_redeMesas.length > 0) {
+        // Calcular métricas consolidadas por mesa
+        const mesasProcessadas = _redeMesas.map(r => ({
+            label:      r.label,
+            ip:         r.ip,
+            ciclos:     r.ciclos,
+            ping_med:   avg(r.pings_med),
+            ping_max:   max(r.pings_max),
+            perda_med:  avg(r.perdas_med),
+            perda_max:  max(r.perdas_max),
+            wifi_med:   avg(r.wifi_med),
+            // Variação (jitter estimado): diferença entre max e med
+            jitter:     (max(r.pings_max) != null && avg(r.pings_med) != null)
+                            ? max(r.pings_max) - avg(r.pings_med) : null,
+        })).sort((a,b) => (b.ping_med||0) - (a.ping_med||0)); // piores primeiro
+
+        const latCor  = v => v==null?'#8096b8':v>=300?'#ff4455':v>=100?'#ffb830':'#00d68f';
+        const perCor  = v => v==null?'#8096b8':v>=10?'#ff4455':v>=2?'#ffb830':'#00d68f';
+        const wifiCor = v => v==null?'#8096b8':v<50?'#ff4455':v<70?'#ffb830':'#00d68f';
+        const jitCor  = v => v==null?'#8096b8':v>=200?'#ff4455':v>=80?'#ffb830':'#00d68f';
+        const fmtMs   = v => v==null?'—':v+'ms';
+        const fmtPct  = v => v==null?'—':v+'%';
+
+        // Identificar mesas com problema
+        const mesasCriticas = mesasProcessadas.filter(m =>
+            (m.ping_med>=300) || (m.perda_med>=10) || (m.wifi_med!=null&&m.wifi_med<50) || (m.jitter>=200));
+        const mesasAtencao  = mesasProcessadas.filter(m =>
+            !mesasCriticas.includes(m) &&
+            ((m.ping_med>=100) || (m.perda_med>=2) || (m.wifi_med!=null&&m.wifi_med<70) || (m.jitter>=80)));
+
+        html += `<div class="db-section">
+            <div class="db-section-title">📶 Qualidade de Rede por Mesa — ${mesasProcessadas.length} tablet(s) testado(s)</div>`;
+
+        // Resumo geral
+        if (mesasCriticas.length > 0 || mesasAtencao.length > 0) {
+            html += `<div style="background:rgba(255,68,85,.07);border:1px solid rgba(255,68,85,.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#e8eef8">
+                ${mesasCriticas.length > 0 ? `<b style="color:#ff4455">🔴 ${mesasCriticas.length} mesa(s) crítica(s):</b> ${mesasCriticas.map(m=>m.label).join(', ')}` : ''}
+                ${mesasCriticas.length > 0 && mesasAtencao.length > 0 ? ' &nbsp;·&nbsp; ' : ''}
+                ${mesasAtencao.length  > 0 ? `<b style="color:#ffb830">🟡 ${mesasAtencao.length} em atenção:</b> ${mesasAtencao.map(m=>m.label).join(', ')}` : ''}
+            </div>`;
+        } else {
+            html += `<div style="background:rgba(0,214,143,.07);border:1px solid rgba(0,214,143,.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#00d68f">
+                🟢 Todas as mesas testadas com qualidade de rede dentro dos parâmetros normais
+            </div>`;
+        }
+
+        // Tabela por mesa
+        html += `<div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead>
+                <tr style="border-bottom:1px solid #1e3050;color:#8096b8;text-align:left">
+                    <th style="padding:8px 10px;font-weight:700">Mesa / IP</th>
+                    <th style="padding:8px 10px;font-weight:700;text-align:right">Lat. média</th>
+                    <th style="padding:8px 10px;font-weight:700;text-align:right">Lat. máx</th>
+                    <th style="padding:8px 10px;font-weight:700;text-align:right">Variação</th>
+                    <th style="padding:8px 10px;font-weight:700;text-align:right">Perda méd</th>
+                    <th style="padding:8px 10px;font-weight:700;text-align:right">Perda máx</th>
+                    <th style="padding:8px 10px;font-weight:700;text-align:right">WiFi</th>
+                    <th style="padding:8px 10px;font-weight:700;text-align:right">Testes</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${mesasProcessadas.map((m,i) => `
+                <tr style="border-bottom:1px solid #0d1525;background:${i%2===0?'transparent':'rgba(255,255,255,.02)'}">
+                    <td style="padding:8px 10px;color:#e8eef8;font-weight:600">
+                        ${m.label}
+                        ${m.ip ? '<br><span style="color:#606880;font-size:10px;font-weight:400">'+m.ip+'</span>' : ''}
+                    </td>
+                    <td style="padding:8px 10px;text-align:right;color:${latCor(m.ping_med)};font-weight:700">${fmtMs(m.ping_med)}</td>
+                    <td style="padding:8px 10px;text-align:right;color:${latCor(m.ping_max)}">${fmtMs(m.ping_max)}</td>
+                    <td style="padding:8px 10px;text-align:right;color:${jitCor(m.jitter)}">${fmtMs(m.jitter)}</td>
+                    <td style="padding:8px 10px;text-align:right;color:${perCor(m.perda_med)};font-weight:700">${fmtPct(m.perda_med)}</td>
+                    <td style="padding:8px 10px;text-align:right;color:${perCor(m.perda_max)}">${fmtPct(m.perda_max)}</td>
+                    <td style="padding:8px 10px;text-align:right;color:${wifiCor(m.wifi_med)}">${m.wifi_med!=null?m.wifi_med+'%':'—'}</td>
+                    <td style="padding:8px 10px;text-align:right;color:#606880">${m.ciclos}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table></div>
+
+        <div style="font-size:10px;color:#606880;margin-top:8px;line-height:1.6">
+            Referências: Latência &lt;100ms 🟢 · 100-300ms 🟡 · &gt;300ms 🔴 &nbsp;|&nbsp;
+            Perda &lt;2% 🟢 · 2-10% 🟡 · &gt;10% 🔴 &nbsp;|&nbsp;
+            WiFi &gt;70% 🟢 · 50-70% 🟡 · &lt;50% 🔴 &nbsp;|&nbsp;
+            Variação = diferença entre pico e média (jitter estimado)
+        </div>
+        <div style="font-size:10px;color:#606880;margin-top:4px">
+            ⚠ Dados coletados apenas quando o Teste de Rede foi ativado manualmente no período. Testes esparsos podem não refletir o comportamento habitual.
+        </div>
+        </div>`;
+    } else {
+        html += `<div class="db-section">
+            <div class="db-section-title">📶 Qualidade de Rede por Mesa</div>
+            <div style="text-align:center;padding:24px;color:#8096b8;font-size:12px">
+                Nenhum teste de rede foi realizado no período selecionado.<br>
+                <span style="font-size:11px">Ative o Modo Teste de Rede na aba ⚙ Agente e execute um teste para ver os dados aqui.</span>
+            </div>
+        </div>`;
+    }
+
     document.getElementById('db-conteudo').innerHTML = html;
 
     // ── Renderizar gráficos ───────────────────────────────────────────────────
