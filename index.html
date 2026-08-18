@@ -2938,7 +2938,11 @@ function calcularDadosRelatorio(snaps) {
         const local = new Date(d.getTime() - offsetMs);
         return local.toISOString().slice(0,10);
     };
-    const scores    = snaps.map(s => s.score || 0);
+    const perfil_rel = getPerfilLoja(_tokenAtual || '');
+    const scores    = snaps.map(s => {
+        const sc = calcularScoreComPerfil(s.payload||{}, perfil_rel);
+        return sc > 0 ? sc : (s.score || 0);
+    });
     const scoreMedia = Math.round(scores.reduce((a,b)=>a+b,0)/total);
     const scoreMin  = Math.min(...scores);
     const scoreMax  = Math.max(...scores);
@@ -2983,7 +2987,7 @@ function calcularDadosRelatorio(snaps) {
         porDia[dia].push(s.score||0);
         if(!dispPorDia[dia]) dispPorDia[dia]={on:0,tot:0};
         dispPorDia[dia].tot++;
-        if(s.payload?.servidor_goomer==='online') dispPorDia[dia].on++;
+        if(s.servidor_online || s.payload?.servidor_goomer==='online') dispPorDia[dia].on++;
     });
     const dias = Object.keys(porDia).sort();
     const scorePorDia = dias.map(d=>Math.round(porDia[d].reduce((a,b)=>a+b,0)/porDia[d].length));
@@ -3108,7 +3112,7 @@ function renderDashboardConsolidado() {
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">`;
     const comps = [
         { nome:'Servidor (40pts)', pct:Math.round(d.srvDisp*0.4), max:40, cor:'#3b82f6' },
-        { nome:'ERP (25pts)',      pct:d.retryTotal>0?Math.round((1-Math.min(d.retryTotal/d.total,1))*25):25, max:25, cor:'#00d68f' },
+        { nome:'ERP (25pts)',      pct:d.retryTotal>0&&d.totalPedidosPeriodo>0?Math.round((1-Math.min(d.retryTotal/d.totalPedidosPeriodo,1))*25):25, max:25, cor:'#00d68f' },
         { nome:'Logs (20pts)',     pct:d.errosLog>200*d.total?5:d.errosLog>50*d.total?10:d.errosLog>0?16:20, max:20, cor:'#ffb830' },
         { nome:'Máquina (15pts)',  pct:d.snapsCpuCrit>d.total*.1||d.snapsRamCrit>d.total*.1?5:d.snapsCpuAlto>d.total*.2||d.snapsRamAlto>d.total*.2?10:15, max:15, cor:'#a855f7' },
     ];
@@ -3309,262 +3313,6 @@ function renderDashboardConsolidado() {
         if (cv4) {
             cv4.width = cv4.offsetWidth || 400; cv4.height = 150;
             desenharPizzaAC(cv4, d.acPorTipo);
-        }
-    }, 80);
-}
-
-function renderDashboardConteudo() {
-    // Badge
-    const badge = document.getElementById('db-tipo-badge');
-    if (badge) { badge.textContent='👤 Cliente'; badge.style.cssText='padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;background:rgba(0,214,143,.15);color:#00d68f;border:1px solid rgba(0,214,143,.3)'; }
-
-
-    const snaps = _relSnaps;
-    const total = snaps.length;
-
-    // ── Calcular métricas ─────────────────────────────────────────
-    const scores     = snaps.map(s => s.score || 0);
-    const scoreMedia = Math.round(scores.reduce((a,b)=>a+b,0) / total);
-    const scoreMin   = Math.min(...scores);
-    const scoreMax   = Math.max(...scores);
-    const srvOnline  = snaps.filter(s => s.payload?.servidor_goomer === 'online').length;
-    const srvDisp    = Math.round((srvOnline / total) * 100);
-    const ipDiverg   = snaps.filter(s => s.payload?.ip_divergente === true).length;
-    const erroERP    = snaps.reduce((a,s) => a + (s.payload?.erp_errors||0), 0);
-    const semTablets = snaps.filter(s => (s.payload?.tablets_ativos||0) === 0).length;
-
-    // Autocorreções de todos os snapshots
-    const todasAC = snaps.flatMap(s => (s.payload?.autocorrecoes||[]));
-    const acPorTipo = {};
-    todasAC.forEach(ac => {
-        const t = ac.tipo || 'outro';
-        acPorTipo[t] = (acPorTipo[t]||0) + 1;
-    });
-    const totalAC = todasAC.length;
-
-    // ── Análise detalhada dos ofensores via payload ───────────────
-    const errosTotal  = snaps.reduce((a,s) => a + (s.payload?.erp_errors||s.payload?.erros_erp||0), 0);
-    // retry_expirados é acumulador do dia — pegar o maior valor de cada dia
-    const retryPorDia2 = {};
-    snaps.forEach(s => {
-        const dia = diaLocal(s.criado_em); if (!dia) return;
-        const v = s.payload?.retry_expirados || 0;
-        if (!retryPorDia2[dia] || v > retryPorDia2[dia]) retryPorDia2[dia] = v;
-    });
-    const retryTotal  = Object.values(retryPorDia2).reduce((a,b)=>a+b,0);
-    // erros_log: média por snapshot
-    const errosLog = snaps.length > 0
-        ? Math.round(snaps.reduce((a,s)=>a+(s.payload?.erros_log||0),0) / snaps.length)
-        : 0;
-
-    // Máquina: quantos snapshots com CPU ou RAM acima do limiar
-    const snapsCpuAlto  = snaps.filter(s => parseInt(s.payload?.maquina?.cpu||0) >= 70).length;
-    const snapsRamAlto  = snaps.filter(s => parseInt(s.payload?.maquina?.ram_pct||0) >= 80).length;
-    const snapsCpuCrit  = snaps.filter(s => parseInt(s.payload?.maquina?.cpu||0) >= 90).length;
-    const snapsRamCrit  = snaps.filter(s => parseInt(s.payload?.maquina?.ram_pct||0) >= 90).length;
-    const snapsDiskoCrit = snaps.filter(s => (s.payload?.maquina?.discos||[]).some(d=>parseInt(d.pct)>90)).length;
-
-    // CPU/RAM médias
-    const cpuVals = snaps.map(s=>parseInt(s.payload?.maquina?.cpu||0)).filter(v=>v>0);
-    const ramVals = snaps.map(s=>parseInt(s.payload?.maquina?.ram_pct||0)).filter(v=>v>0);
-    const cpuMedia = cpuVals.length ? Math.round(cpuVals.reduce((a,b)=>a+b,0)/cpuVals.length) : 0;
-    const ramMedia = ramVals.length ? Math.round(ramVals.reduce((a,b)=>a+b,0)/ramVals.length) : 0;
-
-    // Tablets: snapshots sem tablets ativos
-
-    // Score por dia (agrupar)
-    const porDia = {};
-    snaps.forEach(s => {
-        const dia = diaLocal(s.criado_em);
-        if (!dia) return;
-        if (!porDia[dia]) porDia[dia] = [];
-        porDia[dia].push(s.score||0);
-    });
-    const dias = Object.keys(porDia).sort();
-    const scorePorDia = dias.map(d => Math.round(porDia[d].reduce((a,b)=>a+b,0)/porDia[d].length));
-
-    // Disponibilidade por dia
-    const dispPorDia = {};
-    snaps.forEach(s => {
-        const dia = diaLocal(s.criado_em);
-        if (!dia) return;
-        if (!dispPorDia[dia]) dispPorDia[dia] = {on:0,tot:0};
-        dispPorDia[dia].tot++;
-        if (s.servidor_online) dispPorDia[dia].on++;
-    });
-    const dispDias = Object.keys(dispPorDia).sort();
-    const dispValues = dispDias.map(d => Math.round((dispPorDia[d].on/dispPorDia[d].tot)*100));
-
-    const corScore = s => s >= 85 ? '#00d68f' : s >= 60 ? '#ffb830' : '#ff4455';
-    const fmtDia = d => { const [,m,dd]=d.split('-'); return dd+'/'+m; };
-
-    // ── Render HTML ───────────────────────────────────────────────
-    let html = '';
-
-    // KPIs principais
-    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px">
-        <div class="db-stat-card">
-            <div class="db-stat-val" style="color:${corScore(scoreMedia)}">${scoreMedia}%</div>
-            <div class="db-stat-lbl">Score médio</div>
-        </div>
-        <div class="db-stat-card">
-            <div class="db-stat-val" style="color:${srvDisp>=95?'#00d68f':srvDisp>=80?'#ffb830':'#ff4455'}">${srvDisp}%</div>
-            <div class="db-stat-lbl">Disponibilidade</div>
-        </div>
-        <div class="db-stat-card">
-            <div class="db-stat-val" style="color:${totalAC>0?'#ffb830':'#00d68f'}">${totalAC}</div>
-            <div class="db-stat-lbl">Autocorreções</div>
-        </div>
-        <div class="db-stat-card">
-            <div class="db-stat-val" style="color:${ipDiverg>5?'#ff4455':ipDiverg>0?'#ffb830':'#00d68f'}">${ipDiverg}</div>
-            <div class="db-stat-lbl">Divergências de IP</div>
-        </div>
-        <div class="db-stat-card">
-            <div class="db-stat-val" style="color:#e8eef8">${total}</div>
-            <div class="db-stat-lbl">Snapshots</div>
-        </div>
-        <div class="db-stat-card">
-            <div class="db-stat-val" style="color:${scoreMin<60?'#ff4455':'#e8eef8'}">${scoreMin}%</div>
-            <div class="db-stat-lbl">Score mínimo</div>
-        </div>
-    </div>`;
-
-    // Gráfico 1: Score ao longo do tempo
-    html += `<div class="db-section">
-        <div class="db-section-title">Score médio por dia</div>
-        <canvas id="db-chart-score" style="width:100%;height:180px;display:block"></canvas>
-    </div>`;
-
-    // Gráfico 2: Disponibilidade do servidor
-    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-        <div class="db-section" style="margin-bottom:0">
-            <div class="db-section-title">Disponibilidade do servidor por dia (%)</div>
-            <canvas id="db-chart-disp" style="width:100%;height:160px;display:block"></canvas>
-        </div>
-        <div class="db-section" style="margin-bottom:0">
-            <div class="db-section-title">Autocorreções por tipo</div>
-            <canvas id="db-chart-ac" style="width:100%;height:160px;display:block"></canvas>
-        </div>
-    </div>`;
-
-    // Linha do tempo de ocorrências
-    if (todasAC.length > 0) {
-        html += `<div class="db-section">
-            <div class="db-section-title">Linha do tempo — autocorreções (${todasAC.length} ocorrências)</div>
-            <div style="max-height:220px;overflow-y:auto">`;
-        const tipoLbl = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado',
-            mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado' };
-        const tipoIco = { ip_sincronizado:'🌐', spooler_reiniciado:'🖨️', mysql_reiniciado:'🗄️', servidor_iniciado:'🖥️' };
-        const tipoCol = { ip_sincronizado:'#3b82f6', spooler_reiniciado:'#ffb830', mysql_reiniciado:'#00d68f', servidor_iniciado:'#a855f7' };
-        // Mostrar últimas 50
-        [...todasAC].reverse().slice(0,50).forEach(ac => {
-            const cor = tipoCol[ac.tipo] || '#8096b8';
-            const ico = tipoIco[ac.tipo] || '⚡';
-            const lbl = tipoLbl[ac.tipo] || ac.tipo;
-            const hora = ac.horario ? new Date(ac.horario).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
-            const ok  = ac.resultado === 'sucesso';
-            html += `<div class="db-timeline-row">
-                <span style="font-size:14px;width:20px">${ico}</span>
-                <span style="color:${cor};font-weight:600;min-width:160px">${lbl}</span>
-                <span style="color:${ok?'#00d68f':'#ff4455'};font-weight:700;min-width:60px">${ok?'✓ OK':'✗ Falhou'}</span>
-                <span style="color:#606880;flex:1">${ac.obs||''}</span>
-                <span style="color:#8096b8;white-space:nowrap;margin-left:8px">${hora}</span>
-            </div>`;
-        });
-        html += '</div></div>';
-    }
-
-    // ── Insights automáticos ───────────────────────────────────────
-    const insights = [];
-
-    // ── Servidor (40pts) ──────────────────────────────────────────
-    if (srvDisp < 85)
-        insights.push({ nivel:'critico', ico:'🖥️', txt: `Servidor offline em ${100-srvDisp}% dos ciclos — principal ofensor do score. Verifique estabilidade do processo Goomer e reinicializações do servidor.` });
-    else if (srvDisp < 95)
-        insights.push({ nivel:'atencao', ico:'🖥️', txt: `Servidor ficou offline em ${100-srvDisp}% dos ciclos — impacta diretamente 40pts do score.` });
-
-    // ── IP divergente (-20pts penalidade) ─────────────────────────
-    if (ipDiverg > total * 0.2)
-        insights.push({ nivel:'critico', ico:'🌐', txt: `IP divergente em ${ipDiverg} ciclos (${Math.round(ipDiverg/total*100)}% do período), penalizando -20pts por ocorrência. Configure reserva de IP no roteador para este servidor.` });
-    else if (ipDiverg > 0)
-        insights.push({ nivel:'atencao', ico:'🌐', txt: `IP divergente detectado ${ipDiverg} vez(es) — autocorreção aplicada mas considere fixar o IP no roteador.` });
-
-    // ── Máquina (15pts) ────────────────────────────────────────────
-    if (snapsRamCrit > total * 0.1)
-        insights.push({ nivel:'critico', ico:'💾', txt: `RAM acima de 90% em ${snapsRamCrit} ciclos (${Math.round(snapsRamCrit/total*100)}% do tempo) — principal ofensor de performance. Média: ${ramMedia}%. Considere ampliar a memória ou reduzir processos.` });
-    else if (snapsRamAlto > total * 0.2)
-        insights.push({ nivel:'atencao', ico:'💾', txt: `RAM entre 80-90% em ${snapsRamAlto} ciclos — impactando os 15pts de performance da máquina. Média: ${ramMedia}%.` });
-
-    if (snapsCpuCrit > total * 0.1)
-        insights.push({ nivel:'critico', ico:'⚙️', txt: `CPU acima de 90% em ${snapsCpuCrit} ciclos (${Math.round(snapsCpuCrit/total*100)}% do tempo) — servidor sobrecarregado. Média: ${cpuMedia}%.` });
-    else if (snapsCpuAlto > total * 0.2)
-        insights.push({ nivel:'atencao', ico:'⚙️', txt: `CPU entre 70-90% em ${snapsCpuAlto} ciclos — afetando performance. Média: ${cpuMedia}%.` });
-
-    if (snapsDiskoCrit > 0)
-        insights.push({ nivel:'critico', ico:'💿', txt: `Disco acima de 90% detectado em ${snapsDiskoCrit} ciclos — risco de falha crítica. Libere espaço imediatamente.` });
-
-    // ── ERP (25pts) ────────────────────────────────────────────────
-    if (retryTotal > 0)
-        insights.push({ nivel:'atencao', ico:'🔗', txt: `${retryTotal} pedidos com pedido(s) que não conseguiram ser enviados ao sistema de gestão (ERP). Verifique a integração com o sistema de gestão.` });
-
-    // ── Erros de log (20pts) ──────────────────────────────────────
-    if (errosLog > 500 * snaps.length / snaps.length)
-        insights.push({ nivel:'atencao', ico:'📋', txt: `Alto volume de erros sistêmicos nos logs — ${Math.round(errosLog/total)} erros por ciclo em média. Pode indicar problema de integração recorrente.` });
-
-    // ── Autocorreções recorrentes ─────────────────────────────────
-    if ((acPorTipo['spooler_reiniciado']||0) > 3)
-        insights.push({ nivel:'atencao', ico:'🖨️', txt: `Spooler reiniciado ${acPorTipo['spooler_reiniciado']} vezes — problema recorrente de impressora. Verifique driver ou hardware.` });
-    if ((acPorTipo['mysql_reiniciado']||0) > 2)
-        insights.push({ nivel:'critico', ico:'🗄️', txt: `MySQL reiniciado ${acPorTipo['mysql_reiniciado']} vezes — banco de dados instável. Verifique memória disponível e logs do MySQL.` });
-    if ((acPorTipo['servidor_iniciado']||0) > 3)
-        insights.push({ nivel:'critico', ico:'🔄', txt: `Servidor Goomer reiniciado ${acPorTipo['servidor_iniciado']} vezes — processo muito instável. Pode estar relacionado a alta de RAM/CPU.` });
-    if (semTablets > total * 0.05)
-        insights.push({ nivel:'atencao', ico:'📱', txt: `${semTablets} ciclos sem tablets ativos (${Math.round(semTablets/total*100)}% do período) — tablets desconectando recorrentemente. Verifique WiFi.` });
-
-    // ── Score geral ───────────────────────────────────────────────
-    if (scoreMin < 40)
-        insights.push({ nivel:'critico', ico:'🚨', txt: `Score mínimo crítico de ${scoreMin}% registrado — houve ao menos um ciclo grave. Analise o horário exato na linha do tempo.` });
-
-    if (insights.length === 0)
-        insights.push({ nivel:'ok', ico:'✅', txt: `Score médio de ${scoreMedia}% — loja operou dentro dos parâmetros normais. Servidor disponível ${srvDisp}% do tempo, sem ofensores significativos.` });
-
-    const corInsight = { critico:'#ff4455', atencao:'#ffb830', ok:'#00d68f' };
-    const bgInsight  = { critico:'rgba(255,68,85,.07)', atencao:'rgba(255,184,48,.07)', ok:'rgba(0,214,143,.07)' };
-    const bdInsight  = { critico:'rgba(255,68,85,.3)', atencao:'rgba(255,184,48,.3)', ok:'rgba(0,214,143,.3)' };
-
-    html += `<div class="db-section">
-        <div class="db-section-title">💡 Insights do período</div>
-        ${insights.map(ins => `
-        <div style="background:${bgInsight[ins.nivel]};border:1px solid ${bdInsight[ins.nivel]};border-left:3px solid ${corInsight[ins.nivel]};border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start">
-            <span style="font-size:16px;flex-shrink:0">${ins.ico}</span>
-            <span style="font-size:12px;color:#e8eef8;line-height:1.5">${ins.txt}</span>
-        </div>`).join('')}
-    </div>`;
-
-    document.getElementById('db-conteudo').innerHTML = html;
-
-    // ── Renderizar gráficos Canvas ────────────────────────────────
-    setTimeout(() => {
-        // Gráfico Score
-        const cvScore = document.getElementById('db-chart-score');
-        if (cvScore && dias.length > 0) {
-            cvScore.width  = cvScore.offsetWidth || 800;
-            cvScore.height = 180;
-            desenharLinhaScore(cvScore, dias, scorePorDia, fmtDia, corScore);
-        }
-        // Gráfico Disponibilidade
-        const cvDisp = document.getElementById('db-chart-disp');
-        if (cvDisp && dispDias.length > 0) {
-            cvDisp.width  = cvDisp.offsetWidth || 400;
-            cvDisp.height = 160;
-            desenharBarrasDisp(cvDisp, dispDias, dispValues, fmtDia);
-        }
-        // Gráfico Autocorreções
-        const cvAC = document.getElementById('db-chart-ac');
-        if (cvAC) {
-            cvAC.width  = cvAC.offsetWidth || 400;
-            cvAC.height = 160;
-            desenharPizzaAC(cvAC, acPorTipo);
         }
     }, 80);
 }
@@ -3811,189 +3559,6 @@ function desenharPizzaAC(cv, acPorTipo) {
 // ════════════════════════════════════════════════════════════════
 // VERSÃO SUPORTE — análise técnica completa
 // ════════════════════════════════════════════════════════════════
-function renderDashboardSuporte() {
-    const badge = document.getElementById('db-tipo-badge');
-    if (badge) { badge.textContent='🔧 Suporte'; badge.style.cssText='padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;background:rgba(255,184,48,.15);color:#ffb830;border:1px solid rgba(255,184,48,.3)'; }
-
-    const d = calcularDadosRelatorio(_relSnaps);
-    const corScore = s => s>=85?'#00d68f':s>=65?'#ffb830':'#ff4455';
-    const fmtDia   = s => { const[,m,dd]=s.split('-'); return dd+'/'+m; };
-    const tipoLbl  = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado', mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado' };
-    const tipoIco  = { ip_sincronizado:'🌐', spooler_reiniciado:'🖨️', mysql_reiniciado:'🗄️', servidor_iniciado:'🖥️' };
-    const tipoCol  = { ip_sincronizado:'#3b82f6', spooler_reiniciado:'#ffb830', mysql_reiniciado:'#00d68f', servidor_iniciado:'#a855f7' };
-
-    let html = '';
-
-    // KPIs técnicos
-    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px">
-        ${[
-            ['Score médio',        d.scoreMedia+'%', corScore(d.scoreMedia)],
-            ['Score mín / máx',    d.scoreMin+'% / '+d.scoreMax+'%', '#e8eef8'],
-            ['Disponibilidade',    d.srvDisp+'%',  d.srvDisp>=95?'#00d68f':d.srvDisp>=80?'#ffb830':'#ff4455'],
-            ['Divergências IP',    d.ipDiverg+'x', d.ipDiverg>5?'#ff4455':d.ipDiverg>0?'#ffb830':'#00d68f'],
-            ['Autocorreções',      d.totalAC+'x',  d.totalAC>0?'#ffb830':'#00d68f'],
-            ['CPU média',          d.cpuMedia?d.cpuMedia+'%':'—', d.cpuMedia>85?'#ff4455':d.cpuMedia>70?'#ffb830':'#00d68f'],
-            ['RAM média',          d.ramMedia?d.ramMedia+'%':'—', d.ramMedia>85?'#ff4455':d.ramMedia>80?'#ffb830':'#00d68f'],
-            ['Retry ERP',          d.retryTotal+'x', d.retryTotal>0?'#ff4455':'#00d68f'],
-            ['Snaps s/ tablets',   d.semTablets+'x', d.semTablets>5?'#ffb830':'#8096b8'],
-            ['Total snapshots',    d.total+'', '#8096b8'],
-        ].map(([lbl,val,cor])=>`
-        <div class="db-stat-card">
-            <div class="db-stat-val" style="color:${cor};font-size:20px">${val}</div>
-            <div class="db-stat-lbl">${lbl}</div>
-        </div>`).join('')}
-    </div>`;
-
-    // Componentes do score
-    html += `<div class="db-section"><div class="db-section-title">Componentes do score (média do período)</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">`;
-    const compMedia = [
-        { nome:'Servidor (40pts)', pct: Math.round(d.srvDisp*0.4), max:40, cor:'#3b82f6' },
-        { nome:'ERP (25pts)',      pct: d.retryTotal>0 ? Math.round((1-Math.min(d.retryTotal/d.total,1))*25) : 25, max:25, cor:'#00d68f' },
-        { nome:'Logs (20pts)',     pct: d.errosLog > 200*d.total ? 5 : d.errosLog > 50*d.total ? 10 : d.errosLog > 0 ? 16 : 20, max:20, cor:'#ffb830' },
-        { nome:'Máquina (15pts)',  pct: d.snapsCpuCrit>d.total*.1||d.snapsRamCrit>d.total*.1 ? 5 : d.snapsCpuAlto>d.total*.2||d.snapsRamAlto>d.total*.2 ? 10 : 15, max:15, cor:'#a855f7' },
-    ];
-    compMedia.forEach(c => {
-        const pct = Math.round(c.pct/c.max*100);
-        html += `<div style="background:var(--bg3);border-radius:8px;padding:12px">
-            <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-                <span style="font-size:11px;color:#a0b8d0">${c.nome}</span>
-                <span style="font-size:12px;font-weight:700;color:${c.cor}">${c.pct}/${c.max}pts</span>
-            </div>
-            <div style="background:rgba(255,255,255,.06);border-radius:4px;height:6px">
-                <div style="background:${c.cor};width:${pct}%;height:6px;border-radius:4px;transition:.3s"></div>
-            </div>
-        </div>`;
-    });
-    html += '</div></div>';
-
-    // Gráficos
-    html += `<div class="db-section"><div class="db-section-title">Score por dia</div>
-        <canvas id="db-chart-score" style="width:100%;height:160px;display:block"></canvas></div>`;
-    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-        <div class="db-section" style="margin-bottom:0"><div class="db-section-title">Disponibilidade (%)</div>
-            <canvas id="db-chart-disp" style="width:100%;height:140px;display:block"></canvas></div>
-        <div class="db-section" style="margin-bottom:0"><div class="db-section-title">Autocorreções por tipo</div>
-            <canvas id="db-chart-ac" style="width:100%;height:140px;display:block"></canvas></div>
-    </div>`;
-
-    // Linha do tempo completa
-    html += `<div class="db-section"><div class="db-section-title">Linha do tempo — ${d.todasAC.length} autocorreções</div>
-        <div style="max-height:260px;overflow-y:auto">`;
-    if (d.todasAC.length === 0) {
-        html += '<div style="color:#8096b8;font-size:12px;padding:8px">Nenhuma autocorreção no período.</div>';
-    } else {
-        [...d.todasAC].reverse().slice(0,80).forEach(ac => {
-            const cor = tipoCol[ac.tipo]||'#8096b8', ico = tipoIco[ac.tipo]||'⚡', lbl = tipoLbl[ac.tipo]||ac.tipo;
-            const ok  = ac.resultado==='sucesso';
-            const hora = ac.horario ? new Date(ac.horario).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
-            html += `<div class="db-timeline-row">
-                <span style="width:18px">${ico}</span>
-                <span style="color:${cor};min-width:140px;font-weight:600">${lbl}</span>
-                <span style="color:${ok?'#00d68f':'#ff4455'};min-width:55px;font-weight:700">${ok?'✓':'✗'}</span>
-                <span style="color:#606880;flex:1;font-size:10px">${ac.obs||''}</span>
-                <span style="color:#8096b8;white-space:nowrap">${hora}</span>
-            </div>`;
-        });
-    }
-    html += '</div></div>';
-
-    document.getElementById('db-conteudo').innerHTML = html;
-    setTimeout(() => {
-        const cv1 = document.getElementById('db-chart-score');
-        if (cv1) { cv1.width=cv1.offsetWidth||800; cv1.height=160; desenharLinhaScore(cv1,d.dias,d.scorePorDia,fmtDia,corScore); }
-        const cv2 = document.getElementById('db-chart-disp');
-        if (cv2) { cv2.width=cv2.offsetWidth||400; cv2.height=140; desenharBarrasDisp(cv2,d.dispDias,d.dispValues,fmtDia); }
-        const cv3 = document.getElementById('db-chart-ac');
-        if (cv3) { cv3.width=cv3.offsetWidth||400; cv3.height=140; desenharPizzaAC(cv3,d.acPorTipo); }
-    }, 80);
-}
-
-// ════════════════════════════════════════════════════════════════
-// VERSÃO GESTÃO — impacto de negócio
-// ════════════════════════════════════════════════════════════════
-function renderDashboardGestao() {
-    const badge = document.getElementById('db-tipo-badge');
-    if (badge) { badge.textContent='📈 Gestão'; badge.style.cssText='padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.3)'; }
-
-    const d = calcularDadosRelatorio(_relSnaps);
-    const corScore = s => s>=85?'#00d68f':s>=65?'#ffb830':'#ff4455';
-    const fmtDia   = s => { const[,m,dd]=s.split('-'); return dd+'/'+m; };
-
-    // Nota de saúde geral
-    const notaGeral = d.scoreMedia >= 90 ? 'Excelente' : d.scoreMedia >= 80 ? 'Bom' : d.scoreMedia >= 65 ? 'Regular' : 'Crítico';
-    const corNota   = d.scoreMedia >= 90 ? '#00d68f'   : d.scoreMedia >= 80 ? '#3b82f6' : d.scoreMedia >= 65 ? '#ffb830' : '#ff4455';
-
-    let html = '';
-
-    // Resumo de negócio
-    html += `<div style="background:linear-gradient(135deg,rgba(14,92,254,.12),rgba(0,214,143,.08));border:1px solid rgba(14,92,254,.3);border-radius:14px;padding:24px;margin-bottom:18px">
-        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center">
-            <div>
-                <div style="font-size:13px;color:#8096b8;margin-bottom:4px">Saúde geral do sistema no período</div>
-                <div style="font-size:36px;font-weight:800;color:${corNota}">${notaGeral}</div>
-                <div style="font-size:13px;color:#a0b8d0;margin-top:6px">Score médio de <strong style="color:${corNota}">${d.scoreMedia}%</strong> · ${d.total} medições realizadas</div>
-            </div>
-            <div style="text-align:center">
-                <div style="width:80px;height:80px;border-radius:50%;border:4px solid ${corNota};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:${corNota}">${d.scoreMedia}%</div>
-            </div>
-        </div>
-    </div>`;
-
-    // Métricas de impacto
-    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px">
-        <div class="db-stat-card" style="border-left:3px solid #00d68f">
-            <div class="db-stat-val" style="color:#00d68f">${d.srvDisp}%</div>
-            <div class="db-stat-lbl">Disponibilidade do sistema</div>
-            <div style="font-size:10px;color:#8096b8;margin-top:6px">Sistema online ${Math.round(d.srvOnline*5/60)}h de ${Math.round(d.total*5/60)}h monitoradas</div>
-        </div>
-        <div class="db-stat-card" style="border-left:3px solid #3b82f6">
-            <div class="db-stat-val" style="color:#3b82f6">${d.totalAC}</div>
-            <div class="db-stat-lbl">Correções automáticas</div>
-            <div style="font-size:10px;color:#8096b8;margin-top:6px">Problemas resolvidos sem intervenção humana</div>
-        </div>
-        <div class="db-stat-card" style="border-left:3px solid #a855f7">
-            <div class="db-stat-val" style="color:#a855f7">~${d.minEvitados}min</div>
-            <div class="db-stat-lbl">Tempo de parada evitado</div>
-            <div style="font-size:10px;color:#8096b8;margin-top:6px">Estimativa: 15min por correção automática</div>
-        </div>
-        <div class="db-stat-card" style="border-left:3px solid #ffb830">
-            <div class="db-stat-val" style="color:#ffb830">${d.chamadosEvitados}</div>
-            <div class="db-stat-lbl">Chamados evitados</div>
-            <div style="font-size:10px;color:#8096b8;margin-top:6px">Estimativa: 1 chamado a cada 3 correções</div>
-        </div>
-    </div>`;
-
-    // Gráfico de score
-    html += `<div class="db-section"><div class="db-section-title">Evolução da saúde do sistema</div>
-        <canvas id="db-chart-score" style="width:100%;height:160px;display:block"></canvas></div>`;
-
-    // Pontos de atenção executivos
-    const atencoes = [];
-    if (d.srvDisp < 95) atencoes.push(`Sistema ficou offline em ${100-d.srvDisp}% do tempo — requer investigação técnica.`);
-    if (d.snapsRamCrit > d.total*0.1) atencoes.push(`Memória RAM saturada (>90%) em ${Math.round(d.snapsRamCrit/d.total*100)}% das medições — hardware pode precisar de upgrade.`);
-    if (d.ipDiverg > d.total*0.1) atencoes.push(`Configuração de rede instável — IP divergiu em ${d.ipDiverg} ocasiões.`);
-    if (d.retryTotal > 0) atencoes.push(`${d.retryTotal} pedido(s) não chegaram ao sistema de gestão (ERP) no período.`);
-
-    if (atencoes.length > 0) {
-        html += `<div class="db-section"><div class="db-section-title">⚠️ Pontos de atenção</div>
-        ${atencoes.map(a=>`<div style="padding:8px 12px;background:rgba(255,184,48,.07);border-left:3px solid #ffb830;border-radius:4px;font-size:12px;color:#e8eef8;margin-bottom:6px">${a}</div>`).join('')}
-        </div>`;
-    } else {
-        html += `<div class="db-section"><div style="color:#00d68f;font-size:13px">✅ Nenhum ponto crítico de atenção no período.</div></div>`;
-    }
-
-    document.getElementById('db-conteudo').innerHTML = html;
-    setTimeout(() => {
-        const cv = document.getElementById('db-chart-score');
-        if (cv) { cv.width=cv.offsetWidth||800; cv.height=160; desenharLinhaScore(cv,d.dias,d.scorePorDia,fmtDia,corScore); }
-    }, 80);
-}
-
-// ════════════════════════════════════════════════════════════════
-// VISÃO DE REDE / FRANQUIA
-// ════════════════════════════════════════════════════════════════
-
 function abrirVisaoRede() {
     if (_tags.length === 0) {
         alert('Nenhuma tag criada. Crie tags para segmentar lojas por rede ou franquia.');
@@ -4948,7 +4513,7 @@ function exportarRelatorioHTML() {
     <div class="comp-grid">
       ${[
         ['Servidor (40pts)', Math.round(d.srvDisp*0.4), 40, d.srvDisp>=95?'#16a34a':'#dc2626'],
-        ['ERP / Integração (25pts)', d.retryTotal>0 ? Math.round((1-Math.min(d.retryTotal/d.total,1))*25) : 25, 25, d.retryTotal>0?'#d97706':'#16a34a'],
+        ['ERP / Integração (25pts)', d.retryTotal>0&&d.totalPedidosPeriodo>0 ? Math.round((1-Math.min(d.retryTotal/d.totalPedidosPeriodo,1))*25) : 25, 25, d.retryTotal>0?'#d97706':'#16a34a'],
         ['Logs do sistema (20pts)', d.errosLog>200*d.total?5:d.errosLog>50*d.total?10:d.errosLog>0?16:20, 20, '#475569'],
         ['Saúde da máquina (15pts)', d.snapsCpuCrit>d.total*.1||d.snapsRamCrit>d.total*.1?5:d.snapsCpuAlto>d.total*.2||d.snapsRamAlto>d.total*.2?10:15, 15, d.snapsRamAlto>d.total*.2?'#d97706':'#16a34a'],
       ].map(([n,pts,max,cor])=>`
