@@ -1504,7 +1504,17 @@ async function abrirLoja(token, abaInicial) {
             const dm=diasMap[dia],mesasDia=Object.keys(dm).sort();
             const tc=mesasDia.reduce((s,m)=>s+dm[m].ciclos,0);
             const rd=mesasDia.map(mesa=>{const d=dm[mesa];const pm=avg(d.pings),px=mxv(d.pmaxs),pe=avg(d.perdas),px2=mxv(d.pmaxs2),wi=avg(d.wifis);return{mesa,pm,px,pe,px2,wi,jt:pm!=null&&px!=null?px-pm:null,ciclos:d.ciclos};}).sort((a,b)=>(b.pm||0)-(a.pm||0));
-            html+='<details style="margin-bottom:10px" open><summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;background:#111827;border:1px solid #1e3050;border-radius:10px;padding:12px 14px"><span style="font-size:13px;font-weight:700;color:#e8eef8">'+fmtDia(dia)+'</span><span style="font-size:11px;color:#8096b8">'+mesasDia.length+' mesa(s) · '+tc+' ciclos</span><span style="margin-left:auto;font-size:11px;color:#606880">▼</span></summary><div style="padding:10px 2px 0">'+tabelaMesas(rd)+'</div></details>';
+            const diaId='rede-dia-'+dia.replace(/-/g,'');
+            const _fmtD=fmtDia(dia), _tk=l.token_loja;
+            html+=`<details id="${diaId}" style="margin-bottom:10px" open>`
+                +`<summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;background:#111827;border:1px solid #1e3050;border-radius:10px;padding:12px 14px">`
+                +`<span style="font-size:13px;font-weight:700;color:#e8eef8">${_fmtD}</span>`
+                +`<span style="font-size:11px;color:#8096b8">${mesasDia.length} mesa(s) · ${tc} ciclos</span>`
+                +`<button onclick="event.preventDefault();event.stopPropagation();apagarTesteRedeDia('${_tk}','${dia}','${_fmtD}')" `
+                +`style="margin-left:auto;padding:3px 10px;border-radius:5px;border:1px solid rgba(255,68,85,.4);background:rgba(255,68,85,.1);color:#ff4455;font-size:10px;cursor:pointer">🗑 apagar dia</button>`
+                +`</summary>`
+                +`<div style="padding:10px 2px 0">${tabelaMesas(rd)}</div>`
+                +`</details>`;
         });
 
         html+='</div>';
@@ -2814,6 +2824,32 @@ async function buscarHistoricoRede(token) {
         if (!res.ok) return [];
         return await res.json();
     } catch(e) { return []; }
+}
+
+async function apagarTesteRedeDia(token, dia, fmtDia) {
+    if (!confirm(`Apagar todos os registros de teste de rede do dia ${fmtDia}?\nEsta ação não pode ser desfeita.`)) return;
+    try {
+        const res = await fetch(
+            `${SB_URL}/rest/v1/noc_testes_rede?token_loja=eq.${encodeURIComponent(token)}&dia=eq.${dia}`,
+            {
+                method: 'DELETE',
+                headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+            }
+        );
+        if (res.ok) {
+            // Remover o bloco do dia do DOM sem recarregar tudo
+            const el = document.getElementById('rede-dia-' + dia.replace(/-/g,''));
+            if (el) el.remove();
+            // Atualizar cache local
+            if (window._redeHistorico) {
+                window._redeHistorico = window._redeHistorico.filter(r => r.dia !== dia);
+            }
+        } else {
+            alert('Erro ao apagar registros: ' + await res.text());
+        }
+    } catch(e) {
+        alert('Erro: ' + e.message);
+    }
 }
 
 function sortRedeTab(key) {
