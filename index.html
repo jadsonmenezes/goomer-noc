@@ -2833,19 +2833,57 @@ async function apagarTesteRedeDia(token, dia, fmtDia) {
             `${SB_URL}/rest/v1/noc_testes_rede?token_loja=eq.${encodeURIComponent(token)}&dia=eq.${dia}`,
             {
                 method: 'DELETE',
-                headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+                headers: {
+                    'apikey': SB_KEY,
+                    'Authorization': 'Bearer ' + SB_KEY,
+                    'Prefer': 'return=minimal',
+                    'Content-Type': 'application/json',
+                }
             }
         );
-        if (res.ok) {
-            // Remover o bloco do dia do DOM sem recarregar tudo
-            const el = document.getElementById('rede-dia-' + dia.replace(/-/g,''));
-            if (el) el.remove();
-            // Atualizar cache local
+        if (res.ok || res.status === 204) {
+            // Remover do cache local
             if (window._redeHistorico) {
                 window._redeHistorico = window._redeHistorico.filter(r => r.dia !== dia);
             }
+            // Remover bloco do dia do DOM
+            const elDia = document.getElementById('rede-dia-' + dia.replace(/-/g,''));
+            if (elDia) elDia.remove();
+
+            // Recalcular e atualizar o consolidado
+            if (window._redeHistorico && window._buildConsolidado && window._tabelaMesas) {
+                // Reconstruir totalMap sem o dia removido
+                const novoTotal = {};
+                window._redeHistorico.forEach(row => {
+                    const mesa = row.mesa || row.ip || '?';
+                    if (!novoTotal[mesa]) novoTotal[mesa] = {pings:[],pmaxs:[],perdas:[],pmaxs2:[],wifis:[],ciclos:0,dias:new Set()};
+                    const t = novoTotal[mesa];
+                    t.ciclos++; t.dias.add(row.dia);
+                    if (row.offline) return;
+                    if (row.ping_med  != null) t.pings.push(row.ping_med);
+                    if (row.ping_max  != null) t.pmaxs.push(row.ping_max);
+                    if (row.perda_med != null) t.perdas.push(+row.perda_med);
+                    if (row.perda_max != null) t.pmaxs2.push(+row.perda_max);
+                    if (row.wifi_med  != null) t.wifis.push(row.wifi_med);
+                });
+                window._redeTotalMap = novoTotal;
+                window._redeMesas    = Object.keys(novoTotal).sort();
+
+                const elConsolidado = document.getElementById('rede-consolidado-tabela');
+                if (elConsolidado) {
+                    elConsolidado.innerHTML = window._tabelaMesas(window._buildConsolidado(window._redeSortKey || 'ping_med'));
+                }
+                // Atualizar cabeçalho do consolidado
+                const dias = [...new Set(window._redeHistorico.map(r=>r.dia))];
+                const elCab = document.querySelector('#rede-consolidado-tabela')?.closest('div[style]')?.querySelector('div:first-child');
+                if (elCab) elCab.textContent = `📊 Consolidado — ${dias.length} dia(s) · ${window._redeMesas.length} mesa(s)`;
+            }
+
+            // Feedback visual
+            const btn = document.querySelector(`[onclick*="apagarTesteRedeDia"][onclick*="${dia}"]`);
         } else {
-            alert('Erro ao apagar registros: ' + await res.text());
+            const txt = await res.text();
+            alert('Erro ao apagar registros (HTTP ' + res.status + '): ' + txt);
         }
     } catch(e) {
         alert('Erro: ' + e.message);
