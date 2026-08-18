@@ -1058,7 +1058,7 @@ async function abrirLoja(token, abaInicial) {
             </div>
             `:''}
             <div class="row"><span class="rl">Pedidos hoje</span><span class="rv">${pay.pedidos_hoje||0}</span></div>
-            <div class="row"><span class="rl">Retry expirados (ERP)</span><span class="rv" style="color:${l.retry_expirados>0?'var(--red)':'var(--green)'}">${l.retry_expirados||0}</span></div>
+            <div class="row"><span class="rl">Falhas definitivas ERP</span><span class="rv" style="color:${l.retry_expirados>0?'var(--red)':'var(--green)'}">${l.retry_expirados||0}</span></div>
             ${(()=>{const ac=pay.acumulo_sale_order||0;if(!ac) return '';const cor=ac>5000?'var(--red)':ac>1000?'var(--amber)':'#8096b8';return `<div class="row"><span class="rl">Acúmulo sale_order</span><span class="rv" style="color:${cor}">${ac} pedidos antigos</span></div>`;})()}
             <div class="row"><span class="rl">Erros recentes</span><span class="rv" style="color:${l.erros_log>200?'var(--red)':l.erros_log>50?'var(--amber)':'var(--green)'}">${l.erros_log||0}</span></div>
             <div class="row"><span class="rl">Erros de impressão (2h)</span><span class="rv" style="color:${(pay.erros_impressora||0)>0?'var(--amber)':'var(--green)'}">${pay.erros_impressora||0}</span></div>
@@ -1964,7 +1964,7 @@ async function exportarLoja() {
         [],
         ['OPERAÇÃO','','',''],
         ['Erros recentes (2h)', ultimo.erros_log||0, 'Pedidos hoje', pay.pedidos_hoje||0],
-        ['Pedidos sem ERP', ultimo.retry_expirados||0, 'Erros impressão', pay.erros_impressora||0],
+        ['Pedidos sem ERP', ultimo.retry_expirados||0, 'Falhas ERP', pay.erros_impressora||0],
         ['Tablets ativos', `${ultimo.tablets_ativos||0}/${ultimo.tablets_total||0}`, 'IP divergente', pay.ip_divergente?'SIM':'Não'],
     ];
     if (pay.maquina) {
@@ -2949,8 +2949,18 @@ function calcularDadosRelatorio(snaps) {
     const acPorTipo = {};
     todasAC.forEach(ac => { const t=ac.tipo||'outro'; acPorTipo[t]=(acPorTipo[t]||0)+1; });
     const totalAC   = todasAC.length;
-    const retryTotal = snaps.reduce((a,s)=>a+(s.payload?.retry_expirados||0),0);
-    const errosLog   = snaps.reduce((a,s)=>a+(s.payload?.erros_log||0),0);
+    // retry_expirados é acumulador do dia — pegar o maior valor de cada dia, não somar snapshots
+    const retryPorDia = {};
+    snaps.forEach(s => {
+        const dia = diaLocal(s.criado_em); if (!dia) return;
+        const v = s.payload?.retry_expirados || 0;
+        if (!retryPorDia[dia] || v > retryPorDia[dia]) retryPorDia[dia] = v;
+    });
+    const retryTotal = Object.values(retryPorDia).reduce((a,b)=>a+b,0);
+    // erros_log: média por snapshot (conta erros no ciclo, não acumulado)
+    const errosLog = snaps.length > 0
+        ? Math.round(snaps.reduce((a,s)=>a+(s.payload?.erros_log||0),0) / snaps.length)
+        : 0;
     const semTablets = snaps.filter(s=>(s.payload?.tablets_ativos||0)===0).length;
     const cpuVals = snaps.map(s=>parseInt(s.payload?.maquina?.cpu||0)).filter(v=>v>0);
     const ramVals = snaps.map(s=>parseInt(s.payload?.maquina?.ram_pct||0)).filter(v=>v>0);
@@ -3064,7 +3074,7 @@ function renderDashboardConsolidado() {
     else if (d.snapsRamAlto > d.total*0.2) insights.push({n:'atencao',i:'💾',t:`RAM entre 80-90% em ${d.snapsRamAlto} ciclos — afetando performance. Média ${d.ramMedia}%.`});
     if (d.snapsCpuCrit > d.total*0.1) insights.push({n:'critico',i:'⚙️',t:`CPU acima de 90% em ${Math.round(d.snapsCpuCrit/d.total*100)}% do tempo — servidor sobrecarregado.`});
     if (d.snapsDiskoCrit > 0) insights.push({n:'critico',i:'💿',t:`Disco acima de 90% em ${d.snapsDiskoCrit} ciclos — risco de falha. Libere espaço.`});
-    if (d.retryTotal > 0) insights.push({n:'atencao',i:'🔗',t:`${d.retryTotal} pedidos com falha ERP — verifique integração com o sistema de gestão.`});
+    if (d.retryTotal > 0) insights.push({n:'atencao',i:'🔗',t:`${d.retryTotal} pedido(s) não enviados ao ERP no período — verifique a integração com o sistema de gestão.`});
     if ((d.acPorTipo['mysql_reiniciado']||0) > 2) insights.push({n:'critico',i:'🗄️',t:`MySQL reiniciado ${d.acPorTipo['mysql_reiniciado']} vezes — banco instável. Verifique memória e logs.`});
     if ((d.acPorTipo['servidor_iniciado']||0) > 3) insights.push({n:'critico',i:'🔄',t:`Servidor Goomer reiniciado ${d.acPorTipo['servidor_iniciado']} vezes — processo instável.`});
     if ((d.acPorTipo['spooler_reiniciado']||0) > 3) insights.push({n:'atencao',i:'🖨️',t:`Spooler reiniciado ${d.acPorTipo['spooler_reiniciado']} vezes — problema recorrente de impressora.`});
@@ -3334,8 +3344,18 @@ function renderDashboardConteudo() {
 
     // ── Análise detalhada dos ofensores via payload ───────────────
     const errosTotal  = snaps.reduce((a,s) => a + (s.payload?.erp_errors||s.payload?.erros_erp||0), 0);
-    const retryTotal  = snaps.reduce((a,s) => a + (s.payload?.retry_expirados||0), 0);
-    const errosLog    = snaps.reduce((a,s) => a + (s.payload?.erros_log||0), 0);
+    // retry_expirados é acumulador do dia — pegar o maior valor de cada dia
+    const retryPorDia2 = {};
+    snaps.forEach(s => {
+        const dia = diaLocal(s.criado_em); if (!dia) return;
+        const v = s.payload?.retry_expirados || 0;
+        if (!retryPorDia2[dia] || v > retryPorDia2[dia]) retryPorDia2[dia] = v;
+    });
+    const retryTotal  = Object.values(retryPorDia2).reduce((a,b)=>a+b,0);
+    // erros_log: média por snapshot
+    const errosLog = snaps.length > 0
+        ? Math.round(snaps.reduce((a,s)=>a+(s.payload?.erros_log||0),0) / snaps.length)
+        : 0;
 
     // Máquina: quantos snapshots com CPU ou RAM acima do limiar
     const snapsCpuAlto  = snaps.filter(s => parseInt(s.payload?.maquina?.cpu||0) >= 70).length;
@@ -3485,7 +3505,7 @@ function renderDashboardConteudo() {
 
     // ── ERP (25pts) ────────────────────────────────────────────────
     if (retryTotal > 0)
-        insights.push({ nivel:'atencao', ico:'🔗', txt: `${retryTotal} pedidos com retry expirado no período — integração ERP com falhas. Verifique conexão com o sistema de gestão.` });
+        insights.push({ nivel:'atencao', ico:'🔗', txt: `${retryTotal} pedidos com pedido(s) que não conseguiram ser enviados ao sistema de gestão (ERP). Verifique a integração com o sistema de gestão.` });
 
     // ── Erros de log (20pts) ──────────────────────────────────────
     if (errosLog > 500 * snaps.length / snaps.length)
@@ -3953,7 +3973,7 @@ function renderDashboardGestao() {
     if (d.srvDisp < 95) atencoes.push(`Sistema ficou offline em ${100-d.srvDisp}% do tempo — requer investigação técnica.`);
     if (d.snapsRamCrit > d.total*0.1) atencoes.push(`Memória RAM saturada (>90%) em ${Math.round(d.snapsRamCrit/d.total*100)}% das medições — hardware pode precisar de upgrade.`);
     if (d.ipDiverg > d.total*0.1) atencoes.push(`Configuração de rede instável — IP divergiu em ${d.ipDiverg} ocasiões.`);
-    if (d.retryTotal > 0) atencoes.push(`${d.retryTotal} pedidos com falha de integração ERP no período.`);
+    if (d.retryTotal > 0) atencoes.push(`${d.retryTotal} pedido(s) não chegaram ao sistema de gestão (ERP) no período.`);
 
     if (atencoes.length > 0) {
         html += `<div class="db-section"><div class="db-section-title">⚠️ Pontos de atenção</div>
@@ -4821,7 +4841,7 @@ function exportarRelatorioHTML() {
     if (d.snapsRamCrit > d.total*.1) insightsTxt.push(`A memória RAM do servidor esteve acima de 90% em ${Math.round(d.snapsRamCrit/d.total*100)}% das medições — recomendamos avaliação de hardware.`);
     if (d.snapsRamAlto > d.total*.2 && d.snapsRamCrit <= d.total*.1) insightsTxt.push(`A memória RAM operou entre 80-90% em ${Math.round(d.snapsRamAlto/d.total*100)}% das medições — ponto de atenção.`);
     if (d.ipDiverg > d.total*.1) insightsTxt.push(`O endereço de rede ficou incorreto em ${d.ipDiverg} ocasiões — recomendamos fixar o IP no roteador.`);
-    if (d.retryTotal > 0) insightsTxt.push(`Foram registrados ${d.retryTotal} pedidos com falha de integração com o sistema de gestão.`);
+    if (d.retryTotal > 0) insightsTxt.push(`Foram registrados ${d.retryTotal} pedido(s) não enviados ao sistema de gestão (ERP).`);
     if (insightsTxt.length === 0) insightsTxt.push('O sistema operou dentro dos parâmetros normais. Nenhum ofensor significativo identificado.');
 
     const html = `<!DOCTYPE html>
