@@ -3029,9 +3029,9 @@ function renderDashboardConsolidado() {
     const d = calcularDadosRelatorio(_relSnaps);
     const corScore = s => s>=85?'#00d68f':s>=65?'#ffb830':'#ff4455';
     const fmtDia   = s => { const [,m,dd]=s.split('-'); return dd+'/'+m; };
-    const tipoLbl  = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado', mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado' };
-    const tipoIco  = { ip_sincronizado:'🌐', spooler_reiniciado:'🖨️', mysql_reiniciado:'🗄️', servidor_iniciado:'🖥️' };
-    const tipoCol  = { ip_sincronizado:'#3b82f6', spooler_reiniciado:'#ffb830', mysql_reiniciado:'#00d68f', servidor_iniciado:'#a855f7' };
+    const tipoLbl  = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado', mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado', sale_order_limpo:'Limpeza sale_order' };
+    const tipoIco  = { ip_sincronizado:'🌐', spooler_reiniciado:'🖨️', mysql_reiniciado:'🗄️', servidor_iniciado:'🖥️', sale_order_limpo:'🧹' };
+    const tipoCol  = { ip_sincronizado:'#3b82f6', spooler_reiniciado:'#ffb830', mysql_reiniciado:'#00d68f', servidor_iniciado:'#a855f7', sale_order_limpo:'#06b6d4' };
 
     // Nota de saúde
     const notaGeral = d.scoreMedia>=90?'Excelente':d.scoreMedia>=80?'Bom':d.scoreMedia>=65?'Regular':'Crítico';
@@ -3079,7 +3079,17 @@ function renderDashboardConsolidado() {
     if (d.snapsCpuCrit > d.total*0.1) insights.push({n:'critico',i:'⚙️',t:`CPU acima de 90% em ${Math.round(d.snapsCpuCrit/d.total*100)}% do tempo — servidor sobrecarregado.`});
     if (d.snapsDiskoCrit > 0) insights.push({n:'critico',i:'💿',t:`Disco acima de 90% em ${d.snapsDiskoCrit} ciclos — risco de falha. Libere espaço.`});
     if (d.retryTotal > 0) insights.push({n:'atencao',i:'🔗',t:`${d.retryTotal} pedido(s) não enviados ao ERP no período — verifique a integração com o sistema de gestão.`});
+    // Acúmulo de sale_order: verificar pico no período
+    const _picoAcumulo = Math.max(0,..._relSnaps.map(s=>s.payload?.acumulo_sale_order||0));
+    if (_picoAcumulo > 5000) insights.push({n:'critico',i:'🗃️',t:`Pico de ${_picoAcumulo.toLocaleString('pt-BR')} registros em sale_order detectado — risco alto de deadlock no banco. Limpeza preventiva recomendada.`});
+    else if (_picoAcumulo > 1000) insights.push({n:'atencao',i:'🗃️',t:`Pico de ${_picoAcumulo.toLocaleString('pt-BR')} registros em sale_order — monitorar para evitar deadlock.`});
     if ((d.acPorTipo['mysql_reiniciado']||0) > 2) insights.push({n:'critico',i:'🗄️',t:`MySQL reiniciado ${d.acPorTipo['mysql_reiniciado']} vezes — banco instável. Verifique memória e logs.`});
+    if ((d.acPorTipo['sale_order_limpo']||0) > 0) {
+        const totalLimpos = d.todasAC.filter(a=>a.tipo==='sale_order_limpo').reduce((s,a)=>{
+            const m = a.obs?.match(/(\d+) pedido/); return s+(m?parseInt(m[1]):0);
+        },0);
+        insights.push({n:'atencao',i:'🧹',t:`Limpeza preventiva de sale_order realizada ${d.acPorTipo['sale_order_limpo']} vez(es) — ${totalLimpos>0?totalLimpos+' registro(s) arquivados, prevenindo deadlock no banco.':'banco saudável.'}`});
+    }
     if ((d.acPorTipo['servidor_iniciado']||0) > 3) insights.push({n:'critico',i:'🔄',t:`Servidor Goomer reiniciado ${d.acPorTipo['servidor_iniciado']} vezes — processo instável.`});
     if ((d.acPorTipo['spooler_reiniciado']||0) > 3) insights.push({n:'atencao',i:'🖨️',t:`Spooler reiniciado ${d.acPorTipo['spooler_reiniciado']} vezes — problema recorrente de impressora.`});
     if (d.semTablets > d.total*0.05) insights.push({n:'atencao',i:'📱',t:`${d.semTablets} ciclos sem tablets (${Math.round(d.semTablets/d.total*100)}% do período) — tablets desconectando. Verifique WiFi.`});
@@ -4392,7 +4402,7 @@ function exportarRelatorioHTML() {
     const tipo = window._tipoRelatorio || 'cliente';
     const tipoLbl = { cliente:'Cliente', suporte:'Suporte Técnico', gestao:'Gestão' };
     const corScore = s => s>=85?'#00d68f':s>=65?'#ffb830':'#ff4455';
-    const tipoAC = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado', mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado' };
+    const tipoAC = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado', mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado', sale_order_limpo:'Limpeza sale_order' };
     const notaGeral = d.scoreMedia>=90?'Excelente':d.scoreMedia>=80?'Bom':d.scoreMedia>=65?'Regular':'Crítico';
     const corNota = corScore(d.scoreMedia);
 
