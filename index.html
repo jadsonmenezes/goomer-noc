@@ -1393,85 +1393,105 @@ async function abrirLoja(token, abaInicial) {
         const snapComTeste = rows.find(r => r.payload?.diagnostico_rede?.length > 0);
         if (snapComTeste) _diagRedeData = snapComTeste.payload.diagnostico_rede;
     }
+    // Persistir no Supabase se loja tem teste ativo e dados novos existem
+    if (_diagRedeData?.length > 0 && _cfgLojaAtual?.teste_rede_ativo === 'true') {
+        persistirTesteRede(l.token_loja, _diagRedeData);
+    }
     const _btnTesteRede = document.getElementById('btn-tab-teste-rede');
     if (_btnTesteRede) _btnTesteRede.style.display = _diagRedeData?.length > 0 ? '' : 'none';
 
-    (function renderTesteRede() {
+    // ── Aba Teste de Rede: histórico do Supabase ─────────────────────────────
+    window._trDados = _diagRedeData;
+    (async function renderTesteRedeHistorico() {
         const el = document.getElementById('tab-teste-rede');
         if (!el) return;
-        if (!_diagRedeData || _diagRedeData.length === 0) {
-            el.innerHTML = '<div style="text-align:center;padding:48px 20px;color:#8096b8">'
-                + '<div style="font-size:32px;margin-bottom:12px">📶</div>'
-                + '<div style="font-size:14px;font-weight:600;color:#a0b8d0;margin-bottom:8px">Nenhum teste de rede registrado</div>'
-                + '<div style="font-size:12px">Ative o Modo Teste de Rede na aba <b style="color:#e8eef8">⚙ Agente</b> e configure um horário.</div>'
-                + '</div>';
+        el.innerHTML = '<div style="text-align:center;padding:32px;color:#8096b8;font-size:12px">⏳ Carregando histórico...</div>';
+
+        const historico = await buscarHistoricoRede(l.token_loja);
+
+        const latCor = v => v==null?'#606880':v>=300?'#ff4455':v>=100?'#ffb830':'#00d68f';
+        const perCor = v => v==null?'#606880':v>=10 ?'#ff4455':v>=2  ?'#ffb830':'#00d68f';
+        const wifCor = v => v==null?'#606880':v<50  ?'#ff4455':v<70  ?'#ffb830':'#00d68f';
+        const jitCor = v => v==null?'#606880':v>=200?'#ff4455':v>=80 ?'#ffb830':'#00d68f';
+        const fmtMs  = v => v==null?'—':v+'ms';
+        const fmtPct = v => v==null?'—':v+'%';
+        const fmtDia = s => { const [,m,d]=s.split('-'); return d+'/'+m; };
+        const avg    = a => a.length?Math.round(a.reduce((s,v)=>s+v,0)/a.length):null;
+        const mxv    = a => a.length?Math.max(...a):null;
+
+        const diasMap={}, totalMap={};
+        historico.forEach(row => {
+            const dia=row.dia, mesa=row.mesa||row.ip||'?';
+            if (!diasMap[dia]) diasMap[dia]={};
+            if (!diasMap[dia][mesa]) diasMap[dia][mesa]={pings:[],pmaxs:[],perdas:[],pmaxs2:[],wifis:[],ciclos:0,offs:0};
+            if (!totalMap[mesa]) totalMap[mesa]={pings:[],pmaxs:[],perdas:[],pmaxs2:[],wifis:[],ciclos:0,dias:new Set()};
+            const d=diasMap[dia][mesa],t=totalMap[mesa];
+            d.ciclos++; t.ciclos++; t.dias.add(dia);
+            if (row.offline){d.offs++;return;}
+            if (row.ping_med!=null){d.pings.push(row.ping_med);t.pings.push(row.ping_med);}
+            if (row.ping_max!=null){d.pmaxs.push(row.ping_max);t.pmaxs.push(row.ping_max);}
+            if (row.perda_med!=null){d.perdas.push(+row.perda_med);t.perdas.push(+row.perda_med);}
+            if (row.perda_max!=null){d.pmaxs2.push(+row.perda_max);t.pmaxs2.push(+row.perda_max);}
+            if (row.wifi_med!=null){d.wifis.push(row.wifi_med);t.wifis.push(row.wifi_med);}
+        });
+        const mesas=Object.keys(totalMap).sort(), dias=Object.keys(diasMap).sort().reverse();
+
+        function tabelaMesas(rows2) {
+            if (!rows2.length) return '<div style="color:#8096b8;font-size:12px;padding:12px">Sem dados.</div>';
+            return '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="border-bottom:1px solid #1e3050;color:#8096b8;text-align:left"><th style="padding:7px 10px">Mesa</th><th style="padding:7px 10px;text-align:right">Lat. méd</th><th style="padding:7px 10px;text-align:right">Lat. máx</th><th style="padding:7px 10px;text-align:right">Variação</th><th style="padding:7px 10px;text-align:right">Perda méd</th><th style="padding:7px 10px;text-align:right">Perda máx</th><th style="padding:7px 10px;text-align:right">WiFi</th><th style="padding:7px 10px;text-align:right">Ciclos</th></tr></thead><tbody>'
+                + rows2.map((r,i)=>'<tr style="border-bottom:1px solid #0d1525;background:'+(i%2?'rgba(255,255,255,.02)':'transparent')+'"><td style="padding:7px 10px;color:#e8eef8;font-weight:600">Mesa '+h(String(r.mesa))+'</td><td style="padding:7px 10px;text-align:right;color:'+latCor(r.pm)+';font-weight:700">'+fmtMs(r.pm)+'</td><td style="padding:7px 10px;text-align:right;color:'+latCor(r.px)+'">'+fmtMs(r.px)+'</td><td style="padding:7px 10px;text-align:right;color:'+jitCor(r.jt)+'">'+fmtMs(r.jt)+'</td><td style="padding:7px 10px;text-align:right;color:'+perCor(r.pe)+';font-weight:700">'+fmtPct(r.pe)+'</td><td style="padding:7px 10px;text-align:right;color:'+perCor(r.px2)+'">'+fmtPct(r.px2)+'</td><td style="padding:7px 10px;text-align:right;color:'+wifCor(r.wi)+'">'+(r.wi!=null?r.wi+'%':'—')+'</td><td style="padding:7px 10px;text-align:right;color:#606880">'+r.ciclos+'</td></tr>').join('')
+                + '</tbody></table></div>';
+        }
+        function buildConsolidado(sk) {
+            const r2=mesas.map(mesa=>{const t=totalMap[mesa];const pm=avg(t.pings),px=mxv(t.pmaxs),pe=avg(t.perdas),px2=mxv(t.pmaxs2),wi=avg(t.wifis);return{mesa,pm,px,pe,px2,wi,jt:pm!=null&&px!=null?px-pm:null,ciclos:t.ciclos,dias:t.dias.size};});
+            if(sk==='ping_med')r2.sort((a,b)=>(b.pm||0)-(a.pm||0));
+            else if(sk==='perda_med')r2.sort((a,b)=>(b.pe||0)-(a.pe||0));
+            else if(sk==='wifi_med')r2.sort((a,b)=>(a.wi||100)-(b.wi||100));
+            else if(sk==='jitter')r2.sort((a,b)=>(b.jt||0)-(a.jt||0));
+            else r2.sort((a,b)=>String(a.mesa).localeCompare(String(b.mesa)));
+            return r2;
+        }
+
+        if (!historico.length && (!_diagRedeData||!_diagRedeData.length)) {
+            el.innerHTML='<div style="text-align:center;padding:48px 20px;color:#8096b8"><div style="font-size:32px;margin-bottom:12px">📶</div><div style="font-size:14px;font-weight:600;color:#a0b8d0;margin-bottom:8px">Nenhum teste de rede registrado</div><div style="font-size:12px">Ative o Modo Teste de Rede na aba <b style="color:#e8eef8">⚙ Agente</b> e configure um horário.</div></div>';
             return;
         }
 
-        const corSR  = s => s==='excelente'?'#00d68f':s==='instavel'?'#ffb830':s==='offline'?'#505068':'#ff4455';
-        const bgSR   = s => s==='excelente'?'rgba(0,214,143,.07)':s==='instavel'?'rgba(255,184,48,.07)':s==='offline'?'rgba(80,80,104,.07)':'rgba(255,68,85,.07)';
-        const lblSR  = s => ({'excelente':'🟢 Excelente','instavel':'🟡 Instável','critico':'🔴 Crítico','offline':'⬛ Offline durante o teste'}[s]||s);
-        const minSR  = t => Math.round((t.ciclos||0) * 5);
-        const latCor = v => v>=500?'var(--red)':v>=300?'var(--amber)':'var(--green)';
-        const pctCor = v => v>=10?'var(--red)':v>=2?'var(--amber)':'var(--green)';
+        let html='<div style="padding:4px 0">';
+        html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px">'
+            +'<span style="font-size:11px;color:#8096b8">Ordenar por:</span>'
+            +'<button id="sort-lat" onclick="sortRedeTab(&quot;ping_med&quot;)" style="padding:5px 12px;border-radius:6px;border:1px solid #3b82f6;background:rgba(59,130,246,.15);color:#7ab3ff;cursor:pointer;font-size:11px;font-weight:700">Latência ▼</button>'
+            +'<button id="sort-per" onclick="sortRedeTab(&quot;perda_med&quot;)" style="padding:5px 12px;border-radius:6px;border:1px solid #1e3050;background:var(--bg3);color:#8096b8;cursor:pointer;font-size:11px">Perda</button>'
+            +'<button id="sort-wifi" onclick="sortRedeTab(&quot;wifi_med&quot;)" style="padding:5px 12px;border-radius:6px;border:1px solid #1e3050;background:var(--bg3);color:#8096b8;cursor:pointer;font-size:11px">WiFi</button>'
+            +'<button id="sort-jit" onclick="sortRedeTab(&quot;jitter&quot;)" style="padding:5px 12px;border-radius:6px;border:1px solid #1e3050;background:var(--bg3);color:#8096b8;cursor:pointer;font-size:11px">Variação</button>'
+            +'<button id="sort-mesa" onclick="sortRedeTab(&quot;mesa&quot;)" style="padding:5px 12px;border-radius:6px;border:1px solid #1e3050;background:var(--bg3);color:#8096b8;cursor:pointer;font-size:11px">Mesa</button>'
+            +'<div style="flex:1"></div>'
+            +`<button onclick="exportarRedeExcel('${l.token_loja}','${h(l.nome_loja||'')}')" style="padding:6px 14px;border-radius:7px;background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;font-size:11px;font-weight:700;cursor:pointer">↓ Excel</button>`
+            +`<button onclick="exportarRedeHTML('${l.token_loja}','${h(l.nome_loja||'')}')" style="padding:6px 14px;border-radius:7px;background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;font-size:11px;font-weight:700;cursor:pointer">↓ HTML</button>`
+            +'</div>';
 
-        let html = '<div>';
-        html += '<div style="font-size:12px;color:#8096b8;margin-bottom:14px">'
-            + 'Sessão registrada'
-            + (_diagRedeData[0]?.horario_inicio ? ' · a partir de ' + h(_diagRedeData[0].horario_inicio) : '')
-            + ' · ' + _diagRedeData.length + ' tablet(s) testado(s)'
-            + ' · ' + minSR(_diagRedeData[0]) + ' min de coleta'
-            + '</div>';
+        if (mesas.length>0) {
+            html+='<div style="background:#111827;border:1px solid #1e3050;border-radius:12px;padding:14px;margin-bottom:14px">'
+                +'<div style="font-size:12px;font-weight:700;color:#e8eef8;margin-bottom:2px">📊 Consolidado — '+dias.length+' dia(s) · '+mesas.length+' mesa(s)</div>'
+                +'<div style="font-size:10px;color:#606880;margin-bottom:12px">'+historico.length+' registros · médias de todos os ciclos</div>'
+                +'<div id="rede-consolidado-tabela">'+tabelaMesas(buildConsolidado('ping_med'))+'</div>'
+                +'</div>';
+        }
 
-        // Mapa de calor
-        html += '<div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Mapa de Calor por Mesa</div>';
-        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-bottom:24px">';
-        // Guardar dados para uso no modal
-        window._trDados = _diagRedeData;
+        html+='<div style="font-size:10px;color:#606880;margin-bottom:14px">Lat: <span style="color:#00d68f">■</span>&lt;100ms <span style="color:#ffb830">■</span>100-300ms <span style="color:#ff4455">■</span>&gt;300ms · Perda: <span style="color:#00d68f">■</span>&lt;2% <span style="color:#ffb830">■</span>2-10% <span style="color:#ff4455">■</span>&gt;10%</div>';
 
-        _diagRedeData.forEach((t, ti) => {
-            const cor     = corSR(t.saude);
-            const temHist = t.historico?.length > 0;
-            const lblOffline = (t.ciclos_offline > 0 && t.ciclos > 0)
-                ? ` <span style="color:#505068;font-size:9px">(offline em ${t.ciclos_offline}/${t.ciclos} ciclos)</span>` : '';
-            html += '<div onclick="' + (temHist ? 'abrirModalTesteRede(' + ti + ')' : '') + '" '
-                + 'style="background:' + bgSR(t.saude) + ';border:1px solid ' + cor + '40;border-left:3px solid ' + cor + ';'
-                + 'border-radius:8px;padding:10px 12px;cursor:' + (temHist ? 'pointer' : 'default') + ';'
-                + '>'  
-                + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
-                + '<div>'
-                + '<div style="font-size:12px;font-weight:700;color:#e8eef8">Mesa ' + h(String(t.mesa)) + '</div>'
-                + '<div style="font-size:10px;font-family:var(--mono);color:#8096b8">' + h(t.ip) + '</div>'
-                + '</div>'
-                + '<div style="display:flex;align-items:center;gap:6px">'
-                + '<span style="font-size:11px;font-weight:700;color:' + cor + '">' + lblSR(t.saude) + '</span>'
-                + (temHist ? '<span style="font-size:11px;color:#8096b8" title="Ver gráfico detalhado">📈</span>' : '')
-                + '</div>'
-                + '</div>'
-                + '<div style="font-size:10px;color:#a0b8d0;line-height:1.9">'
-                + '<div>Latência <b style="color:' + latCor(t.ping_med||0) + '">' + (t.ping_med||'?') + 'ms</b>  <span style="color:#606880">máx ' + (t.ping_max_abs||'?') + 'ms</span></div>'
-                + '<div>Perda <b style="color:' + pctCor(t.perda_med_pct||0) + '">' + (t.perda_med_pct||0) + '%</b>  <span style="color:#606880">máx ' + (t.perda_max_pct||0) + '%</span></div>'
-                + '<div>WiFi <b style="color:#e8eef8">' + (t.wifi_med||0) + '%</b>  <span style="color:#606880">mín ' + (t.wifi_min||0) + '%</span></div>'
-                + '<div style="color:#606880">' + (t.ciclos||0) + ' ciclos · ' + minSR(t) + 'min</div>'
-                + (t.horario_pior_ping   ? '<div style="color:#606880">Pior ping: '   + h(t.horario_pior_ping)   + '</div>' : '')
-                + (t.horario_pior_perda  ? '<div style="color:#606880">Maior perda: ' + h(t.horario_pior_perda)  + '</div>' : '')
-                + '</div>'
-                + '</div>';
+        dias.forEach(dia=>{
+            const dm=diasMap[dia],mesasDia=Object.keys(dm).sort();
+            const tc=mesasDia.reduce((s,m)=>s+dm[m].ciclos,0);
+            const rd=mesasDia.map(mesa=>{const d=dm[mesa];const pm=avg(d.pings),px=mxv(d.pmaxs),pe=avg(d.perdas),px2=mxv(d.pmaxs2),wi=avg(d.wifis);return{mesa,pm,px,pe,px2,wi,jt:pm!=null&&px!=null?px-pm:null,ciclos:d.ciclos};}).sort((a,b)=>(b.pm||0)-(a.pm||0));
+            html+='<details style="margin-bottom:10px" open><summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;background:#111827;border:1px solid #1e3050;border-radius:10px;padding:12px 14px"><span style="font-size:13px;font-weight:700;color:#e8eef8">'+fmtDia(dia)+'</span><span style="font-size:11px;color:#8096b8">'+mesasDia.length+' mesa(s) · '+tc+' ciclos</span><span style="margin-left:auto;font-size:11px;color:#606880">▼</span></summary><div style="padding:10px 2px 0">'+tabelaMesas(rd)+'</div></details>';
         });
-        html += '</div>';
 
-        // Grafico por mesa via clique no card
-
-        html += '<div style="background:var(--bg3);border-radius:8px;padding:10px 14px;font-size:10px;color:#8096b8;margin-top:16px">'
-            + '<b style="color:#a0b8d0">Critérios:</b>'
-            + ' 🟢 Excelente: latência &lt;300ms e perda &lt;2%'
-            + ' · 🟡 Instável: latência &lt;500ms ou perda &lt;10%'
-            + ' · 🔴 Crítico: latência ≥500ms ou perda ≥10%'
-            + '</div></div>';
-
-        el.innerHTML = html;
-
-        
+        html+='</div>';
+        el.innerHTML=html;
+        window._redeHistorico=historico; window._redeDiasMap=diasMap; window._redeTotalMap=totalMap;
+        window._redeMesas=mesas; window._buildConsolidado=buildConsolidado; window._tabelaMesas=tabelaMesas;
+        window._redeNomeLoja=l.nome_loja||l.token_loja;
     })();
 
 
@@ -2658,6 +2678,60 @@ async function ativarTesteRede(token) {
         renderWidgetTesteRede(getValorLocal, h2, token);
 
     document.getElementById('config-status').textContent = '✅ Teste ativado: ' + inicio + ' → ' + fim;
+    // Gerar ID único para esta sessão e registrar data local
+    window._trSessaoId = token + '_' + Date.now();
+    window._trDiaLocal = new Date(Date.now() - new Date().getTimezoneOffset()*60000)
+                            .toISOString().slice(0,10);
+}
+
+async function persistirTesteRede(token, diagRedeData) {
+    if (!diagRedeData || diagRedeData.length === 0) return;
+    const sessaoId = window._trSessaoId || (token + '_' + Date.now());
+    const diaLocal = window._trDiaLocal ||
+        new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+    const horario  = new Date().toISOString();
+
+    const linhas = diagRedeData.map(t => ({
+        token_loja: token,
+        sessao_id:  sessaoId,
+        dia:        diaLocal,
+        horario:    horario,
+        mesa:       String(t.mesa || ''),
+        ip:         t.ip || '',
+        ping_med:   t.ping_med   ?? null,
+        ping_max:   t.ping_max_abs ?? null,
+        perda_med:  t.perda_med_pct ?? null,
+        perda_max:  t.perda_max_pct ?? null,
+        wifi_med:   t.wifi_med   ?? null,
+        wifi_min:   t.wifi_min   ?? null,
+        offline:    t.saude === 'offline',
+    }));
+
+    try {
+        const res = await fetch(`${SB_URL}/rest/v1/noc_testes_rede`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'apikey': SB_KEY,
+                'Authorization': 'Bearer ' + SB_KEY,
+                'Prefer': 'resolution=merge-duplicates',
+            },
+            body: JSON.stringify(linhas),
+        });
+        if (!res.ok) console.warn('[REDE] Falha ao salvar:', await res.text());
+        else console.log(`[REDE] ${linhas.length} linha(s) salvas para ${token}`);
+    } catch(e) {
+        console.warn('[REDE] Erro ao persistir:', e.message);
+    }
+}
+
+// Limpar registros com mais de 30 dias para esta loja
+async function limparTesteRedeAntigo(token) {
+    const limite = new Date(Date.now() - 30*24*60*60*1000).toISOString();
+    await fetch(`${SB_URL}/rest/v1/noc_testes_rede?token_loja=eq.${encodeURIComponent(token)}&criado_em=lt.${limite}`, {
+        method: 'DELETE',
+        headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY },
+    }).catch(() => {});
 }
 
 async function desativarTesteRede(token) {
@@ -2672,6 +2746,164 @@ async function desativarTesteRede(token) {
         renderWidgetTesteRede(getValorLocal, h2, token);
 
     document.getElementById('config-status').textContent = '✅ Teste de rede desativado.';
+}
+
+async function buscarHistoricoRede(token) {
+    try {
+        const limite = new Date(Date.now() - 30*24*60*60*1000).toISOString();
+        const url = `${SB_URL}/rest/v1/noc_testes_rede`
+            + `?token_loja=eq.${encodeURIComponent(token)}`
+            + `&criado_em=gte.${limite}`
+            + `&order=horario.asc&limit=2000`;
+        const res = await fetch(url, {
+            headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+        });
+        if (!res.ok) return [];
+        return await res.json();
+    } catch(e) { return []; }
+}
+
+function sortRedeTab(key) {
+    window._redeSortKey = key;
+    const el = document.getElementById('rede-consolidado-tabela');
+    if (el && window._buildConsolidado && window._tabelaMesas) {
+        el.innerHTML = window._tabelaMesas(window._buildConsolidado(key));
+    }
+    // Destacar botão ativo
+    ['lat','per','wifi','jit','mesa'].forEach(k => {
+        const btn = document.getElementById('sort-'+k);
+        if (!btn) return;
+        const isActive = {lat:'ping_med',per:'perda_med',wifi:'wifi_med',jit:'jitter',mesa:'mesa'}[k] === key;
+        btn.style.border     = isActive ? '1px solid #3b82f6' : '1px solid #1e3050';
+        btn.style.background = isActive ? 'rgba(59,130,246,.15)' : 'var(--bg3)';
+        btn.style.color      = isActive ? '#7ab3ff' : '#8096b8';
+        btn.style.fontWeight = isActive ? '700' : '400';
+        btn.textContent = ({lat:'Latência',per:'Perda',wifi:'WiFi',jit:'Variação',mesa:'Mesa'}[k]) + (isActive ? ' ▼' : '');
+    });
+}
+
+function exportarRedeExcel(token, nomeLoja) {
+    if (!window._redeHistorico?.length) { alert('Sem dados para exportar.'); return; }
+    const dias = Object.keys(window._redeDiasMap || {}).sort();
+    const mesas = window._redeMesas || [];
+
+    const fmtDia = s => { const [,m,d]=s.split('-'); return d+'/'+m; };
+    const avg = a => a.length ? Math.round(a.reduce((s,v)=>s+v,0)/a.length) : null;
+    const mxv = a => a.length ? Math.max(...a) : null;
+    const SEP = ';', NL = '\r\n';
+
+    let linhas = [];
+    linhas.push('Relatorio de Rede - ' + (nomeLoja||token));
+    linhas.push('');
+    linhas.push('CONSOLIDADO');
+    linhas.push(['Mesa','Lat. Med (ms)','Lat. Max (ms)','Variacao (ms)','Perda Med (%)','Perda Max (%)','WiFi Med (%)','Ciclos','Dias'].join(SEP));
+    mesas.forEach(mesa => {
+        const t = window._redeTotalMap[mesa];
+        const pm = avg(t.pings), px = mxv(t.pmaxs), pe = avg(t.perdas);
+        const px2= mxv(t.pmaxs2), wi = avg(t.wifis);
+        const jt = pm!=null&&px!=null ? px-pm : null;
+        linhas.push([mesa,pm??'',px??'',jt??'',pe??'',px2??'',wi??'',t.ciclos,t.dias.size].join(SEP));
+    });
+
+    dias.forEach(dia => {
+        linhas.push('');
+        linhas.push(fmtDia(dia));
+        linhas.push(['Mesa','Lat. Med (ms)','Lat. Max (ms)','Variacao (ms)','Perda Med (%)','Perda Max (%)','WiFi Med (%)','Ciclos'].join(SEP));
+        const dm = window._redeDiasMap[dia];
+        Object.keys(dm).sort().forEach(mesa => {
+            const d = dm[mesa];
+            const pm = avg(d.pings), px = mxv(d.pmaxs), pe = avg(d.perdas);
+            const px2= mxv(d.pmaxs2), wi = avg(d.wifis);
+            const jt = pm!=null&&px!=null ? px-pm : null;
+            linhas.push([mesa,pm??'',px??'',jt??'',pe??'',px2??'',wi??'',d.ciclos].join(SEP));
+        });
+    });
+
+    const csv = '\uFEFF' + linhas.join(NL);
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'rede_' + (nomeLoja||token).replace(/[^a-zA-Z0-9]/g,'_') + '_' + new Date().toISOString().slice(0,10) + '.csv';
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(a.href); },200);
+}
+
+function exportarRedeHTML(token, nomeLoja) {
+    if (!window._redeHistorico?.length) { alert('Sem dados para exportar.'); return; }
+    const dias = Object.keys(window._redeDiasMap || {}).sort().reverse();
+    const mesas = window._redeMesas || [];
+    const fmtDia = s => { const [,m,d]=s.split('-'); return d+'/'+m; };
+    const avg = a => a.length ? Math.round(a.reduce((s,v)=>s+v,0)/a.length) : null;
+    const mxv = a => a.length ? Math.max(...a) : null;
+
+    const latCor  = v => v==null?'#888':v>=300?'#ef4444':v>=100?'#f59e0b':'#22c55e';
+    const perCor  = v => v==null?'#888':v>=10 ?'#ef4444':v>=2  ?'#f59e0b':'#22c55e';
+    const wifCor  = v => v==null?'#888':v<50  ?'#ef4444':v<70  ?'#f59e0b':'#22c55e';
+    const td = (v,cor) => `<td style="padding:7px 12px;text-align:right;color:${cor};font-weight:600">${v??'—'}</td>`;
+
+    const tabelaHTML = rows => {
+        if (!rows.length) return '<p style="color:#888">Sem dados.</p>';
+        return `<table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="border-bottom:2px solid #334155;color:#94a3b8">
+                <th style="padding:7px 12px;text-align:left">Mesa</th>
+                <th style="padding:7px 12px;text-align:right">Lat. méd</th>
+                <th style="padding:7px 12px;text-align:right">Lat. máx</th>
+                <th style="padding:7px 12px;text-align:right">Variação</th>
+                <th style="padding:7px 12px;text-align:right">Perda méd</th>
+                <th style="padding:7px 12px;text-align:right">Perda máx</th>
+                <th style="padding:7px 12px;text-align:right">WiFi</th>
+                <th style="padding:7px 12px;text-align:right">Ciclos</th>
+            </tr></thead>
+            <tbody>${rows.map((r,i)=>`
+            <tr style="border-bottom:1px solid #1e293b;background:${i%2?'#0f172a':'transparent'}">
+                <td style="padding:7px 12px;color:#f1f5f9;font-weight:700">Mesa ${r.mesa}</td>
+                ${td(r.pm!=null?r.pm+'ms':null, latCor(r.pm))}
+                ${td(r.px!=null?r.px+'ms':null, latCor(r.px))}
+                ${td(r.jt!=null?r.jt+'ms':null, '#94a3b8')}
+                ${td(r.pe!=null?r.pe+'%':null, perCor(r.pe))}
+                ${td(r.px2!=null?r.px2+'%':null, perCor(r.px2))}
+                ${td(r.wi!=null?r.wi+'%':null, wifCor(r.wi))}
+                <td style="padding:7px 12px;text-align:right;color:#64748b">${r.ciclos}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+    };
+
+    // Consolidado
+    const consRows = mesas.map(mesa => {
+        const t = window._redeTotalMap[mesa];
+        const pm=avg(t.pings),px=mxv(t.pmaxs),pe=avg(t.perdas),px2=mxv(t.pmaxs2),wi=avg(t.wifis);
+        return {mesa,pm,px,pe,px2,wi,jt:pm!=null&&px!=null?px-pm:null,ciclos:t.ciclos};
+    }).sort((a,b)=>(b.pm||0)-(a.pm||0));
+
+    let body = `<h2 style="color:#e2e8f0;margin:0 0 4px">Consolidado — ${dias.length} dia(s)</h2>
+        <p style="color:#64748b;font-size:12px;margin:0 0 16px">${window._redeHistorico.length} registros · médias de todos os ciclos</p>
+        ${tabelaHTML(consRows)}`;
+
+    dias.forEach(dia => {
+        const dm = window._redeDiasMap[dia];
+        const rows = Object.keys(dm).sort().map(mesa => {
+            const d=dm[mesa]; const pm=avg(d.pings),px=mxv(d.pmaxs),pe=avg(d.perdas),px2=mxv(d.pmaxs2),wi=avg(d.wifis);
+            return {mesa,pm,px,pe,px2,wi,jt:pm!=null&&px!=null?px-pm:null,ciclos:d.ciclos};
+        }).sort((a,b)=>(b.pm||0)-(a.pm||0));
+        body += `<h2 style="color:#e2e8f0;margin:24px 0 8px">${fmtDia(dia)} — ${rows.length} mesa(s) · ${rows.reduce((s,r)=>s+r.ciclos,0)} ciclos</h2>
+            ${tabelaHTML(rows)}`;
+    });
+
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+        <title>Rede — ${nomeLoja}</title>
+        <style>*{box-sizing:border-box}body{background:#020817;color:#e2e8f0;font-family:system-ui,sans-serif;padding:32px}
+        table{border-radius:8px;overflow:hidden}
+        </style></head><body>
+        <h1 style="color:#7ab3ff;margin:0 0 4px">📶 Qualidade de Rede — ${nomeLoja}</h1>
+        <p style="color:#64748b;margin:0 0 32px">Gerado em ${new Date().toLocaleString('pt-BR')}</p>
+        ${body}</body></html>`;
+
+    const blob = new Blob([html],{type:'text/html;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'rede_' + (nomeLoja||token).replace(/[^a-zA-Z0-9]/g,'_') + '_' + new Date().toISOString().slice(0,10) + '.html';
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(a.href); },200);
 }
 
 function abrirModalTesteRede(ti) {
@@ -3171,136 +3403,10 @@ function renderDashboardConsolidado() {
         html += `</div></div>`;
     }
 
-    // ── SEÇÃO REDE: agregar diagnostico_rede de todos os snapshots do período ──
-    const _redeAgregado = {}; // { mesa_ip: { pings_med:[], pings_max:[], perdas:[], wifi:[], ciclos:0 } }
-    _relSnaps.forEach(s => {
-        const diags = s.payload?.diagnostico_rede || [];
-        diags.forEach(t => {
-            const key = (t.mesa ? 'Mesa '+t.mesa : t.ip || '?');
-            if (!_redeAgregado[key]) _redeAgregado[key] = { label:key, ip:t.ip||'', pings_med:[], pings_max:[], perdas_med:[], perdas_max:[], wifi_med:[], ciclos:0 };
-            const r = _redeAgregado[key];
-            if (t.ping_med    != null) r.pings_med.push(t.ping_med);
-            if (t.ping_max_abs!= null) r.pings_max.push(t.ping_max_abs);
-            if (t.perda_med_pct!=null) r.perdas_med.push(t.perda_med_pct);
-            if (t.perda_max_pct!=null) r.perdas_max.push(t.perda_max_pct);
-            if (t.wifi_med    != null) r.wifi_med.push(t.wifi_med);
-            r.ciclos++;
-        });
-    });
 
-    const _redeMesas = Object.values(_redeAgregado);
-    const avg = arr => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : null;
-    const max = arr => arr.length ? Math.max(...arr) : null;
+        document.getElementById('db-conteudo').innerHTML = html;
 
-    if (_redeMesas.length > 0) {
-        // Calcular métricas consolidadas por mesa
-        const mesasProcessadas = _redeMesas.map(r => ({
-            label:      r.label,
-            ip:         r.ip,
-            ciclos:     r.ciclos,
-            ping_med:   avg(r.pings_med),
-            ping_max:   max(r.pings_max),
-            perda_med:  avg(r.perdas_med),
-            perda_max:  max(r.perdas_max),
-            wifi_med:   avg(r.wifi_med),
-            // Variação (jitter estimado): diferença entre max e med
-            jitter:     (max(r.pings_max) != null && avg(r.pings_med) != null)
-                            ? max(r.pings_max) - avg(r.pings_med) : null,
-        })).sort((a,b) => (b.ping_med||0) - (a.ping_med||0)); // piores primeiro
 
-        const latCor  = v => v==null?'#8096b8':v>=300?'#ff4455':v>=100?'#ffb830':'#00d68f';
-        const perCor  = v => v==null?'#8096b8':v>=10?'#ff4455':v>=2?'#ffb830':'#00d68f';
-        const wifiCor = v => v==null?'#8096b8':v<50?'#ff4455':v<70?'#ffb830':'#00d68f';
-        const jitCor  = v => v==null?'#8096b8':v>=200?'#ff4455':v>=80?'#ffb830':'#00d68f';
-        const fmtMs   = v => v==null?'—':v+'ms';
-        const fmtPct  = v => v==null?'—':v+'%';
-
-        // Identificar mesas com problema
-        // Tablets offline não entram nas categorias — não há dados de rede para classificar
-        const mesasOffline  = mesasProcessadas.filter(m => m.ping_med == null);
-        const mesasComDados = mesasProcessadas.filter(m => m.ping_med != null);
-        const mesasCriticas = mesasComDados.filter(m =>
-            (m.ping_med>=300) || (m.perda_med>=10) || (m.wifi_med!=null&&m.wifi_med<50) || (m.jitter>=200));
-        const mesasAtencao  = mesasComDados.filter(m =>
-            !mesasCriticas.includes(m) &&
-            ((m.ping_med>=100) || (m.perda_med>=2) || (m.wifi_med!=null&&m.wifi_med<70) || (m.jitter>=80)));
-
-        html += `<div class="db-section">
-            <div class="db-section-title">📶 Qualidade de Rede por Mesa — ${mesasProcessadas.length} tablet(s) testado(s)</div>`;
-
-        // Resumo geral
-        if (mesasOffline.length > 0) {
-            html += `<div style="background:rgba(80,80,104,.07);border:1px solid rgba(80,80,104,.3);border-radius:8px;padding:8px 14px;margin-bottom:8px;font-size:11px;color:#8096b8">
-                ⬛ <b>${mesasOffline.length} tablet(s) offline</b> durante o teste — sem dados de rede: ${mesasOffline.map(m=>m.label).join(', ')}
-            </div>`;
-        }
-        if (mesasCriticas.length > 0 || mesasAtencao.length > 0) {
-            html += `<div style="background:rgba(255,68,85,.07);border:1px solid rgba(255,68,85,.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#e8eef8">
-                ${mesasCriticas.length > 0 ? `<b style="color:#ff4455">🔴 ${mesasCriticas.length} mesa(s) crítica(s):</b> ${mesasCriticas.map(m=>m.label).join(', ')}` : ''}
-                ${mesasCriticas.length > 0 && mesasAtencao.length > 0 ? ' &nbsp;·&nbsp; ' : ''}
-                ${mesasAtencao.length  > 0 ? `<b style="color:#ffb830">🟡 ${mesasAtencao.length} em atenção:</b> ${mesasAtencao.map(m=>m.label).join(', ')}` : ''}
-            </div>`;
-        } else {
-            html += `<div style="background:rgba(0,214,143,.07);border:1px solid rgba(0,214,143,.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#00d68f">
-                🟢 Todas as mesas testadas com qualidade de rede dentro dos parâmetros normais
-            </div>`;
-        }
-
-        // Tabela por mesa
-        html += `<div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:11px">
-            <thead>
-                <tr style="border-bottom:1px solid #1e3050;color:#8096b8;text-align:left">
-                    <th style="padding:8px 10px;font-weight:700">Mesa / IP</th>
-                    <th style="padding:8px 10px;font-weight:700;text-align:right">Lat. média</th>
-                    <th style="padding:8px 10px;font-weight:700;text-align:right">Lat. máx</th>
-                    <th style="padding:8px 10px;font-weight:700;text-align:right">Variação</th>
-                    <th style="padding:8px 10px;font-weight:700;text-align:right">Perda méd</th>
-                    <th style="padding:8px 10px;font-weight:700;text-align:right">Perda máx</th>
-                    <th style="padding:8px 10px;font-weight:700;text-align:right">WiFi</th>
-                    <th style="padding:8px 10px;font-weight:700;text-align:right">Testes</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${mesasProcessadas.map((m,i) => `
-                <tr style="border-bottom:1px solid #0d1525;background:${i%2===0?'transparent':'rgba(255,255,255,.02)'}">
-                    <td style="padding:8px 10px;color:#e8eef8;font-weight:600">
-                        ${m.label}
-                        ${m.ip ? '<br><span style="color:#606880;font-size:10px;font-weight:400">'+m.ip+'</span>' : ''}
-                    </td>
-                    ${m.ping_med==null?`<td colspan="6" style="padding:8px 10px;text-align:center;color:#505068;font-style:italic">Tablet offline durante todos os ciclos testados${m.ciclos_offline>0?' ('+m.ciclos_offline+' ciclos)':''}</td>`:`
-                    <td style="padding:8px 10px;text-align:right;color:${latCor(m.ping_med)};font-weight:700">${fmtMs(m.ping_med)}</td>
-                    <td style="padding:8px 10px;text-align:right;color:${latCor(m.ping_max)}">${fmtMs(m.ping_max)}</td>
-                    <td style="padding:8px 10px;text-align:right;color:${jitCor(m.jitter)}">${fmtMs(m.jitter)}</td>
-                    <td style="padding:8px 10px;text-align:right;color:${perCor(m.perda_med)};font-weight:700">${fmtPct(m.perda_med)}</td>
-                    <td style="padding:8px 10px;text-align:right;color:${perCor(m.perda_max)}">${fmtPct(m.perda_max)}</td>
-                    <td style="padding:8px 10px;text-align:right;color:${wifiCor(m.wifi_med)}">${m.wifi_med!=null?m.wifi_med+'%':'—'}</td>`}
-                    <td style="padding:8px 10px;text-align:right;color:#606880">${m.ciclos_online||0}/${m.ciclos}</td>
-                </tr>`).join('')}
-            </tbody>
-        </table></div>
-
-        <div style="font-size:10px;color:#606880;margin-top:8px;line-height:1.6">
-            Referências: Latência &lt;100ms 🟢 · 100-300ms 🟡 · &gt;300ms 🔴 &nbsp;|&nbsp;
-            Perda &lt;2% 🟢 · 2-10% 🟡 · &gt;10% 🔴 &nbsp;|&nbsp;
-            WiFi &gt;70% 🟢 · 50-70% 🟡 · &lt;50% 🔴 &nbsp;|&nbsp;
-            Variação = diferença entre pico e média (jitter estimado)
-        </div>
-        <div style="font-size:10px;color:#606880;margin-top:4px">
-            ⚠ Dados coletados apenas quando o Teste de Rede foi ativado manualmente no período. Testes esparsos podem não refletir o comportamento habitual.
-        </div>
-        </div>`;
-    } else {
-        html += `<div class="db-section">
-            <div class="db-section-title">📶 Qualidade de Rede por Mesa</div>
-            <div style="text-align:center;padding:24px;color:#8096b8;font-size:12px">
-                Nenhum teste de rede foi realizado no período selecionado.<br>
-                <span style="font-size:11px">Ative o Modo Teste de Rede na aba ⚙ Agente e execute um teste para ver os dados aqui.</span>
-            </div>
-        </div>`;
-    }
-
-    document.getElementById('db-conteudo').innerHTML = html;
 
     // ── Renderizar gráficos ───────────────────────────────────────────────────
     setTimeout(() => {
@@ -3323,6 +3429,262 @@ function renderDashboardConsolidado() {
         if (cv4) {
             cv4.width = cv4.offsetWidth || 400; cv4.height = 150;
             desenharPizzaAC(cv4, d.acPorTipo);
+        }
+    }, 80);
+}
+
+function renderDashboardConteudo() {
+    // Badge
+    const badge = document.getElementById('db-tipo-badge');
+    if (badge) { badge.textContent='👤 Cliente'; badge.style.cssText='padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;background:rgba(0,214,143,.15);color:#00d68f;border:1px solid rgba(0,214,143,.3)'; }
+
+
+    const snaps = _relSnaps;
+    const total = snaps.length;
+
+    // ── Calcular métricas ─────────────────────────────────────────
+    const scores     = snaps.map(s => s.score || 0);
+    const scoreMedia = Math.round(scores.reduce((a,b)=>a+b,0) / total);
+    const scoreMin   = Math.min(...scores);
+    const scoreMax   = Math.max(...scores);
+    const srvOnline  = snaps.filter(s => s.payload?.servidor_goomer === 'online').length;
+    const srvDisp    = Math.round((srvOnline / total) * 100);
+    const ipDiverg   = snaps.filter(s => s.payload?.ip_divergente === true).length;
+    const erroERP    = snaps.reduce((a,s) => a + (s.payload?.erp_errors||0), 0);
+    const semTablets = snaps.filter(s => (s.payload?.tablets_ativos||0) === 0).length;
+
+    // Autocorreções de todos os snapshots
+    const todasAC = snaps.flatMap(s => (s.payload?.autocorrecoes||[]));
+    const acPorTipo = {};
+    todasAC.forEach(ac => {
+        const t = ac.tipo || 'outro';
+        acPorTipo[t] = (acPorTipo[t]||0) + 1;
+    });
+    const totalAC = todasAC.length;
+
+    // ── Análise detalhada dos ofensores via payload ───────────────
+    const errosTotal  = snaps.reduce((a,s) => a + (s.payload?.erp_errors||s.payload?.erros_erp||0), 0);
+    // retry_expirados é acumulador do dia — pegar o maior valor de cada dia
+    const retryPorDia2 = {};
+    snaps.forEach(s => {
+        const dia = diaLocal(s.criado_em); if (!dia) return;
+        const v = s.payload?.retry_expirados || 0;
+        if (!retryPorDia2[dia] || v > retryPorDia2[dia]) retryPorDia2[dia] = v;
+    });
+    const retryTotal  = Object.values(retryPorDia2).reduce((a,b)=>a+b,0);
+    // erros_log: média por snapshot
+    const errosLog = snaps.length > 0
+        ? Math.round(snaps.reduce((a,s)=>a+(s.payload?.erros_log||0),0) / snaps.length)
+        : 0;
+
+    // Máquina: quantos snapshots com CPU ou RAM acima do limiar
+    const snapsCpuAlto  = snaps.filter(s => parseInt(s.payload?.maquina?.cpu||0) >= 70).length;
+    const snapsRamAlto  = snaps.filter(s => parseInt(s.payload?.maquina?.ram_pct||0) >= 80).length;
+    const snapsCpuCrit  = snaps.filter(s => parseInt(s.payload?.maquina?.cpu||0) >= 90).length;
+    const snapsRamCrit  = snaps.filter(s => parseInt(s.payload?.maquina?.ram_pct||0) >= 90).length;
+    const snapsDiskoCrit = snaps.filter(s => (s.payload?.maquina?.discos||[]).some(d=>parseInt(d.pct)>90)).length;
+
+    // CPU/RAM médias
+    const cpuVals = snaps.map(s=>parseInt(s.payload?.maquina?.cpu||0)).filter(v=>v>0);
+    const ramVals = snaps.map(s=>parseInt(s.payload?.maquina?.ram_pct||0)).filter(v=>v>0);
+    const cpuMedia = cpuVals.length ? Math.round(cpuVals.reduce((a,b)=>a+b,0)/cpuVals.length) : 0;
+    const ramMedia = ramVals.length ? Math.round(ramVals.reduce((a,b)=>a+b,0)/ramVals.length) : 0;
+
+    // Tablets: snapshots sem tablets ativos
+
+    // Score por dia (agrupar)
+    const porDia = {};
+    snaps.forEach(s => {
+        const dia = diaLocal(s.criado_em);
+        if (!dia) return;
+        if (!porDia[dia]) porDia[dia] = [];
+        porDia[dia].push(s.score||0);
+    });
+    const dias = Object.keys(porDia).sort();
+    const scorePorDia = dias.map(d => Math.round(porDia[d].reduce((a,b)=>a+b,0)/porDia[d].length));
+
+    // Disponibilidade por dia
+    const dispPorDia = {};
+    snaps.forEach(s => {
+        const dia = diaLocal(s.criado_em);
+        if (!dia) return;
+        if (!dispPorDia[dia]) dispPorDia[dia] = {on:0,tot:0};
+        dispPorDia[dia].tot++;
+        if (s.servidor_online) dispPorDia[dia].on++;
+    });
+    const dispDias = Object.keys(dispPorDia).sort();
+    const dispValues = dispDias.map(d => Math.round((dispPorDia[d].on/dispPorDia[d].tot)*100));
+
+    const corScore = s => s >= 85 ? '#00d68f' : s >= 60 ? '#ffb830' : '#ff4455';
+    const fmtDia = d => { const [,m,dd]=d.split('-'); return dd+'/'+m; };
+
+    // ── Render HTML ───────────────────────────────────────────────
+    let html = '';
+
+    // KPIs principais
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px">
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${corScore(scoreMedia)}">${scoreMedia}%</div>
+            <div class="db-stat-lbl">Score médio</div>
+        </div>
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${srvDisp>=95?'#00d68f':srvDisp>=80?'#ffb830':'#ff4455'}">${srvDisp}%</div>
+            <div class="db-stat-lbl">Disponibilidade</div>
+        </div>
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${totalAC>0?'#ffb830':'#00d68f'}">${totalAC}</div>
+            <div class="db-stat-lbl">Autocorreções</div>
+        </div>
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${ipDiverg>5?'#ff4455':ipDiverg>0?'#ffb830':'#00d68f'}">${ipDiverg}</div>
+            <div class="db-stat-lbl">Divergências de IP</div>
+        </div>
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:#e8eef8">${total}</div>
+            <div class="db-stat-lbl">Snapshots</div>
+        </div>
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${scoreMin<60?'#ff4455':'#e8eef8'}">${scoreMin}%</div>
+            <div class="db-stat-lbl">Score mínimo</div>
+        </div>
+    </div>`;
+
+    // Gráfico 1: Score ao longo do tempo
+    html += `<div class="db-section">
+        <div class="db-section-title">Score médio por dia</div>
+        <canvas id="db-chart-score" style="width:100%;height:180px;display:block"></canvas>
+    </div>`;
+
+    // Gráfico 2: Disponibilidade do servidor
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="db-section" style="margin-bottom:0">
+            <div class="db-section-title">Disponibilidade do servidor por dia (%)</div>
+            <canvas id="db-chart-disp" style="width:100%;height:160px;display:block"></canvas>
+        </div>
+        <div class="db-section" style="margin-bottom:0">
+            <div class="db-section-title">Autocorreções por tipo</div>
+            <canvas id="db-chart-ac" style="width:100%;height:160px;display:block"></canvas>
+        </div>
+    </div>`;
+
+    // Linha do tempo de ocorrências
+    if (todasAC.length > 0) {
+        html += `<div class="db-section">
+            <div class="db-section-title">Linha do tempo — autocorreções (${todasAC.length} ocorrências)</div>
+            <div style="max-height:220px;overflow-y:auto">`;
+        const tipoLbl = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado',
+            mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado' };
+        const tipoIco = { ip_sincronizado:'🌐', spooler_reiniciado:'🖨️', mysql_reiniciado:'🗄️', servidor_iniciado:'🖥️' };
+        const tipoCol = { ip_sincronizado:'#3b82f6', spooler_reiniciado:'#ffb830', mysql_reiniciado:'#00d68f', servidor_iniciado:'#a855f7' };
+        // Mostrar últimas 50
+        [...todasAC].reverse().slice(0,50).forEach(ac => {
+            const cor = tipoCol[ac.tipo] || '#8096b8';
+            const ico = tipoIco[ac.tipo] || '⚡';
+            const lbl = tipoLbl[ac.tipo] || ac.tipo;
+            const hora = ac.horario ? new Date(ac.horario).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+            const ok  = ac.resultado === 'sucesso';
+            html += `<div class="db-timeline-row">
+                <span style="font-size:14px;width:20px">${ico}</span>
+                <span style="color:${cor};font-weight:600;min-width:160px">${lbl}</span>
+                <span style="color:${ok?'#00d68f':'#ff4455'};font-weight:700;min-width:60px">${ok?'✓ OK':'✗ Falhou'}</span>
+                <span style="color:#606880;flex:1">${ac.obs||''}</span>
+                <span style="color:#8096b8;white-space:nowrap;margin-left:8px">${hora}</span>
+            </div>`;
+        });
+        html += '</div></div>';
+    }
+
+    // ── Insights automáticos ───────────────────────────────────────
+    const insights = [];
+
+    // ── Servidor (40pts) ──────────────────────────────────────────
+    if (srvDisp < 85)
+        insights.push({ nivel:'critico', ico:'🖥️', txt: `Servidor offline em ${100-srvDisp}% dos ciclos — principal ofensor do score. Verifique estabilidade do processo Goomer e reinicializações do servidor.` });
+    else if (srvDisp < 95)
+        insights.push({ nivel:'atencao', ico:'🖥️', txt: `Servidor ficou offline em ${100-srvDisp}% dos ciclos — impacta diretamente 40pts do score.` });
+
+    // ── IP divergente (-20pts penalidade) ─────────────────────────
+    if (ipDiverg > total * 0.2)
+        insights.push({ nivel:'critico', ico:'🌐', txt: `IP divergente em ${ipDiverg} ciclos (${Math.round(ipDiverg/total*100)}% do período), penalizando -20pts por ocorrência. Configure reserva de IP no roteador para este servidor.` });
+    else if (ipDiverg > 0)
+        insights.push({ nivel:'atencao', ico:'🌐', txt: `IP divergente detectado ${ipDiverg} vez(es) — autocorreção aplicada mas considere fixar o IP no roteador.` });
+
+    // ── Máquina (15pts) ────────────────────────────────────────────
+    if (snapsRamCrit > total * 0.1)
+        insights.push({ nivel:'critico', ico:'💾', txt: `RAM acima de 90% em ${snapsRamCrit} ciclos (${Math.round(snapsRamCrit/total*100)}% do tempo) — principal ofensor de performance. Média: ${ramMedia}%. Considere ampliar a memória ou reduzir processos.` });
+    else if (snapsRamAlto > total * 0.2)
+        insights.push({ nivel:'atencao', ico:'💾', txt: `RAM entre 80-90% em ${snapsRamAlto} ciclos — impactando os 15pts de performance da máquina. Média: ${ramMedia}%.` });
+
+    if (snapsCpuCrit > total * 0.1)
+        insights.push({ nivel:'critico', ico:'⚙️', txt: `CPU acima de 90% em ${snapsCpuCrit} ciclos (${Math.round(snapsCpuCrit/total*100)}% do tempo) — servidor sobrecarregado. Média: ${cpuMedia}%.` });
+    else if (snapsCpuAlto > total * 0.2)
+        insights.push({ nivel:'atencao', ico:'⚙️', txt: `CPU entre 70-90% em ${snapsCpuAlto} ciclos — afetando performance. Média: ${cpuMedia}%.` });
+
+    if (snapsDiskoCrit > 0)
+        insights.push({ nivel:'critico', ico:'💿', txt: `Disco acima de 90% detectado em ${snapsDiskoCrit} ciclos — risco de falha crítica. Libere espaço imediatamente.` });
+
+    // ── ERP (25pts) ────────────────────────────────────────────────
+    if (retryTotal > 0)
+        insights.push({ nivel:'atencao', ico:'🔗', txt: `${retryTotal} pedidos com pedido(s) que não conseguiram ser enviados ao sistema de gestão (ERP). Verifique a integração com o sistema de gestão.` });
+
+    // ── Erros de log (20pts) ──────────────────────────────────────
+    if (errosLog > 500 * snaps.length / snaps.length)
+        insights.push({ nivel:'atencao', ico:'📋', txt: `Alto volume de erros sistêmicos nos logs — ${Math.round(errosLog/total)} erros por ciclo em média. Pode indicar problema de integração recorrente.` });
+
+    // ── Autocorreções recorrentes ─────────────────────────────────
+    if ((acPorTipo['spooler_reiniciado']||0) > 3)
+        insights.push({ nivel:'atencao', ico:'🖨️', txt: `Spooler reiniciado ${acPorTipo['spooler_reiniciado']} vezes — problema recorrente de impressora. Verifique driver ou hardware.` });
+    if ((acPorTipo['mysql_reiniciado']||0) > 2)
+        insights.push({ nivel:'critico', ico:'🗄️', txt: `MySQL reiniciado ${acPorTipo['mysql_reiniciado']} vezes — banco de dados instável. Verifique memória disponível e logs do MySQL.` });
+    if ((acPorTipo['servidor_iniciado']||0) > 3)
+        insights.push({ nivel:'critico', ico:'🔄', txt: `Servidor Goomer reiniciado ${acPorTipo['servidor_iniciado']} vezes — processo muito instável. Pode estar relacionado a alta de RAM/CPU.` });
+    if (semTablets > total * 0.05)
+        insights.push({ nivel:'atencao', ico:'📱', txt: `${semTablets} ciclos sem tablets ativos (${Math.round(semTablets/total*100)}% do período) — tablets desconectando recorrentemente. Verifique WiFi.` });
+
+    // ── Score geral ───────────────────────────────────────────────
+    if (scoreMin < 40)
+        insights.push({ nivel:'critico', ico:'🚨', txt: `Score mínimo crítico de ${scoreMin}% registrado — houve ao menos um ciclo grave. Analise o horário exato na linha do tempo.` });
+
+    if (insights.length === 0)
+        insights.push({ nivel:'ok', ico:'✅', txt: `Score médio de ${scoreMedia}% — loja operou dentro dos parâmetros normais. Servidor disponível ${srvDisp}% do tempo, sem ofensores significativos.` });
+
+    const corInsight = { critico:'#ff4455', atencao:'#ffb830', ok:'#00d68f' };
+    const bgInsight  = { critico:'rgba(255,68,85,.07)', atencao:'rgba(255,184,48,.07)', ok:'rgba(0,214,143,.07)' };
+    const bdInsight  = { critico:'rgba(255,68,85,.3)', atencao:'rgba(255,184,48,.3)', ok:'rgba(0,214,143,.3)' };
+
+    html += `<div class="db-section">
+        <div class="db-section-title">💡 Insights do período</div>
+        ${insights.map(ins => `
+        <div style="background:${bgInsight[ins.nivel]};border:1px solid ${bdInsight[ins.nivel]};border-left:3px solid ${corInsight[ins.nivel]};border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start">
+            <span style="font-size:16px;flex-shrink:0">${ins.ico}</span>
+            <span style="font-size:12px;color:#e8eef8;line-height:1.5">${ins.txt}</span>
+        </div>`).join('')}
+    </div>`;
+
+    document.getElementById('db-conteudo').innerHTML = html;
+
+    // ── Renderizar gráficos Canvas ────────────────────────────────
+    setTimeout(() => {
+        // Gráfico Score
+        const cvScore = document.getElementById('db-chart-score');
+        if (cvScore && dias.length > 0) {
+            cvScore.width  = cvScore.offsetWidth || 800;
+            cvScore.height = 180;
+            desenharLinhaScore(cvScore, dias, scorePorDia, fmtDia, corScore);
+        }
+        // Gráfico Disponibilidade
+        const cvDisp = document.getElementById('db-chart-disp');
+        if (cvDisp && dispDias.length > 0) {
+            cvDisp.width  = cvDisp.offsetWidth || 400;
+            cvDisp.height = 160;
+            desenharBarrasDisp(cvDisp, dispDias, dispValues, fmtDia);
+        }
+        // Gráfico Autocorreções
+        const cvAC = document.getElementById('db-chart-ac');
+        if (cvAC) {
+            cvAC.width  = cvAC.offsetWidth || 400;
+            cvAC.height = 160;
+            desenharPizzaAC(cvAC, acPorTipo);
         }
     }, 80);
 }
@@ -3569,6 +3931,189 @@ function desenharPizzaAC(cv, acPorTipo) {
 // ════════════════════════════════════════════════════════════════
 // VERSÃO SUPORTE — análise técnica completa
 // ════════════════════════════════════════════════════════════════
+function renderDashboardSuporte() {
+    const badge = document.getElementById('db-tipo-badge');
+    if (badge) { badge.textContent='🔧 Suporte'; badge.style.cssText='padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;background:rgba(255,184,48,.15);color:#ffb830;border:1px solid rgba(255,184,48,.3)'; }
+
+    const d = calcularDadosRelatorio(_relSnaps);
+    const corScore = s => s>=85?'#00d68f':s>=65?'#ffb830':'#ff4455';
+    const fmtDia   = s => { const[,m,dd]=s.split('-'); return dd+'/'+m; };
+    const tipoLbl  = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado', mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado' };
+    const tipoIco  = { ip_sincronizado:'🌐', spooler_reiniciado:'🖨️', mysql_reiniciado:'🗄️', servidor_iniciado:'🖥️' };
+    const tipoCol  = { ip_sincronizado:'#3b82f6', spooler_reiniciado:'#ffb830', mysql_reiniciado:'#00d68f', servidor_iniciado:'#a855f7' };
+
+    let html = '';
+
+    // KPIs técnicos
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px">
+        ${[
+            ['Score médio',        d.scoreMedia+'%', corScore(d.scoreMedia)],
+            ['Score mín / máx',    d.scoreMin+'% / '+d.scoreMax+'%', '#e8eef8'],
+            ['Disponibilidade',    d.srvDisp+'%',  d.srvDisp>=95?'#00d68f':d.srvDisp>=80?'#ffb830':'#ff4455'],
+            ['Divergências IP',    d.ipDiverg+'x', d.ipDiverg>5?'#ff4455':d.ipDiverg>0?'#ffb830':'#00d68f'],
+            ['Autocorreções',      d.totalAC+'x',  d.totalAC>0?'#ffb830':'#00d68f'],
+            ['CPU média',          d.cpuMedia?d.cpuMedia+'%':'—', d.cpuMedia>85?'#ff4455':d.cpuMedia>70?'#ffb830':'#00d68f'],
+            ['RAM média',          d.ramMedia?d.ramMedia+'%':'—', d.ramMedia>85?'#ff4455':d.ramMedia>80?'#ffb830':'#00d68f'],
+            ['Retry ERP',          d.retryTotal+'x', d.retryTotal>0?'#ff4455':'#00d68f'],
+            ['Snaps s/ tablets',   d.semTablets+'x', d.semTablets>5?'#ffb830':'#8096b8'],
+            ['Total snapshots',    d.total+'', '#8096b8'],
+        ].map(([lbl,val,cor])=>`
+        <div class="db-stat-card">
+            <div class="db-stat-val" style="color:${cor};font-size:20px">${val}</div>
+            <div class="db-stat-lbl">${lbl}</div>
+        </div>`).join('')}
+    </div>`;
+
+    // Componentes do score
+    html += `<div class="db-section"><div class="db-section-title">Componentes do score (média do período)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">`;
+    const compMedia = [
+        { nome:'Servidor (40pts)', pct: Math.round(d.srvDisp*0.4), max:40, cor:'#3b82f6' },
+        { nome:'ERP (25pts)',      pct: d.retryTotal>0 ? Math.round((1-Math.min(d.retryTotal/d.total,1))*25) : 25, max:25, cor:'#00d68f' },
+        { nome:'Logs (20pts)',     pct: d.errosLog > 200*d.total ? 5 : d.errosLog > 50*d.total ? 10 : d.errosLog > 0 ? 16 : 20, max:20, cor:'#ffb830' },
+        { nome:'Máquina (15pts)',  pct: d.snapsCpuCrit>d.total*.1||d.snapsRamCrit>d.total*.1 ? 5 : d.snapsCpuAlto>d.total*.2||d.snapsRamAlto>d.total*.2 ? 10 : 15, max:15, cor:'#a855f7' },
+    ];
+    compMedia.forEach(c => {
+        const pct = Math.round(c.pct/c.max*100);
+        html += `<div style="background:var(--bg3);border-radius:8px;padding:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:11px;color:#a0b8d0">${c.nome}</span>
+                <span style="font-size:12px;font-weight:700;color:${c.cor}">${c.pct}/${c.max}pts</span>
+            </div>
+            <div style="background:rgba(255,255,255,.06);border-radius:4px;height:6px">
+                <div style="background:${c.cor};width:${pct}%;height:6px;border-radius:4px;transition:.3s"></div>
+            </div>
+        </div>`;
+    });
+    html += '</div></div>';
+
+    // Gráficos
+    html += `<div class="db-section"><div class="db-section-title">Score por dia</div>
+        <canvas id="db-chart-score" style="width:100%;height:160px;display:block"></canvas></div>`;
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="db-section" style="margin-bottom:0"><div class="db-section-title">Disponibilidade (%)</div>
+            <canvas id="db-chart-disp" style="width:100%;height:140px;display:block"></canvas></div>
+        <div class="db-section" style="margin-bottom:0"><div class="db-section-title">Autocorreções por tipo</div>
+            <canvas id="db-chart-ac" style="width:100%;height:140px;display:block"></canvas></div>
+    </div>`;
+
+    // Linha do tempo completa
+    html += `<div class="db-section"><div class="db-section-title">Linha do tempo — ${d.todasAC.length} autocorreções</div>
+        <div style="max-height:260px;overflow-y:auto">`;
+    if (d.todasAC.length === 0) {
+        html += '<div style="color:#8096b8;font-size:12px;padding:8px">Nenhuma autocorreção no período.</div>';
+    } else {
+        [...d.todasAC].reverse().slice(0,80).forEach(ac => {
+            const cor = tipoCol[ac.tipo]||'#8096b8', ico = tipoIco[ac.tipo]||'⚡', lbl = tipoLbl[ac.tipo]||ac.tipo;
+            const ok  = ac.resultado==='sucesso';
+            const hora = ac.horario ? new Date(ac.horario).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+            html += `<div class="db-timeline-row">
+                <span style="width:18px">${ico}</span>
+                <span style="color:${cor};min-width:140px;font-weight:600">${lbl}</span>
+                <span style="color:${ok?'#00d68f':'#ff4455'};min-width:55px;font-weight:700">${ok?'✓':'✗'}</span>
+                <span style="color:#606880;flex:1;font-size:10px">${ac.obs||''}</span>
+                <span style="color:#8096b8;white-space:nowrap">${hora}</span>
+            </div>`;
+        });
+    }
+    html += '</div></div>';
+
+    document.getElementById('db-conteudo').innerHTML = html;
+    setTimeout(() => {
+        const cv1 = document.getElementById('db-chart-score');
+        if (cv1) { cv1.width=cv1.offsetWidth||800; cv1.height=160; desenharLinhaScore(cv1,d.dias,d.scorePorDia,fmtDia,corScore); }
+        const cv2 = document.getElementById('db-chart-disp');
+        if (cv2) { cv2.width=cv2.offsetWidth||400; cv2.height=140; desenharBarrasDisp(cv2,d.dispDias,d.dispValues,fmtDia); }
+        const cv3 = document.getElementById('db-chart-ac');
+        if (cv3) { cv3.width=cv3.offsetWidth||400; cv3.height=140; desenharPizzaAC(cv3,d.acPorTipo); }
+    }, 80);
+}
+
+// ════════════════════════════════════════════════════════════════
+// VERSÃO GESTÃO — impacto de negócio
+// ════════════════════════════════════════════════════════════════
+function renderDashboardGestao() {
+    const badge = document.getElementById('db-tipo-badge');
+    if (badge) { badge.textContent='📈 Gestão'; badge.style.cssText='padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.3)'; }
+
+    const d = calcularDadosRelatorio(_relSnaps);
+    const corScore = s => s>=85?'#00d68f':s>=65?'#ffb830':'#ff4455';
+    const fmtDia   = s => { const[,m,dd]=s.split('-'); return dd+'/'+m; };
+
+    // Nota de saúde geral
+    const notaGeral = d.scoreMedia >= 90 ? 'Excelente' : d.scoreMedia >= 80 ? 'Bom' : d.scoreMedia >= 65 ? 'Regular' : 'Crítico';
+    const corNota   = d.scoreMedia >= 90 ? '#00d68f'   : d.scoreMedia >= 80 ? '#3b82f6' : d.scoreMedia >= 65 ? '#ffb830' : '#ff4455';
+
+    let html = '';
+
+    // Resumo de negócio
+    html += `<div style="background:linear-gradient(135deg,rgba(14,92,254,.12),rgba(0,214,143,.08));border:1px solid rgba(14,92,254,.3);border-radius:14px;padding:24px;margin-bottom:18px">
+        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center">
+            <div>
+                <div style="font-size:13px;color:#8096b8;margin-bottom:4px">Saúde geral do sistema no período</div>
+                <div style="font-size:36px;font-weight:800;color:${corNota}">${notaGeral}</div>
+                <div style="font-size:13px;color:#a0b8d0;margin-top:6px">Score médio de <strong style="color:${corNota}">${d.scoreMedia}%</strong> · ${d.total} medições realizadas</div>
+            </div>
+            <div style="text-align:center">
+                <div style="width:80px;height:80px;border-radius:50%;border:4px solid ${corNota};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:${corNota}">${d.scoreMedia}%</div>
+            </div>
+        </div>
+    </div>`;
+
+    // Métricas de impacto
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px">
+        <div class="db-stat-card" style="border-left:3px solid #00d68f">
+            <div class="db-stat-val" style="color:#00d68f">${d.srvDisp}%</div>
+            <div class="db-stat-lbl">Disponibilidade do sistema</div>
+            <div style="font-size:10px;color:#8096b8;margin-top:6px">Sistema online ${Math.round(d.srvOnline*5/60)}h de ${Math.round(d.total*5/60)}h monitoradas</div>
+        </div>
+        <div class="db-stat-card" style="border-left:3px solid #3b82f6">
+            <div class="db-stat-val" style="color:#3b82f6">${d.totalAC}</div>
+            <div class="db-stat-lbl">Correções automáticas</div>
+            <div style="font-size:10px;color:#8096b8;margin-top:6px">Problemas resolvidos sem intervenção humana</div>
+        </div>
+        <div class="db-stat-card" style="border-left:3px solid #a855f7">
+            <div class="db-stat-val" style="color:#a855f7">~${d.minEvitados}min</div>
+            <div class="db-stat-lbl">Tempo de parada evitado</div>
+            <div style="font-size:10px;color:#8096b8;margin-top:6px">Estimativa: 15min por correção automática</div>
+        </div>
+        <div class="db-stat-card" style="border-left:3px solid #ffb830">
+            <div class="db-stat-val" style="color:#ffb830">${d.chamadosEvitados}</div>
+            <div class="db-stat-lbl">Chamados evitados</div>
+            <div style="font-size:10px;color:#8096b8;margin-top:6px">Estimativa: 1 chamado a cada 3 correções</div>
+        </div>
+    </div>`;
+
+    // Gráfico de score
+    html += `<div class="db-section"><div class="db-section-title">Evolução da saúde do sistema</div>
+        <canvas id="db-chart-score" style="width:100%;height:160px;display:block"></canvas></div>`;
+
+    // Pontos de atenção executivos
+    const atencoes = [];
+    if (d.srvDisp < 95) atencoes.push(`Sistema ficou offline em ${100-d.srvDisp}% do tempo — requer investigação técnica.`);
+    if (d.snapsRamCrit > d.total*0.1) atencoes.push(`Memória RAM saturada (>90%) em ${Math.round(d.snapsRamCrit/d.total*100)}% das medições — hardware pode precisar de upgrade.`);
+    if (d.ipDiverg > d.total*0.1) atencoes.push(`Configuração de rede instável — IP divergiu em ${d.ipDiverg} ocasiões.`);
+    if (d.retryTotal > 0) atencoes.push(`${d.retryTotal} pedido(s) não chegaram ao sistema de gestão (ERP) no período.`);
+
+    if (atencoes.length > 0) {
+        html += `<div class="db-section"><div class="db-section-title">⚠️ Pontos de atenção</div>
+        ${atencoes.map(a=>`<div style="padding:8px 12px;background:rgba(255,184,48,.07);border-left:3px solid #ffb830;border-radius:4px;font-size:12px;color:#e8eef8;margin-bottom:6px">${a}</div>`).join('')}
+        </div>`;
+    } else {
+        html += `<div class="db-section"><div style="color:#00d68f;font-size:13px">✅ Nenhum ponto crítico de atenção no período.</div></div>`;
+    }
+
+    document.getElementById('db-conteudo').innerHTML = html;
+    setTimeout(() => {
+        const cv = document.getElementById('db-chart-score');
+        if (cv) { cv.width=cv.offsetWidth||800; cv.height=160; desenharLinhaScore(cv,d.dias,d.scorePorDia,fmtDia,corScore); }
+    }, 80);
+}
+
+// ════════════════════════════════════════════════════════════════
+// VISÃO DE REDE / FRANQUIA
+// ════════════════════════════════════════════════════════════════
+
 function abrirVisaoRede() {
     if (_tags.length === 0) {
         alert('Nenhuma tag criada. Crie tags para segmentar lojas por rede ou franquia.');
@@ -4402,7 +4947,7 @@ function exportarRelatorioHTML() {
     const tipo = window._tipoRelatorio || 'cliente';
     const tipoLbl = { cliente:'Cliente', suporte:'Suporte Técnico', gestao:'Gestão' };
     const corScore = s => s>=85?'#00d68f':s>=65?'#ffb830':'#ff4455';
-    const tipoAC = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado', mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado', sale_order_limpo:'Limpeza sale_order' };
+    const tipoAC = { ip_sincronizado:'IP sincronizado', spooler_reiniciado:'Spooler reiniciado', mysql_reiniciado:'MySQL reiniciado', servidor_iniciado:'Servidor iniciado' };
     const notaGeral = d.scoreMedia>=90?'Excelente':d.scoreMedia>=80?'Bom':d.scoreMedia>=65?'Regular':'Crítico';
     const corNota = corScore(d.scoreMedia);
 
@@ -4523,7 +5068,7 @@ function exportarRelatorioHTML() {
     <div class="comp-grid">
       ${[
         ['Servidor (40pts)', Math.round(d.srvDisp*0.4), 40, d.srvDisp>=95?'#16a34a':'#dc2626'],
-        ['ERP / Integração (25pts)', d.retryTotal>0&&d.totalPedidosPeriodo>0 ? Math.round((1-Math.min(d.retryTotal/d.totalPedidosPeriodo,1))*25) : 25, 25, d.retryTotal>0?'#d97706':'#16a34a'],
+        ['ERP / Integração (25pts)', d.retryTotal>0 ? Math.round((1-Math.min(d.retryTotal/d.total,1))*25) : 25, 25, d.retryTotal>0?'#d97706':'#16a34a'],
         ['Logs do sistema (20pts)', d.errosLog>200*d.total?5:d.errosLog>50*d.total?10:d.errosLog>0?16:20, 20, '#475569'],
         ['Saúde da máquina (15pts)', d.snapsCpuCrit>d.total*.1||d.snapsRamCrit>d.total*.1?5:d.snapsCpuAlto>d.total*.2||d.snapsRamAlto>d.total*.2?10:15, 15, d.snapsRamAlto>d.total*.2?'#d97706':'#16a34a'],
       ].map(([n,pts,max,cor])=>`
@@ -5078,6 +5623,7 @@ async function exportarDesatualizados() {
     alert(`✓ ${lojas.length} loja(s) exportada(s) para Excel.`);
 }
 
+
 </script>
 
   <!-- Botão fixo de configurações -->
@@ -5119,21 +5665,13 @@ async function exportarDesatualizados() {
           <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Horário de silêncio (sem alertas)</div>
           <div style="background:#111827;border:1px solid #1e3050;border-radius:10px;padding:14px">
             <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-              <label style="font-size:12px;color:#8096b8">Início
-                <input type="time" id="cfg-silencio-ini"
-                  style="margin-left:8px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:6px 10px;border-radius:6px;font-size:13px;font-family:var(--mono)">
-              </label>
+              <label style="font-size:12px;color:#8096b8">Início<input type="time" id="cfg-silencio-ini" style="margin-left:8px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:6px 10px;border-radius:6px;font-size:13px;font-family:var(--mono)"></label>
               <span style="color:#606880;font-size:18px">→</span>
-              <label style="font-size:12px;color:#8096b8">Fim
-                <input type="time" id="cfg-silencio-fim"
-                  style="margin-left:8px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:6px 10px;border-radius:6px;font-size:13px;font-family:var(--mono)">
-              </label>
+              <label style="font-size:12px;color:#8096b8">Fim<input type="time" id="cfg-silencio-fim" style="margin-left:8px;background:#0d1117;border:1px solid #1e3050;color:#e8eef8;padding:6px 10px;border-radius:6px;font-size:13px;font-family:var(--mono)"></label>
               <button onclick="limparSilencio()" style="background:none;border:1px solid #1e3050;color:#8096b8;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:11px">limpar</button>
             </div>
             <div id="silencio-preview" style="font-size:11px;color:#8096b8;line-height:1.6"></div>
-            <div style="font-size:10px;color:#606880;margin-top:6px">
-              💡 Para silêncio noturno (ex: 23:00 às 07:00), basta colocar 23:00 → 07:00 — o sistema detecta automaticamente que cruza a meia-noite.
-            </div>
+            <div style="font-size:10px;color:#606880;margin-top:6px">💡 Para silêncio noturno (ex: 23:00 às 07:00), basta colocar 23:00 → 07:00 — o sistema detecta automaticamente que cruza a meia-noite.</div>
           </div>
         </div>
         <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Critérios de alerta</div>
@@ -5256,79 +5794,47 @@ async function exportarDesatualizados() {
     </div>
   </div>
 
-  <!-- Modal Teste de Rede -->
+  <!-- Modal Teste de Rede (detalhe por mesa) -->
   <div id="modal-teste-rede" onclick="if(event.target===this)fecharModalTesteRede()"
     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;align-items:center;justify-content:center;padding:16px">
     <div style="background:#111827;border:1px solid #1E3050;border-radius:12px;width:100%;max-width:760px;max-height:90vh;overflow-y:auto;padding:0">
-      <!-- Header -->
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #1E3050">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #1e3050;position:sticky;top:0;background:#111827;z-index:1">
         <div>
-          <div id="mtr-titulo" style="font-size:15px;font-weight:700;color:#e8eef8"></div>
-          <div id="mtr-sub"    style="font-size:11px;color:#8096b8;margin-top:2px"></div>
+          <div id="mtr-titulo" style="font-size:15px;font-weight:800;color:#e8eef8"></div>
+          <div id="mtr-sub"    style="font-size:12px;color:#8096b8;margin-top:2px"></div>
         </div>
-        <button onclick="fecharModalTesteRede()"
-          style="background:none;border:none;color:#8096b8;font-size:20px;cursor:pointer;padding:4px 8px;border-radius:6px">✕</button>
+        <button onclick="fecharModalTesteRede()" style="background:none;border:none;color:#8096b8;font-size:20px;cursor:pointer">✕</button>
       </div>
-      <!-- Resumo stats -->
-      <div id="mtr-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#1E3050"></div>
-      <!-- Gráfico -->
-      <div style="padding:20px">
-        <div style="font-size:11px;font-weight:700;color:#a0b8d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Latência por ciclo (ms)</div>
-        <canvas id="mtr-canvas" style="width:100%;height:240px;display:block;border-radius:8px"></canvas>
-        <!-- Legenda -->
-        <div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap">
-          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8096b8">
-            <div style="width:24px;height:3px;background:#00d68f;border-radius:2px"></div>Latência
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8096b8">
-            <div style="width:24px;height:1px;border-top:1px dashed #ffb830"></div>Instável ≥300ms
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8096b8">
-            <div style="width:24px;height:1px;border-top:1px dashed #ff4455"></div>Crítico ≥500ms
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8096b8">
-            <div style="width:10px;height:10px;border-radius:50%;background:#00d68f"></div>OK
-            <div style="width:10px;height:10px;border-radius:50%;background:#ffb830;margin-left:4px"></div>Instável
-            <div style="width:10px;height:10px;border-radius:50%;background:#ff4455;margin-left:4px"></div>Crítico
-          </div>
-        </div>
+      <div style="padding:20px;display:flex;gap:12px;flex-wrap:wrap">
+        <button onclick="document.getElementById('mtr-sec-resumo').style.display='';document.getElementById('mtr-sec-hist').style.display='none'"
+          style="padding:7px 14px;border-radius:7px;background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;font-size:12px;font-weight:700;cursor:pointer">📊 Resumo</button>
+        <button onclick="document.getElementById('mtr-sec-hist').style.display='';document.getElementById('mtr-sec-resumo').style.display='none'"
+          style="padding:7px 14px;border-radius:7px;background:var(--bg3);border:1px solid var(--border);color:#a0b8d0;font-size:12px;cursor:pointer">📈 Histórico de ciclos</button>
       </div>
+      <div id="mtr-sec-resumo" style="padding:0 20px 20px"></div>
+      <div id="mtr-sec-hist"   style="padding:0 20px 20px;display:none"></div>
     </div>
   </div>
 
   <!-- Modal Dashboard Fullscreen -->
   <div id="modal-dashboard" onclick="if(event.target===this)fecharDashboard()"
-    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10000;overflow-y:auto;padding:0">
-    <div style="background:#0A0F1E;min-height:100vh;padding:24px 28px;max-width:1200px;margin:0 auto">
-      <!-- Header dashboard -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9990;overflow-y:auto;padding:20px 16px">
+    <div style="max-width:900px;margin:0 auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
         <div>
-          <div style="display:flex;align-items:center;gap:10px">
-            <div id="db-titulo" style="font-size:20px;font-weight:800;color:#e8eef8"></div>
-            <span id="db-tipo-badge" style="padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em"></span>
-          </div>
-          <div id="db-subtitulo" style="font-size:12px;color:#8096b8;margin-top:3px"></div>
+          <div id="db-titulo" style="font-size:18px;font-weight:800;color:#e8eef8"></div>
+          <div id="db-sub"    style="font-size:12px;color:#8096b8;margin-top:2px"></div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button onclick="exportarRelatorioHTML()"
-            style="background:rgba(168,85,247,.15);border:1px solid rgba(168,85,247,.4);color:#c084fc;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">
-            ↓ Exportar HTML
-          </button>
-          <button onclick="exportarRelatorioExcel()"
-            style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">
-            ↓ Exportar Excel
-          </button>
-          <button onclick="fecharDashboard()"
-            style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#8096b8;padding:8px 14px;border-radius:8px;font-size:14px;cursor:pointer">✕</button>
+          <span id="db-tipo-badge" style="padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;background:rgba(0,214,143,.15);color:#00d68f;border:1px solid rgba(0,214,143,.3)"></span>
+          <button onclick="exportarRelatorioHTML()" style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">↓ HTML</button>
+          <button onclick="exportarRelatorioExcel()" style="background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:#00d68f;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">↓ Excel</button>
+          <button onclick="fecharDashboard()" style="background:none;border:1px solid #1e3050;color:#8096b8;padding:7px 12px;border-radius:7px;font-size:12px;cursor:pointer">✕ Fechar</button>
         </div>
       </div>
-      <!-- Conteúdo renderizado dinamicamente -->
-      <div id="db-conteudo"></div>
+      <div id="db-conteudo" style="background:#0d1117;border:1px solid #1e3050;border-radius:14px;padding:20px"></div>
     </div>
   </div>
-
-
-
 
 </body>
 </html>
