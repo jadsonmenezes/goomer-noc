@@ -616,6 +616,26 @@ function filtrar() {
     renderGrid(lista);
     // Verificar alertas após cada atualização dos dados
     if (_cfg.slack_webhook) verificarAlertas(_dados);
+
+    // ── Persistir testes de rede automaticamente a cada ciclo ────────────
+    if (!window._trSessoes) window._trSessoes = {};
+    const _diaLocalLoop = new Date(Date.now() - new Date().getTimezoneOffset()*60000)
+                            .toISOString().slice(0,10);
+    _dados.forEach(l => {
+        const pay = l.payload || {};
+        const testeAtivo = pay.teste_rede_ativo === true || pay.teste_rede_ativo === 'true';
+        const diagRede   = pay.diagnostico_rede;
+        if (!testeAtivo || !diagRede?.length) {
+            if (!testeAtivo && window._trSessoes[l.token_loja]) {
+                delete window._trSessoes[l.token_loja];
+            }
+            return;
+        }
+        if (!window._trSessoes[l.token_loja]) {
+            window._trSessoes[l.token_loja] = l.token_loja + '_' + Date.now();
+        }
+        persistirTesteRedeLoop(l.token_loja, window._trSessoes[l.token_loja], _diaLocalLoop, diagRede);
+    });
 }
 
 function renderGrid(lista) {
@@ -2682,6 +2702,39 @@ async function ativarTesteRede(token) {
     window._trSessaoId = token + '_' + Date.now();
     window._trDiaLocal = new Date(Date.now() - new Date().getTimezoneOffset()*60000)
                             .toISOString().slice(0,10);
+}
+
+// Versão chamada pelo loop principal de carregar() — sem depender do modal aberto
+async function persistirTesteRedeLoop(token, sessaoId, diaLocal, diagRedeData) {
+    if (!diagRedeData?.length) return;
+    const horario = new Date().toISOString();
+    const linhas = diagRedeData.map(t => ({
+        token_loja: token,
+        sessao_id:  sessaoId,
+        dia:        diaLocal,
+        horario:    horario,
+        mesa:       String(t.mesa || ''),
+        ip:         t.ip || '',
+        ping_med:   t.ping_med    ?? null,
+        ping_max:   t.ping_max_abs ?? null,
+        perda_med:  t.perda_med_pct ?? null,
+        perda_max:  t.perda_max_pct ?? null,
+        wifi_med:   t.wifi_med    ?? null,
+        wifi_min:   t.wifi_min    ?? null,
+        offline:    t.saude === 'offline',
+    }));
+    try {
+        await fetch(`${SB_URL}/rest/v1/noc_testes_rede`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'apikey': SB_KEY,
+                'Authorization': 'Bearer ' + SB_KEY,
+                'Prefer': 'resolution=merge-duplicates',
+            },
+            body: JSON.stringify(linhas),
+        });
+    } catch(e) { /* silencioso — não bloquear o loop */ }
 }
 
 async function persistirTesteRede(token, diagRedeData) {
