@@ -1398,7 +1398,7 @@ async function abrirLoja(token, abaInicial) {
         persistirTesteRede(l.token_loja, _diagRedeData);
     }
     const _btnTesteRede = document.getElementById('btn-tab-teste-rede');
-    if (_btnTesteRede) _btnTesteRede.style.display = _diagRedeData?.length > 0 ? '' : 'none';
+    if (_btnTesteRede) _btnTesteRede.style.display = ''; // sempre visível — histórico vem do Supabase
 
     // ── Aba Teste de Rede: histórico do Supabase ─────────────────────────────
     window._trDados = _diagRedeData;
@@ -3128,7 +3128,7 @@ async function gerarDashboard(token, nome) {
 
     // Buscar snapshots do período
     document.getElementById('db-titulo').textContent = nome;
-    document.getElementById('db-subtitulo').textContent = 'Carregando dados do período: ' + label + '...';
+    document.getElementById('db-sub').textContent = 'Carregando dados do período: ' + label + '...';
     document.getElementById('db-conteudo').innerHTML = '<div style="text-align:center;padding:60px;color:#8096b8">⏳ Buscando snapshots...</div>';
     document.getElementById('modal-dashboard').style.display = 'block';
     document.body.style.overflow = 'hidden';
@@ -3147,7 +3147,7 @@ async function gerarDashboard(token, nome) {
         return;
     }
 
-    document.getElementById('db-subtitulo').textContent = label + ' · ' + _relSnaps.length + ' snapshots';
+    document.getElementById('db-sub').textContent = label + ' · ' + _relSnaps.length + ' snapshots';
 
     if (_relSnaps.length === 0) {
         document.getElementById('db-conteudo').innerHTML = '<div style="text-align:center;padding:60px;color:#8096b8">Nenhum dado encontrado para este período.</div>';
