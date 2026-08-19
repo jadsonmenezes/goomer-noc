@@ -623,10 +623,12 @@ function filtrar() {
                             .toISOString().slice(0,10);
     _dados.forEach(l => {
         const pay = l.payload || {};
-        const testeAtivo = pay.teste_rede_ativo === true || pay.teste_rede_ativo === 'true';
         const diagRede   = pay.diagnostico_rede;
-        if (!testeAtivo || !diagRede?.length) {
-            if (!testeAtivo && window._trSessoes[l.token_loja]) {
+        const testeAtivo = pay.teste_rede_ativo === true || pay.teste_rede_ativo === 'true'
+                        || (diagRede?.length > 0); // fallback: se tem dados, teste está ativo
+        if (!diagRede?.length) {
+            // Sem dados de rede — zerar sessão se teste foi desativado
+            if (!pay.teste_rede_ativo && window._trSessoes[l.token_loja]) {
                 delete window._trSessoes[l.token_loja];
             }
             return;
@@ -2822,7 +2824,7 @@ async function buscarHistoricoRede(token) {
         const url = `${SB_URL}/rest/v1/noc_testes_rede`
             + `?token_loja=eq.${encodeURIComponent(token)}`
             + `&criado_em=gte.${limite}`
-            + `&order=horario.asc&limit=2000`;
+            + `&order=horario.desc&limit=5000`; // desc: mais recentes primeiro, evita corte de dados de hoje
         const res = await fetch(url, {
             headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
         });
