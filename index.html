@@ -733,7 +733,7 @@ function renderGrid(lista) {
         // Falhas nas autocorreções
         if (_acFalhou.length > 0) als.push({c:'warn', m:`${_acFalhou.length} autocorreção(ões) falharam — verificar manualmente`});
         if (pay.inadimplente)              als.push({c:'crit',m:'Bloqueio financeiro'});
-        if (l.retry_expirados>0) { const _th=Math.round((l.retry_expirados/5)*60); als.push({c:'crit',m:`${l.retry_expirados} pedido(s) sem ERP (~${_th}/hora)`}); }
+        if (l.retry_expirados>0) { const _thE=Math.round((l.retry_expirados/5)*60); als.push({c:_thE>3?'crit':'warn',m:`${l.retry_expirados} pedido(s) sem ERP${_thE>0?` (~${_thE}/hora)`:''}`}); }
         if (l.erros_log>500)               als.push({c:'warn',m:`Volume alto de erros recentes: ${l.erros_log}`});
         const _corrCrit = (pay.correlacoes||[]).filter(c=>c.nivel==='critico').length;
         if (_corrCrit>0)                    als.push({c:'crit',m:`${_corrCrit} correlação(ões) crítica(s) detectada(s)`});
@@ -3407,18 +3407,18 @@ function renderDashboardConsolidado() {
             disponibilidade de <strong style="color:${d.srvDisp>=95?'#00d68f':d.srvDisp>=80?'#ffb830':'#ff4455'}">${d.srvDisp}%</strong>
             e score médio de <strong style="color:${corNota}">${d.scoreMedia}%</strong>.
             ${d.totalAC > 0 ? `O sistema realizou <strong style="color:#ffb830">${d.totalAC} correção(ões) automática(s)</strong>, prevenindo aproximadamente ${d.minEvitados} minutos de parada manual.` : 'Nenhuma correção automática necessária — operação estável.'}
-            ${d.totalPedidosPeriodo > 0 ? `No período foram processados <strong style="color:#e8eef8">~${d.totalPedidosPeriodo} pedidos</strong>${d.diaMaisMovimentado ? `, com maior movimento em <strong style="color:#a0b8d0">${fmtDiaMov}</strong>` : ''}.` : ''}
+
         </div>
     </div>`;
 
     // ── KPIs ──────────────────────────────────────────────────────────────────
     const kpis = [
-        { val: d.scoreMedia+'%',   lbl: 'Score médio',           cor: corScore(d.scoreMedia) },
-        { val: d.srvDisp+'%',      lbl: 'Disponibilidade',        cor: d.srvDisp>=95?'#00d68f':d.srvDisp>=80?'#ffb830':'#ff4455' },
-        { val: d.totalAC+'',       lbl: 'Autocorreções',          cor: d.totalAC>0?'#ffb830':'#00d68f' },
-        { val: '~'+d.minEvitados+'min', lbl: 'Paradas evitadas',  cor: '#a855f7' },
-        { val: d.totalPedidosPeriodo>0?'~'+d.totalPedidosPeriodo:'—', lbl: 'Pedidos no período', cor: '#e8eef8' },
-        { val: fmtDiaMov,          lbl: 'Dia mais movimentado',   cor: '#a0b8d0' },
+        { val: d.scoreMedia+'%',        lbl: 'Score médio',      cor: corScore(d.scoreMedia) },
+        { val: d.srvDisp+'%',           lbl: 'Disponibilidade',  cor: d.srvDisp>=95?'#00d68f':d.srvDisp>=80?'#ffb830':'#ff4455' },
+        { val: d.totalAC+'',            lbl: 'Autocorreções',    cor: d.totalAC>0?'#ffb830':'#00d68f' },
+        { val: '~'+d.minEvitados+'min', lbl: 'Paradas evitadas', cor: '#a855f7' },
+        { val: d.scoreMin+'%',          lbl: 'Pior score',       cor: corScore(d.scoreMin) },
+        { val: d.scoreMax+'%',          lbl: 'Melhor score',     cor: corScore(d.scoreMax) },
     ];
     html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px">
         ${kpis.map(k=>`<div class="db-stat-card">
@@ -3438,10 +3438,19 @@ function renderDashboardConsolidado() {
     if (d.snapsCpuCrit > d.total*0.1) insights.push({n:'critico',i:'⚙️',t:`CPU acima de 90% em ${Math.round(d.snapsCpuCrit/d.total*100)}% do tempo — servidor sobrecarregado.`});
     if (d.snapsDiskoCrit > 0) insights.push({n:'critico',i:'💿',t:`Disco acima de 90% em ${d.snapsDiskoCrit} ciclos — risco de falha. Libere espaço.`});
     if (d.retryTotal > 0) insights.push({n:'atencao',i:'🔗',t:`${d.retryTotal} pedido(s) não enviados ao ERP no período — verifique a integração com o sistema de gestão.`});
-    // Acúmulo de sale_order: verificar pico no período
+    // Acúmulo de sale_order: verificar pico E se foi resolvido
     const _picoAcumulo = Math.max(0,..._relSnaps.map(s=>s.payload?.acumulo_sale_order||0));
-    if (_picoAcumulo > 5000) insights.push({n:'critico',i:'🗃️',t:`Pico de ${_picoAcumulo.toLocaleString('pt-BR')} registros em sale_order detectado — risco alto de deadlock no banco. Limpeza preventiva recomendada.`});
-    else if (_picoAcumulo > 1000) insights.push({n:'atencao',i:'🗃️',t:`Pico de ${_picoAcumulo.toLocaleString('pt-BR')} registros em sale_order — monitorar para evitar deadlock.`});
+    const _ultimoAcumulo = _relSnaps.length > 0 ? (_relSnaps[_relSnaps.length-1].payload?.acumulo_sale_order||0) : 0;
+    const _foiLimpo = (d.acPorTipo['sale_order_limpo']||0) > 0;
+    if (_picoAcumulo > 1000) {
+        if (_foiLimpo && _ultimoAcumulo < 100) {
+            insights.push({n:'ok',i:'🧹',t:`Acúmulo de ${_picoAcumulo.toLocaleString('pt-BR')} registros em sale_order detectado e corrigido automaticamente — banco normalizado.`});
+        } else if (_picoAcumulo > 5000) {
+            insights.push({n:'critico',i:'🗃️',t:`Pico de ${_picoAcumulo.toLocaleString('pt-BR')} registros em sale_order — risco alto de deadlock. ${_foiLimpo?'Limpeza aplicada mas monitorar.':'Limpeza preventiva recomendada.'}`});
+        } else {
+            insights.push({n:'atencao',i:'🗃️',t:`Pico de ${_picoAcumulo.toLocaleString('pt-BR')} registros em sale_order — monitorar para evitar deadlock.`});
+        }
+    }
     if ((d.acPorTipo['mysql_reiniciado']||0) > 2) insights.push({n:'critico',i:'🗄️',t:`MySQL reiniciado ${d.acPorTipo['mysql_reiniciado']} vezes — banco instável. Verifique memória e logs.`});
     if ((d.acPorTipo['sale_order_limpo']||0) > 0) {
         const totalLimpos = d.todasAC.filter(a=>a.tipo==='sale_order_limpo').reduce((s,a)=>{
@@ -3464,16 +3473,10 @@ function renderDashboardConsolidado() {
         </div>`).join('')}
     </div>`;
 
-    // ── GRÁFICOS LADO A LADO: Score × Pedidos ────────────────────────────────
-    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-        <div class="db-section" style="margin-bottom:0">
-            <div class="db-section-title">📊 Score por dia</div>
-            <canvas id="db-chart-score" style="width:100%;height:180px;display:block"></canvas>
-        </div>
-        <div class="db-section" style="margin-bottom:0">
-            <div class="db-section-title">📦 Pedidos por dia</div>
-            <canvas id="db-chart-pedidos" style="width:100%;height:180px;display:block"></canvas>
-        </div>
+    // ── GRÁFICO DE SCORE POR DIA ──────────────────────────────────────────────
+    html += `<div class="db-section">
+        <div class="db-section-title">📊 Score por dia</div>
+        <canvas id="db-chart-score" style="width:100%;height:180px;display:block"></canvas>
     </div>`;
 
     // ── COMPONENTES DO SCORE ─────────────────────────────────────────────────
@@ -3542,11 +3545,7 @@ function renderDashboardConsolidado() {
             cv1.width = cv1.offsetWidth || 400; cv1.height = 180;
             desenharLinhaScore(cv1, d.dias, d.scorePorDia, fmtDia, corScore);
         }
-        const cv2 = document.getElementById('db-chart-pedidos');
-        if (cv2 && d.diasPedidos.length > 0) {
-            cv2.width = cv2.offsetWidth || 400; cv2.height = 180;
-            desenharBarrasPedidos(cv2, d.diasPedidos, d.pedidosPorDiaVals, fmtDia, d.diaMaisMovimentado);
-        }
+
         const cv3 = document.getElementById('db-chart-disp');
         if (cv3 && d.dispDias.length > 0) {
             cv3.width = cv3.offsetWidth || 400; cv3.height = 150;
