@@ -733,7 +733,12 @@ function renderGrid(lista) {
         // Falhas nas autocorreções
         if (_acFalhou.length > 0) als.push({c:'warn', m:`${_acFalhou.length} autocorreção(ões) falharam — verificar manualmente`});
         if (pay.inadimplente)              als.push({c:'crit',m:'Bloqueio financeiro'});
-        if (l.retry_expirados>0) { const _thE=Math.round((l.retry_expirados/5)*60); als.push({c:_thE>3?'crit':'warn',m:`${l.retry_expirados} pedido(s) sem ERP${_thE>0?` (~${_thE}/hora)`:''}`}); }
+        if (l.retry_expirados>0) {
+            const _pedD = pay.pedidos_hoje || l.pedidos_hoje || 0;
+            const _pctE = _pedD > 0 ? Math.round((l.retry_expirados/_pedD)*100) : 100;
+            const _nivelE = _pctE > 5 ? 'crit' : 'warn';
+            als.push({c:_nivelE, m:`${l.retry_expirados} pedido(s) sem ERP${_pedD>0?` (${_pctE}% dos pedidos)`:''}`});
+        }
         if (l.erros_log>500)               als.push({c:'warn',m:`Volume alto de erros recentes: ${l.erros_log}`});
         const _corrCrit = (pay.correlacoes||[]).filter(c=>c.nivel==='critico').length;
         if (_corrCrit>0)                    als.push({c:'crit',m:`${_corrCrit} correlação(ões) crítica(s) detectada(s)`});
@@ -4756,9 +4761,15 @@ function calcularScoreComPerfil(payload, perfil) {
         const retries = payload.retry_expirados || 0;
         const maxPts  = comp.erp.peso;
         if (retries === 0) pontos += maxPts;
-        else if (retries <= 2) pontos += Math.round(maxPts * 0.8);
-        else if (retries <= 5) pontos += Math.round(maxPts * 0.5);
-        else pontos += Math.round(maxPts * 0.2);
+        else {
+            // Proporção de falha em relação aos pedidos do dia
+            const _pedDia = payload.pedidos_hoje || 0;
+            const _taxaPct = _pedDia > 0 ? (retries / _pedDia) * 100 : 100;
+            if      (_taxaPct <= 1)  pontos += Math.round(maxPts * 0.92); // até 1%  — mínimo
+            else if (_taxaPct <= 5)  pontos += Math.round(maxPts * 0.80); // 1-5%   — leve
+            else if (_taxaPct <= 15) pontos += Math.round(maxPts * 0.56); // 5-15%  — moderado
+            else pontos += 0;                                               // >15%   — crítico
+        }
     }
 
     // Logs
