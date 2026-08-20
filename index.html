@@ -1399,7 +1399,7 @@ async function abrirLoja(token, abaInicial) {
               <input type="date" id="periodo-fim" style="margin-left:6px;background:var(--bg3);border:1px solid var(--border);color:#e8eef8;padding:5px 8px;border-radius:6px;font-size:12px">
             </label>
           </div>
-          <button onclick="gerarDashboard('${l.token_loja}','${h(l.nome_loja||'')}')"
+          <button onclick="gerarDashboard(_tokenAtual, document.getElementById('m-titulo').textContent)"
             style="background:rgba(14,92,254,.15);border:1px solid rgba(14,92,254,.4);color:#7ab3ff;padding:12px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;width:100%">
             📊 Gerar Relatório
           </button>
@@ -3263,19 +3263,41 @@ async function gerarDashboard(token, nome) {
     // Buscar snapshots do período
     document.getElementById('db-titulo').textContent = nome;
     document.getElementById('db-sub').textContent = 'Carregando dados do período: ' + label + '...';
-    document.getElementById('db-conteudo').innerHTML = '<div style="text-align:center;padding:60px;color:#8096b8">⏳ Buscando snapshots...</div>';
+    document.getElementById('db-conteudo').innerHTML = '<div style="text-align:center;padding:60px;color:#8096b8">⏳ Buscando metadados...<br><span style="font-size:11px;margin-top:8px;display:block">Isso pode levar alguns segundos</span></div>';
     document.getElementById('modal-dashboard').style.display = 'block';
     document.body.style.overflow = 'hidden';
 
     try {
-        const url = SB_URL + '/rest/v1/snapshots'
+        // Buscar em lotes para evitar timeout no plano nano
+        // Primeiro: metadata leve (sem payload)
+        // Depois: payload em lotes de 50 snapshots
+        const urlMeta = SB_URL + '/rest/v1/snapshots'
             + '?token_loja=eq.' + encodeURIComponent(token)
             + '&criado_em=gte.' + encodeURIComponent(iniStr)
             + '&criado_em=lte.' + encodeURIComponent(fimStr)
             + '&order=criado_em.asc'
-            + '&select=criado_em,score,nota,payload';
-        const resp = await fetch(url, { headers:{ 'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY }});
-        _relSnaps = (await resp.json()) || [];
+            + '&select=id,criado_em,score,nota'
+            + '&limit=2000';
+        const respMeta = await fetch(urlMeta, { headers:{ 'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY }});
+        const metas = (await respMeta.json()) || [];
+
+        // Buscar payloads em lotes de 100
+        const LOTE = 100;
+        const payloads = {};
+        for (let i = 0; i < metas.length; i += LOTE) {
+            const progresso = Math.round((i/metas.length)*100);
+            document.getElementById('db-conteudo').innerHTML = `<div style="text-align:center;padding:60px;color:#8096b8">⏳ Carregando dados... ${progresso}%<br><span style="font-size:11px;margin-top:8px;display:block">${metas.length} snapshots encontrados</span></div>`;
+            const lote = metas.slice(i, i + LOTE);
+            const ids  = lote.map(s => s.id).join(',');
+            const urlP = SB_URL + '/rest/v1/snapshots'
+                + '?id=in.(' + encodeURIComponent(ids) + ')'
+                + '&select=id,payload';
+            const rP = await fetch(urlP, { headers:{ 'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY }});
+            const ps = (await rP.json()) || [];
+            ps.forEach(p => { payloads[p.id] = p.payload; });
+        }
+
+        _relSnaps = metas.map(s => ({ ...s, payload: payloads[s.id] || {} }));
     } catch(e) {
         document.getElementById('db-conteudo').innerHTML = '<div style="color:#ff4455;padding:40px;text-align:center">Erro ao buscar dados: ' + e.message + '</div>';
         return;
